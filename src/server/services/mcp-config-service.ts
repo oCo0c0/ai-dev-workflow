@@ -260,13 +260,6 @@ export class MCPConfigService {
   }
 
   /**
-   * Get the list of available MCP server names (for pipeline validation).
-   */
-  getServerNames(): string[] {
-    return this.list().map(s => s.name);
-  }
-
-  /**
    * Returns the settings file path.
    */
   getSettingsFile(): string {

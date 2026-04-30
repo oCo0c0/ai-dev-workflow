@@ -14,7 +14,6 @@ import { CLIRunnerService } from './services/cli-runner-service.js';
 import { TestExecutorService } from './services/test-executor-service.js';
 import { SkillsService } from './services/skills-service.js';
 import { PipelineService } from './services/pipeline-service.js';
-import { ConfigService } from './services/config-service.js';
 import { RequirementStoreService } from './services/requirement-store-service.js';
 
 // Routes
@@ -37,11 +36,10 @@ export async function createServer(port: number): Promise<http.Server> {
   app.use(requestLogger);
 
   // Instantiate services
-  const configService = new ConfigService();
   const mcpConfigService = new MCPConfigService();
   const mcpBridgeService = new MCPBridgeService(mcpConfigService);
   const workspaceService = new WorkspaceService();
-  const cliRunnerService = new CLIRunnerService(workspaceService);
+  const cliRunnerService = new CLIRunnerService();
   const testExecutorService = new TestExecutorService();
   const skillsService = new SkillsService();
   const pipelineService = new PipelineService();
@@ -55,7 +53,7 @@ export async function createServer(port: number): Promise<http.Server> {
   app.use('/api/tests', createTestRoutes(testExecutorService));
   app.use('/api/skills', createSkillsRoutes(skillsService));
   app.use('/api/mcp-servers', createMCPServersRoutes(mcpConfigService));
-  app.use('/api/pipelines', createPipelineRoutes(pipelineService, mcpConfigService));
+  app.use('/api/pipelines', createPipelineRoutes(pipelineService));
   app.use('/api/system', createSystemRoutes(cliRunnerService, mcpConfigService));
 
   // Static file serving (production mode)

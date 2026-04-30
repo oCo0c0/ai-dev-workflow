@@ -354,7 +354,7 @@ export class TestExecutorService {
    * Parse test output into structured TestResults.
    * Attempts to extract meaningful data from the raw output.
    */
-  parseTestOutput(
+  private parseTestOutput(
     framework: string,
     stdout: string,
     stderr: string,

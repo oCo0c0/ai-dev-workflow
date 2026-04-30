@@ -20,7 +20,7 @@ export interface RequirementDetail extends Requirement {
   relatedIssues: RelatedIssue[];
 }
 
-export interface Attachment {
+interface Attachment {
   name: string;
   url: string;
   type: string;
@@ -30,12 +30,6 @@ export interface RelatedIssue {
   id: string;
   title: string;
   status: string;
-}
-
-export interface ConnectionStatus {
-  connected: boolean;
-  message: string;
-  latency?: number;
 }
 
 // === MCP Bridge Service ===
@@ -100,65 +94,6 @@ export class MCPBridgeService {
     if (this.client) {
       await this.client.close();
       this.client = null;
-    }
-  }
-
-  /**
-   * Check if the configured MCP server is available.
-   */
-  async checkAvailability(): Promise<boolean> {
-    try {
-      await this.ensureConnected();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Test connection to the MCP server and return detailed status.
-   */
-  async testConnection(): Promise<ConnectionStatus> {
-    const config = this.getServerConfig();
-    if (!config) {
-      return {
-        connected: false,
-        message: `MCP Server "${this.serverName}" is not configured. Please add it in MCP Management.`,
-      };
-    }
-
-    const startTime = Date.now();
-    try {
-      const client = await this.ensureConnected();
-      const tools = await client.listTools();
-      const latency = Date.now() - startTime;
-
-      return {
-        connected: true,
-        message: `Connected. ${tools.tools.length} tools available.`,
-        latency,
-      };
-    } catch (err) {
-      return {
-        connected: false,
-        message: `Connection failed: ${(err as Error).message}`,
-      };
-    }
-  }
-
-  /**
-   * Fetch the list of requirements from the ONES MCP server.
-   */
-  async fetchRequirements(): Promise<Requirement[]> {
-    try {
-      const client = await this.ensureConnected();
-      const result = await client.callTool({ name: 'search_requirements', arguments: { query: '' } });
-      return this.parseRequirementList(result.content);
-    } catch (err) {
-      throw new Error(
-        `Failed to fetch requirements from ONES MCP: ${(err as Error).message}. ` +
-        'Please verify the MCP Server connection.'
-      );
     }
   }
 

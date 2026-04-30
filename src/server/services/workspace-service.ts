@@ -70,8 +70,6 @@ function joinDiffs(staged: string, unstaged: string): string {
 }
 
 const CONFIG_DIR = path.join(os.homedir(), '.ai-dev-workbench');
-const HISTORY_FILE = path.join(CONFIG_DIR, 'workspace-history.json');
-const SAVED_WORKSPACES_FILE = path.join(CONFIG_DIR, 'saved-workspaces.json');
 const MAX_HISTORY = 10;
 
 /** Project type detection mapping: filename → project type */
@@ -98,10 +96,12 @@ const CONTEXT_FILES = [
 export class WorkspaceService {
   private configDir: string;
   private historyFile: string;
+  private savedWorkspacesFile: string;
 
   constructor(configDir?: string) {
     this.configDir = configDir ?? CONFIG_DIR;
     this.historyFile = path.join(this.configDir, 'workspace-history.json');
+    this.savedWorkspacesFile = path.join(this.configDir, 'saved-workspaces.json');
   }
 
   /**
@@ -182,7 +182,7 @@ export class WorkspaceService {
   /**
    * Detect the project type based on configuration files present in the workspace.
    */
-  detectProjectType(workspacePath: string): WorkspaceInfo['projectType'] {
+  private detectProjectType(workspacePath: string): WorkspaceInfo['projectType'] {
     const resolvedPath = path.resolve(workspacePath);
 
     for (const [filename, projectType] of Object.entries(PROJECT_TYPE_MAP)) {
@@ -197,7 +197,7 @@ export class WorkspaceService {
   /**
    * Scan for context files in the workspace.
    */
-  scanContextFiles(workspacePath: string): string[] {
+  private scanContextFiles(workspacePath: string): string[] {
     const resolvedPath = path.resolve(workspacePath);
     const found: string[] = [];
 
@@ -405,7 +405,7 @@ export class WorkspaceService {
    * Check if a target path is within the workspace boundary.
    * Prevents path traversal attacks (e.g., using ../ to escape workspace).
    */
-  isWithinWorkspace(workspacePath: string, targetPath: string): boolean {
+  private isWithinWorkspace(workspacePath: string, targetPath: string): boolean {
     const resolvedWorkspace = path.resolve(workspacePath);
     const resolvedTarget = path.resolve(workspacePath, targetPath);
 
@@ -419,9 +419,9 @@ export class WorkspaceService {
   // === Saved Workspaces ===
 
   private loadSavedWorkspaces(): SavedWorkspace[] {
-    if (!fs.existsSync(SAVED_WORKSPACES_FILE)) return [];
+    if (!fs.existsSync(this.savedWorkspacesFile)) return [];
     try {
-      const raw = fs.readFileSync(SAVED_WORKSPACES_FILE, 'utf-8');
+      const raw = fs.readFileSync(this.savedWorkspacesFile, 'utf-8');
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
     } catch {
@@ -433,7 +433,7 @@ export class WorkspaceService {
     if (!fs.existsSync(this.configDir)) {
       fs.mkdirSync(this.configDir, { recursive: true });
     }
-    fs.writeFileSync(SAVED_WORKSPACES_FILE, JSON.stringify(workspaces, null, 2), 'utf-8');
+    fs.writeFileSync(this.savedWorkspacesFile, JSON.stringify(workspaces, null, 2), 'utf-8');
   }
 
   listSavedWorkspaces(): SavedWorkspace[] {

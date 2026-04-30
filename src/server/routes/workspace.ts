@@ -5,16 +5,27 @@ import { WorkspaceService } from '../services/workspace-service.js';
 import { validateBody } from '../middleware/validation.js';
 
 /**
+ * Sanitize title to prevent shell injection across all platforms.
+ * Only allows letters, digits, spaces, hyphens, underscores, and common CJK characters.
+ */
+function sanitizeTitle(title: string): string {
+  return title.replace(/[^a-zA-Z0-9\s\-_\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/g, '').slice(0, 100) || 'Select Folder';
+}
+
+/**
  * Open the system native folder picker dialog.
  */
 function openSystemFolderPicker(title: string): Promise<string | null> {
+  const safe = sanitizeTitle(title);
   return new Promise((resolve) => {
     const platform = process.platform;
 
     if (platform === 'win32') {
+      // Escape single quotes for PowerShell single-quoted string
+      const escaped = safe.replace(/'/g, "''");
       const script = [
         '$shell = New-Object -ComObject Shell.Application',
-        `$folder = $shell.BrowseForFolder(0, '${title}', 0, 0)`,
+        `$folder = $shell.BrowseForFolder(0, '${escaped}', 0, 0)`,
         'if ($folder) { Write-Output $folder.Self.Path }',
       ].join('; ');
 
@@ -28,7 +39,9 @@ function openSystemFolderPicker(title: string): Promise<string | null> {
       child.on('error', () => resolve(null));
 
     } else if (platform === 'darwin') {
-      const script = `choose folder with prompt "${title}"`;
+      // Escape double quotes for osascript
+      const escaped = safe.replace(/"/g, '\\"');
+      const script = `choose folder with prompt "${escaped}"`;
       const child = spawn('osascript', ['-e', script], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -42,7 +55,9 @@ function openSystemFolderPicker(title: string): Promise<string | null> {
       child.on('error', () => resolve(null));
 
     } else {
-      const child = spawn('zenity', ['--file-selection', '--directory', `--title=${title}`], {
+      // Escape for zenity --title argument
+      const escaped = safe.replace(/"/g, '');
+      const child = spawn('zenity', ['--file-selection', '--directory', `--title=${escaped}`], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let output = '';

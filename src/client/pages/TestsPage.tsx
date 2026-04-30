@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { apiGet, apiPost } from '../api';
+import { apiGet, apiPost, apiDelete } from '../api';
 import { useAppStore } from '../stores/app-store';
-import { cn } from '../lib/utils';
+import { cn, formatRelativeTime } from '../lib/utils';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -103,17 +103,6 @@ interface PipelineInfo {
 }
 
 // === Helpers ===
-
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
-}
 
 function statusIcon(status: string) {
   switch (status) {
@@ -348,9 +337,7 @@ export default function TestsPage() {
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await apiGet<void>(`/tests/${id}`);
-      const res = await fetch(`/api/tests/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
+      await apiDelete(`/tests/${id}`);
       setHistory(prev => prev.filter(h => h.id !== id));
       if (activeId === id) {
         setDetail(null);

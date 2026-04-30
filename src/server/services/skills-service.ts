@@ -255,10 +255,4 @@ export class SkillsService {
     return true;
   }
 
-  /**
-   * Returns the commands directory path.
-   */
-  getCommandsDir(): string {
-    return this.commandsDir;
-  }
 }

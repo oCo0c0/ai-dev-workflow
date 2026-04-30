@@ -1,11 +1,9 @@
 import { Router } from 'express';
 import { PipelineService } from '../services/pipeline-service.js';
-import { MCPConfigService } from '../services/mcp-config-service.js';
 import { validateBody } from '../middleware/validation.js';
 
 export function createPipelineRoutes(
-  pipelineService: PipelineService,
-  mcpConfigService: MCPConfigService
+  pipelineService: PipelineService
 ): Router {
   const router = Router();
 

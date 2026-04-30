@@ -13,7 +13,7 @@ import type { StoredPlan } from './plan.js';
 
 // === In-memory execution store (active executions) ===
 
-export interface StoredExecution {
+interface StoredExecution {
   id: string;
   planId: string;
   status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
@@ -29,7 +29,7 @@ export interface StoredExecution {
 
 const executionStore = new Map<string, StoredExecution>();
 
-export function getExecutionStore(): Map<string, StoredExecution> {
+function getExecutionStore(): Map<string, StoredExecution> {
   return executionStore;
 }
 

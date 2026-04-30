@@ -22,71 +22,6 @@ describe('MCPBridgeService', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  describe('checkAvailability', () => {
-    it('returns false when MCP server is not configured', async () => {
-      const result = await service.checkAvailability();
-      expect(result).toBe(false);
-    });
-
-    it('returns false when MCP server command does not exist', async () => {
-      fs.writeFileSync(settingsFile, JSON.stringify({
-        mcpServers: {
-          'ones-mcp': { command: 'nonexistent-mcp-command-xyz' },
-        },
-      }), 'utf-8');
-
-      const result = await service.checkAvailability();
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('testConnection', () => {
-    it('returns not configured message when server does not exist', async () => {
-      const result = await service.testConnection();
-      expect(result.connected).toBe(false);
-      expect(result.message).toContain('not configured');
-    });
-
-    it('returns error when server command fails', async () => {
-      fs.writeFileSync(settingsFile, JSON.stringify({
-        mcpServers: {
-          'ones-mcp': { command: 'nonexistent-mcp-command-xyz' },
-        },
-      }), 'utf-8');
-
-      const result = await service.testConnection();
-      expect(result.connected).toBe(false);
-    });
-
-    it('returns connected for a valid command', async () => {
-      fs.writeFileSync(settingsFile, JSON.stringify({
-        mcpServers: {
-          'ones-mcp': { command: 'echo', args: ['hello'] },
-        },
-      }), 'utf-8');
-
-      const result = await service.testConnection();
-      expect(result.connected).toBe(true);
-      expect(result.latency).toBeDefined();
-    });
-  });
-
-  describe('fetchRequirements', () => {
-    it('throws when MCP server is not configured', async () => {
-      await expect(service.fetchRequirements()).rejects.toThrow('not configured');
-    });
-
-    it('throws with helpful message when MCP call fails', async () => {
-      fs.writeFileSync(settingsFile, JSON.stringify({
-        mcpServers: {
-          'ones-mcp': { command: 'nonexistent-mcp-command-xyz' },
-        },
-      }), 'utf-8');
-
-      await expect(service.fetchRequirements()).rejects.toThrow('Failed to fetch requirements');
-    });
-  });
-
   describe('fetchRequirementDetail', () => {
     it('throws when MCP server is not configured', async () => {
       await expect(service.fetchRequirementDetail('123')).rejects.toThrow('not configured');
@@ -146,7 +81,7 @@ describe('MCPBridgeService', () => {
         },
       }), 'utf-8');
 
-      await expect(service.fetchRequirements()).rejects.toThrow();
+      await expect(service.searchRequirements('test')).rejects.toThrow();
     });
   });
 });

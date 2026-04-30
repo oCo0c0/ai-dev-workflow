@@ -249,20 +249,6 @@ describe('MCPConfigService', () => {
     });
   });
 
-  describe('getServerNames', () => {
-    it('returns list of server names', () => {
-      fs.writeFileSync(settingsFile, JSON.stringify({
-        mcpServers: {
-          'server-a': { command: 'node', args: [] },
-          'server-b': { command: 'python', args: [] },
-        },
-      }), 'utf-8');
-
-      const names = service.getServerNames();
-      expect(names.sort()).toEqual(['server-a', 'server-b']);
-    });
-  });
-
   describe('type inference', () => {
     it('infers node type from npx command', () => {
       fs.writeFileSync(settingsFile, JSON.stringify({

@@ -7,7 +7,6 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { FolderPickerModal } from '../components/FolderPickerModal';
 import {
   Plus,
   Trash2,
@@ -24,7 +23,6 @@ import {
   ChevronLeft,
   FileText,
   CheckCircle2,
-  FolderSearch,
   Clock,
   BookOpen,
   Download,
@@ -93,7 +91,6 @@ interface WizardState {
   workspacePath: string;
   workspaceHistory: string[];
   loadingHistory: boolean;
-  folderPickerOpen: boolean;
   // Step 3
   starting: boolean;
   startError: string | null;
@@ -127,7 +124,6 @@ function ExecutionWizard({ pipeline, onClose, savedWorkspaces }: ExecutionWizard
     workspacePath: boundPath || '',
     workspaceHistory: [],
     loadingHistory: false,
-    folderPickerOpen: false,
     starting: false,
     startError: null,
   });
@@ -181,8 +177,6 @@ function ExecutionWizard({ pipeline, onClose, savedWorkspaces }: ExecutionWizard
     const path = await pickFolder('Select Workspace Folder');
     if (path) {
       update({ workspacePath: path });
-    } else {
-      update({ folderPickerOpen: true });
     }
   };
 
@@ -585,7 +579,6 @@ export default function PipelinesPage() {
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formSteps, setFormSteps] = useState<PipelineStepConfig>(defaultSteps);
-  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [savedWorkspaces, setSavedWorkspaces] = useState<{ id: string; name: string; path: string }[]>([]);
 
   // Load saved workspaces for dropdown

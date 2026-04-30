@@ -13,7 +13,6 @@ import {
   Save,
   X,
   Wifi,
-  WifiOff,
   Server,
   AlertCircle,
 } from 'lucide-react';

@@ -1,18 +1,10 @@
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import crypto from 'crypto';
-import { WorkspaceService } from './workspace-service.js';
 
 const BRIDGE_SCRIPT = path.resolve(process.cwd(), 'src/bridge/claude-bridge.mjs');
 
 // === Data Models ===
-
-export interface PlanContext {
-  requirementDetail: string;
-  claudeMdContent?: string;
-  workspacePath: string;
-  skills?: string[];
-}
 
 export interface CLIRunnerOptions {
   workspacePath: string;
@@ -260,10 +252,7 @@ const bridgeProcess = new BridgeProcess();
 // === CLI Runner Service ===
 
 export class CLIRunnerService {
-  private workspaceService: WorkspaceService;
-
-  constructor(workspaceService: WorkspaceService) {
-    this.workspaceService = workspaceService;
+  constructor() {
     // Pre-warm the bridge process on service creation
     bridgeProcess.ensureStarted().catch(() => {
       // Will retry on first actual request
@@ -279,15 +268,6 @@ export class CLIRunnerService {
     }
   }
 
-  async generatePlan(context: PlanContext, options: CLIRunnerOptions): Promise<CLIExecutionResult> {
-    const prompt = this.buildPlanPrompt(context);
-    return this.runBridge({ prompt, cwd: options.workspacePath }, options);
-  }
-
-  async executeStep(instruction: string, options: CLIRunnerOptions): Promise<CLIExecutionResult> {
-    return this.runBridge({ prompt: instruction, cwd: options.workspacePath }, options);
-  }
-
   async runBridge(
     input: { prompt: string; cwd?: string; sessionId?: string; maxTurns?: number; skills?: string[] | 'all' },
     options?: CLIRunnerOptions
@@ -295,32 +275,4 @@ export class CLIRunnerService {
     return bridgeProcess.send(input, options);
   }
 
-  cancelAll(): void {
-    // For persistent process, we can't cancel individual requests easily
-    // The abort signal handles per-request cancellation
-  }
-
-  getActiveProcessCount(): number {
-    return bridgeProcess.isReady() ? 1 : 0;
-  }
-
-  private buildPlanPrompt(context: PlanContext): string {
-    let prompt = `Analyze the following requirement and generate a structured development plan.\n\n`;
-    prompt += `## Requirement\n${context.requirementDetail}\n\n`;
-
-    if (context.claudeMdContent) {
-      prompt += `## Project Context (.claude.md)\n${context.claudeMdContent}\n\n`;
-    }
-
-    prompt += `## Instructions\n`;
-    prompt += `Generate a development plan with:\n`;
-    prompt += `1. Summary of changes needed\n`;
-    prompt += `2. List of files to create/modify/delete\n`;
-    prompt += `3. Step-by-step implementation instructions\n`;
-    prompt += `4. Estimated complexity (low/medium/high)\n`;
-    prompt += `5. Potential risks or considerations\n`;
-    prompt += `\nRespond in the same language as the requirement.`;
-
-    return prompt;
-  }
 }

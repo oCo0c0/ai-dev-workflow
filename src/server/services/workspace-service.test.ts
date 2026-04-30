@@ -71,50 +71,6 @@ describe('WorkspaceService', () => {
     });
   });
 
-  describe('detectProjectType', () => {
-    it('detects node project (package.json)', () => {
-      fs.writeFileSync(path.join(tempDir, 'package.json'), '{}');
-      expect(service.detectProjectType(tempDir)).toBe('node');
-    });
-
-    it('detects java project (pom.xml)', () => {
-      fs.writeFileSync(path.join(tempDir, 'pom.xml'), '<project/>');
-      expect(service.detectProjectType(tempDir)).toBe('java');
-    });
-
-    it('detects rust project (Cargo.toml)', () => {
-      fs.writeFileSync(path.join(tempDir, 'Cargo.toml'), '[package]');
-      expect(service.detectProjectType(tempDir)).toBe('rust');
-    });
-
-    it('detects python project (requirements.txt)', () => {
-      fs.writeFileSync(path.join(tempDir, 'requirements.txt'), 'flask');
-      expect(service.detectProjectType(tempDir)).toBe('python');
-    });
-
-    it('returns unknown for empty directory', () => {
-      expect(service.detectProjectType(tempDir)).toBe('unknown');
-    });
-  });
-
-  describe('scanContextFiles', () => {
-    it('finds context files present in workspace', () => {
-      fs.writeFileSync(path.join(tempDir, 'package.json'), '{}');
-      fs.writeFileSync(path.join(tempDir, 'tsconfig.json'), '{}');
-      fs.writeFileSync(path.join(tempDir, '.gitignore'), '');
-
-      const files = service.scanContextFiles(tempDir);
-      expect(files).toContain('package.json');
-      expect(files).toContain('tsconfig.json');
-      expect(files).toContain('.gitignore');
-    });
-
-    it('returns empty array for empty directory', () => {
-      const files = service.scanContextFiles(tempDir);
-      expect(files).toEqual([]);
-    });
-  });
-
   describe('workspace history', () => {
     it('returns empty array when no history exists', () => {
       expect(service.getHistory()).toEqual([]);
@@ -177,33 +133,4 @@ describe('WorkspaceService', () => {
     });
   });
 
-  describe('isWithinWorkspace', () => {
-    it('returns true for paths within workspace', () => {
-      expect(service.isWithinWorkspace(tempDir, 'src/file.ts')).toBe(true);
-      expect(service.isWithinWorkspace(tempDir, 'nested/deep/file.ts')).toBe(true);
-    });
-
-    it('returns true for workspace root itself', () => {
-      expect(service.isWithinWorkspace(tempDir, '')).toBe(true);
-      expect(service.isWithinWorkspace(tempDir, '.')).toBe(true);
-    });
-
-    it('returns false for path traversal with ../', () => {
-      expect(service.isWithinWorkspace(tempDir, '../outside')).toBe(false);
-      expect(service.isWithinWorkspace(tempDir, 'src/../../outside')).toBe(false);
-    });
-
-    it('returns false for absolute paths outside workspace', () => {
-      expect(service.isWithinWorkspace(tempDir, '/etc/passwd')).toBe(false);
-      expect(service.isWithinWorkspace(tempDir, '/tmp/other')).toBe(false);
-    });
-
-    it('handles paths that start with workspace name but are not children', () => {
-      // e.g., workspace is /tmp/workspace, target resolves to /tmp/workspace-evil
-      const workspace = path.join(tempDir, 'workspace');
-      fs.mkdirSync(workspace);
-      // A sibling directory that starts with the same prefix
-      expect(service.isWithinWorkspace(workspace, '../workspace-evil/file.txt')).toBe(false);
-    });
-  });
 });
