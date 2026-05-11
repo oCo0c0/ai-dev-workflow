@@ -1,320 +1,517 @@
-import { create } from 'zustand';
+/**
+ * @file 全局应用状态管理 Store
+ * @description 基于 Zustand 的全局状态管理模块，集中管理 AI 开发工作台的所有业务状态。
+ *              涵盖需求管理、工作空间、开发计划、执行监控、测试结果、
+ *              工作流管道、WebSocket 连接状态及 UI 偏好设置等模块。
+ *
+ *              状态持久化策略:
+ *                - 主题偏好（dark/light）持久化到 localStorage
+ *                - 当前计划关联的任务 ID 持久化到 localStorage（页面刷新后可恢复）
+ *
+ *              使用方式:
+ *                在组件中通过 `useAppStore(selector)` 订阅所需的状态切片，
+ *                Zustand 会自动处理组件重渲染优化，仅在实际使用的状态变化时触发更新。
+ */
 
-// === State Interfaces ===
+import {create} from 'zustand';
 
+// === 数据模型接口定义 ===
+
+/**
+ * 需求条目（列表项）
+ * @description 需求列表中展示的精简信息，不含详细描述和附件
+ */
 interface Requirement {
-  id: string;
-  title: string;
-  status: string;
-  priority: string;
-  assignee: string;
-  updatedAt: string;
+    /** 需求唯一标识 */
+    id: string;
+    /** 需求标题 */
+    title: string;
+    /** 需求状态 */
+    status: string;
+    /** 优先级 */
+    priority: string;
+    /** 负责人 */
+    assignee: string;
+    /** 最后更新时间（ISO 格式） */
+    updatedAt: string;
 }
 
+/**
+ * 需求详情
+ * @description 继承 Requirement，包含完整的需求描述、验收标准、附件和关联问题
+ */
 interface RequirementDetail extends Requirement {
-  description: string;
-  acceptanceCriteria: string[];
-  attachments: { name: string; url: string; type: string }[];
-  relatedIssues: { id: string; title: string; status: string }[];
+    /** 需求详细描述 */
+    description: string;
+    /** 验收标准列表 */
+    acceptanceCriteria: string[];
+    /** 附件列表 */
+    attachments: { name: string; url: string; type: string }[];
+    /** 关联的其他问题/缺陷 */
+    relatedIssues: { id: string; title: string; status: string }[];
 }
 
+/**
+ * 工作空间信息
+ * @description 描述当前打开的项目工作空间的元数据
+ */
 interface WorkspaceInfo {
-  path: string;
-  projectType: 'node' | 'python' | 'java' | 'rust' | 'unknown';
-  contextFiles: string[];
-  hasClaudeMd: boolean;
-  gitStatus: 'clean' | 'dirty' | 'not_git';
+    /** 工作空间（项目）的文件系统路径 */
+    path: string;
+    /** 项目类型 */
+    projectType: 'node' | 'python' | 'java' | 'rust' | 'unknown';
+    /** 上下文文件列表（AI 分析用的关键文件） */
+    contextFiles: string[];
+    /** 是否存在 CLAUDE.md 配置文件 */
+    hasClaudeMd: boolean;
+    /** Git 仓库状态 */
+    gitStatus: 'clean' | 'dirty' | 'not_git';
 }
 
+/**
+ * 开发计划
+ * @description AI 生成的完整开发计划，包含风险评估和分步骤实施细节
+ */
 interface DevelopmentPlan {
-  id: string;
-  requirementId: string;
-  workspacePath: string;
-  summary: string;
-  complexity: 'low' | 'medium' | 'high';
-  risks: string[];
-  steps: PlanStep[];
-  createdAt: string;
-  status: 'draft' | 'confirmed' | 'executing' | 'completed' | 'failed';
+    /** 计划唯一标识 */
+    id: string;
+    /** 关联的需求 ID */
+    requirementId: string;
+    /** 工作空间路径 */
+    workspacePath: string;
+    /** 计划摘要 */
+    summary: string;
+    /** 复杂度评估 */
+    complexity: 'low' | 'medium' | 'high';
+    /** 风险点列表 */
+    risks: string[];
+    /** 计划步骤列表 */
+    steps: PlanStep[];
+    /** 创建时间（ISO 格式） */
+    createdAt: string;
+    /** 计划状态 */
+    status: 'draft' | 'confirmed' | 'executing' | 'completed' | 'failed';
 }
 
+/**
+ * 计划步骤
+ * @description 开发计划中的单个执行步骤
+ */
 interface PlanStep {
-  index: number;
-  title: string;
-  description: string;
-  targetFiles: string[];
-  action: 'create' | 'modify' | 'delete';
-  estimatedEffort: string;
+    /** 步骤序号（从 0 开始） */
+    index: number;
+    /** 步骤标题 */
+    title: string;
+    /** 步骤详细描述 */
+    description: string;
+    /** 涉及的目标文件列表 */
+    targetFiles: string[];
+    /** 操作类型 */
+    action: 'create' | 'modify' | 'delete';
+    /** 预估工作量 */
+    estimatedEffort: string;
 }
 
+/**
+ * 执行状态
+ * @description 当前计划执行的实时状态信息
+ */
 interface ExecutionStatus {
-  executionId: string;
-  planId: string;
-  currentStep: number;
-  totalSteps: number;
-  status: 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
-  startedAt: string;
-  completedAt?: string;
+    /** 执行实例唯一标识 */
+    executionId: string;
+    /** 关联的计划 ID */
+    planId: string;
+    /** 当前正在执行的步骤索引 */
+    currentStep: number;
+    /** 总步骤数 */
+    totalSteps: number;
+    /** 执行状态 */
+    status: 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+    /** 开始时间（ISO 格式） */
+    startedAt: string;
+    /** 完成时间（ISO 格式），执行未完成时为 undefined */
+    completedAt?: string;
 }
 
+/**
+ * 执行日志条目
+ * @description 执行过程中产生的单条日志记录
+ */
 interface ExecutionLogEntry {
-  timestamp: string;
-  stepIndex: number;
-  type: 'info' | 'output' | 'error' | 'warning';
-  content: string;
+    /** 日志时间戳（ISO 格式） */
+    timestamp: string;
+    /** 关联的步骤索引 */
+    stepIndex: number;
+    /** 日志类型 */
+    type: 'info' | 'output' | 'error' | 'warning';
+    /** 日志内容 */
+    content: string;
 }
 
+/**
+ * 测试结果
+ * @description 测试运行完成后的汇总结果，包含通过/失败/跳过统计及覆盖率
+ */
 interface TestResults {
-  framework: string;
-  totalTests: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  duration: number;
-  coverage?: number;
-  suites: TestSuite[];
+    /** 测试框架名称（如 vitest, jest 等） */
+    framework: string;
+    /** 总测试用例数 */
+    totalTests: number;
+    /** 通过数 */
+    passed: number;
+    /** 失败数 */
+    failed: number;
+    /** 跳过数 */
+    skipped: number;
+    /** 总耗时（毫秒） */
+    duration: number;
+    /** 代码覆盖率百分比（可选） */
+    coverage?: number;
+    /** 测试套件列表 */
+    suites: TestSuite[];
 }
 
+/**
+ * 测试套件
+ * @description 一个测试文件或测试分组，包含多个测试用例
+ */
 interface TestSuite {
-  name: string;
-  tests: TestCase[];
+    /** 套件名称 */
+    name: string;
+    /** 套件内的测试用例列表 */
+    tests: TestCase[];
 }
 
+/**
+ * 测试用例
+ * @description 单个测试用例的执行结果
+ */
 interface TestCase {
-  name: string;
-  status: 'passed' | 'failed' | 'skipped';
-  duration: number;
-  error?: string;
-  screenshot?: string;
+    /** 用例名称 */
+    name: string;
+    /** 用例执行状态 */
+    status: 'passed' | 'failed' | 'skipped';
+    /** 执行耗时（毫秒） */
+    duration: number;
+    /** 失败时的错误信息 */
+    error?: string;
+    /** 失败时的截图（Base64 编码，可选） */
+    screenshot?: string;
 }
 
+/**
+ * 工作流管道
+ * @description 预定义的自动化工作流配置
+ */
 interface WorkflowPipeline {
-  id: string;
-  name: string;
-  description: string;
-  isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
+    /** 管道唯一标识 */
+    id: string;
+    /** 管道名称 */
+    name: string;
+    /** 管道描述 */
+    description: string;
+    /** 是否为默认管道 */
+    isDefault: boolean;
+    /** 创建时间（ISO 格式） */
+    createdAt: string;
+    /** 最后更新时间（ISO 格式） */
+    updatedAt: string;
 }
 
-// === App State ===
+// === 应用状态接口 ===
 
+/**
+ * 全局应用状态接口
+ * @description 定义整个应用的完整状态树及所有 action 方法。
+ *              状态按业务模块划分为：需求、工作空间、计划、执行、测试、管道、WebSocket、UI。
+ */
 interface AppState {
-  // Requirements
-  requirements: {
-    list: Requirement[];
-    selected: RequirementDetail | null;
-    loading: boolean;
-  };
+    // --- 需求管理 ---
+    /** 需求相关状态 */
+    requirements: {
+        /** 需求列表 */
+        list: Requirement[];
+        /** 当前选中的需求详情 */
+        selected: RequirementDetail | null;
+        /** 列表是否正在加载 */
+        loading: boolean;
+    };
 
-  // Workspace
-  workspace: {
-    current: WorkspaceInfo | null;
-    history: string[];
-  };
+    // --- 工作空间 ---
+    /** 工作空间相关状态 */
+    workspace: {
+        /** 当前打开的工作空间信息 */
+        current: WorkspaceInfo | null;
+        /** 历史打开的工作空间路径列表 */
+        history: string[];
+    };
 
-  // Plan
-  plan: {
-    current: DevelopmentPlan | null;
-    status: 'idle' | 'generating' | 'ready' | 'editing';
-    taskId: string | null;
-    logs: string[];  // streaming output during generation
-  };
-
-  // Execution
-  execution: {
-    status: ExecutionStatus | null;
-    logs: ExecutionLogEntry[];
-    executionId: string | null;
-  };
-
-  // Tests
-  tests: {
-    results: TestResults | null;
-    running: boolean;
-  };
-
-  // Pipelines
-  pipelines: {
-    list: WorkflowPipeline[];
-    active: WorkflowPipeline | null;
-  };
-
-  // WebSocket
-  ws: {
-    connected: boolean;
-  };
-
-  // UI
-  ui: {
-    theme: 'dark' | 'light';
-    sidebarCollapsed: boolean;
-  };
-
-  // === Actions ===
-
-  // Requirements actions
-  setRequirements: (list: Requirement[]) => void;
-  setSelectedRequirement: (req: RequirementDetail | null) => void;
-  setRequirementsLoading: (loading: boolean) => void;
-
-  // Workspace actions
-  setCurrentWorkspace: (workspace: WorkspaceInfo | null) => void;
-  setWorkspaceHistory: (history: string[]) => void;
-
-  // Plan actions
-  setCurrentPlan: (plan: DevelopmentPlan | null) => void;
-  setPlanStatus: (status: 'idle' | 'generating' | 'ready' | 'editing') => void;
-  setPlanTaskId: (taskId: string | null) => void;
-  addPlanLog: (content: string) => void;
-  clearPlanLogs: () => void;
-
-  // Execution actions
-  setExecutionStatus: (status: ExecutionStatus | null) => void;
-  setExecutionId: (id: string | null) => void;
-  addExecutionLog: (entry: ExecutionLogEntry) => void;
-  clearExecutionLogs: () => void;
-
-  // Test actions
-  setTestResults: (results: TestResults | null) => void;
-  setTestRunning: (running: boolean) => void;
-
-  // Pipeline actions
-  setPipelines: (list: WorkflowPipeline[]) => void;
-  setActivePipeline: (pipeline: WorkflowPipeline | null) => void;
-
-  // WebSocket actions
-  setWsConnected: (connected: boolean) => void;
-
-  // UI actions
-  toggleTheme: () => void;
-  toggleSidebar: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
-  setTheme: (theme: 'dark' | 'light') => void;
-}
-
-// === Helper: Load theme from localStorage ===
-
-function loadTheme(): 'dark' | 'light' {
-  if (typeof window === 'undefined') return 'dark';
-  const stored = localStorage.getItem('ai-workbench-theme');
-  return stored === 'light' ? 'light' : 'dark';
-}
-
-function applyTheme(theme: 'dark' | 'light') {
-  if (typeof document === 'undefined') return;
-  const html = document.documentElement;
-  if (theme === 'dark') {
-    html.classList.add('dark');
-    html.classList.remove('light');
-  } else {
-    html.classList.add('light');
-    html.classList.remove('dark');
-  }
-  localStorage.setItem('ai-workbench-theme', theme);
-}
-
-// === Store ===
-
-export const useAppStore = create<AppState>((set) => {
-  const initialTheme = loadTheme();
-  // Apply theme on store creation
-  applyTheme(initialTheme);
-
-  return {
-    // Initial state
-    requirements: { list: [], selected: null, loading: false },
-    workspace: { current: null, history: [] },
+    // --- 开发计划 ---
+    /** 计划相关状态 */
     plan: {
-      current: null,
-      status: 'idle',
-      taskId: typeof window !== 'undefined' ? localStorage.getItem('ai-workbench-plan-taskid') : null,
-      logs: [],
-    },
-    execution: { status: null, logs: [], executionId: null },
-    tests: { results: null, running: false },
-    pipelines: { list: [], active: null },
-    ws: { connected: false },
-    ui: { theme: initialTheme, sidebarCollapsed: false },
+        /** 当前开发计划 */
+        current: DevelopmentPlan | null;
+        /** 计划生成/编辑状态 */
+        status: 'idle' | 'generating' | 'paused' | 'ready' | 'editing';
+        /** 当前计划关联的需求任务 ID（持久化到 localStorage） */
+        taskId: string | null;
+        /** 计划生成过程中的流式日志输出 */
+        logs: string[];
+    };
 
-    // Requirements actions
-    setRequirements: (list) =>
-      set((state) => ({ requirements: { ...state.requirements, list } })),
-    setSelectedRequirement: (selected) =>
-      set((state) => ({ requirements: { ...state.requirements, selected } })),
-    setRequirementsLoading: (loading) =>
-      set((state) => ({ requirements: { ...state.requirements, loading } })),
+    // --- 执行监控 ---
+    /** 执行相关状态 */
+    execution: {
+        /** 当前执行状态 */
+        status: ExecutionStatus | null;
+        /** 执行日志列表 */
+        logs: ExecutionLogEntry[];
+        /** 当前执行实例 ID */
+        executionId: string | null;
+    };
 
-    // Workspace actions
-    setCurrentWorkspace: (current) =>
-      set((state) => ({ workspace: { ...state.workspace, current } })),
-    setWorkspaceHistory: (history) =>
-      set((state) => ({ workspace: { ...state.workspace, history } })),
+    // --- 测试 ---
+    /** 测试相关状态 */
+    tests: {
+        /** 最近一次测试结果 */
+        results: TestResults | null;
+        /** 测试是否正在运行 */
+        running: boolean;
+    };
 
-    // Plan actions
-    setCurrentPlan: (current) =>
-      set((state) => ({ plan: { ...state.plan, current } })),
-    setPlanStatus: (status) =>
-      set((state) => ({ plan: { ...state.plan, status } })),
-    setPlanTaskId: (taskId) => {
-      // Persist taskId to localStorage so it survives page refresh
-      if (taskId) {
-        localStorage.setItem('ai-workbench-plan-taskid', taskId);
-      } else {
-        localStorage.removeItem('ai-workbench-plan-taskid');
-      }
-      return set((state) => ({ plan: { ...state.plan, taskId } }));
-    },
-    addPlanLog: (content) =>
-      set((state) => ({ plan: { ...state.plan, logs: [...state.plan.logs, content] } })),
-    clearPlanLogs: () =>
-      set((state) => ({ plan: { ...state.plan, logs: [] } })),
+    // --- 工作流管道 ---
+    /** 管道相关状态 */
+    pipelines: {
+        /** 管道列表 */
+        list: WorkflowPipeline[];
+        /** 当前激活的管道 */
+        active: WorkflowPipeline | null;
+    };
 
-    // Execution actions
-    setExecutionStatus: (status) =>
-      set((state) => ({ execution: { ...state.execution, status } })),
-    setExecutionId: (executionId) =>
-      set((state) => ({ execution: { ...state.execution, executionId } })),
-    addExecutionLog: (entry) =>
-      set((state) => ({
-        execution: { ...state.execution, logs: [...state.execution.logs, entry] },
-      })),
-    clearExecutionLogs: () =>
-      set((state) => ({ execution: { ...state.execution, logs: [] } })),
+    // --- WebSocket ---
+    /** WebSocket 连接状态 */
+    ws: {
+        /** 是否已连接 */
+        connected: boolean;
+    };
 
-    // Test actions
-    setTestResults: (results) =>
-      set((state) => ({ tests: { ...state.tests, results } })),
-    setTestRunning: (running) =>
-      set((state) => ({ tests: { ...state.tests, running } })),
+    // --- UI 偏好 ---
+    /** UI 相关状态 */
+    ui: {
+        /** 主题模式 */
+        theme: 'dark' | 'light';
+        /** 侧边栏是否折叠 */
+        sidebarCollapsed: boolean;
+    };
 
-    // Pipeline actions
-    setPipelines: (list) =>
-      set((state) => ({ pipelines: { ...state.pipelines, list } })),
-    setActivePipeline: (active) =>
-      set((state) => ({ pipelines: { ...state.pipelines, active } })),
+    // === Action 方法 ===
+
+    // 需求管理 actions
+    /** 设置需求列表 */
+    setRequirements: (list: Requirement[]) => void;
+    /** 设置当前选中的需求详情 */
+    setSelectedRequirement: (req: RequirementDetail | null) => void;
+    /** 设置需求列表加载状态 */
+    setRequirementsLoading: (loading: boolean) => void;
+
+    // 工作空间 actions
+    /** 设置当前工作空间信息 */
+    setCurrentWorkspace: (workspace: WorkspaceInfo | null) => void;
+    /** 设置工作空间历史路径列表 */
+    setWorkspaceHistory: (history: string[]) => void;
+
+    // 计划 actions
+    /** 设置当前开发计划 */
+    setCurrentPlan: (plan: DevelopmentPlan | null) => void;
+    /** 设置计划状态（idle/generating/paused/ready/editing） */
+    setPlanStatus: (status: 'idle' | 'generating' | 'paused' | 'ready' | 'editing') => void;
+    /** 设置计划关联的任务 ID（同时持久化到 localStorage） */
+    setPlanTaskId: (taskId: string | null) => void;
+    /** 追加一条计划生成日志 */
+    addPlanLog: (content: string) => void;
+    /** 清空计划生成日志 */
+    clearPlanLogs: () => void;
+
+    // 执行 actions
+    /** 设置执行状态 */
+    setExecutionStatus: (status: ExecutionStatus | null) => void;
+    /** 设置当前执行实例 ID */
+    setExecutionId: (id: string | null) => void;
+    /** 追加一条执行日志 */
+    addExecutionLog: (entry: ExecutionLogEntry) => void;
+    /** 清空执行日志 */
+    clearExecutionLogs: () => void;
+
+    // 测试 actions
+    /** 设置测试结果 */
+    setTestResults: (results: TestResults | null) => void;
+    /** 设置测试运行状态 */
+    setTestRunning: (running: boolean) => void;
+
+    // 管道 actions
+    /** 设置管道列表 */
+    setPipelines: (list: WorkflowPipeline[]) => void;
+    /** 设置当前激活的管道 */
+    setActivePipeline: (pipeline: WorkflowPipeline | null) => void;
 
     // WebSocket actions
-    setWsConnected: (connected) => set({ ws: { connected } }),
+    /** 设置 WebSocket 连接状态 */
+    setWsConnected: (connected: boolean) => void;
 
     // UI actions
-    toggleTheme: () =>
-      set((state) => {
-        const newTheme = state.ui.theme === 'dark' ? 'light' : 'dark';
-        applyTheme(newTheme);
-        return { ui: { ...state.ui, theme: newTheme } };
-      }),
-    toggleSidebar: () =>
-      set((state) => ({
-        ui: { ...state.ui, sidebarCollapsed: !state.ui.sidebarCollapsed },
-      })),
-    setSidebarCollapsed: (collapsed) =>
-      set((state) => ({
-        ui: { ...state.ui, sidebarCollapsed: collapsed },
-      })),
-    setTheme: (theme) => {
-      applyTheme(theme);
-      return set((state) => ({ ui: { ...state.ui, theme } }));
-    },
-  };
+    /** 切换明暗主题 */
+    toggleTheme: () => void;
+    /** 切换侧边栏折叠状态 */
+    toggleSidebar: () => void;
+    /** 设置侧边栏折叠状态 */
+    setSidebarCollapsed: (collapsed: boolean) => void;
+    /** 直接设置主题 */
+    setTheme: (theme: 'dark' | 'light') => void;
+}
+
+// === 辅助函数：主题持久化 ===
+
+/**
+ * 从 localStorage 加载保存的主题设置
+ * @returns 保存的主题值，若未保存则默认返回 'dark'
+ */
+function loadTheme(): 'dark' | 'light' {
+    // SSR 环境下 localStorage 不可用，返回默认主题
+    if (typeof window === 'undefined') return 'dark';
+    const stored = localStorage.getItem('ai-workbench-theme');
+    return stored === 'light' ? 'light' : 'dark';
+}
+
+/**
+ * 将主题应用到 DOM 并持久化到 localStorage
+ *
+ * 通过在 <html> 元素上添加/移除 'dark' 和 'light' CSS 类来控制主题，
+ * 同时将选择保存到 localStorage 以便下次加载时恢复。
+ *
+ * @param theme - 要应用的主题模式
+ */
+function applyTheme(theme: 'dark' | 'light') {
+    // SSR 环境下 document 不可用，跳过 DOM 操作
+    if (typeof document === 'undefined') return;
+    const html = document.documentElement;
+    if (theme === 'dark') {
+        html.classList.add('dark');
+        html.classList.remove('light');
+    } else {
+        html.classList.add('light');
+        html.classList.remove('dark');
+    }
+    localStorage.setItem('ai-workbench-theme', theme);
+}
+
+// === Zustand Store 实例 ===
+
+/**
+ * 全局应用状态 Store
+ *
+ * 使用 Zustand 的 `create` 方法创建，所有状态和 action 集中管理。
+ * Store 创建时会自动从 localStorage 恢复主题和任务 ID 等持久化数据。
+ */
+export const useAppStore = create<AppState>((set) => {
+    const initialTheme = loadTheme();
+    // Store 初始化时立即应用主题，避免页面闪烁
+    applyTheme(initialTheme);
+
+    return {
+        // === 初始状态 ===
+        requirements: {list: [], selected: null, loading: false},
+        workspace: {current: null, history: []},
+        plan: {
+            current: null,
+            status: 'idle',
+            // 从 localStorage 恢复上次关联的任务 ID，页面刷新后可继续上下文
+            taskId: typeof window !== 'undefined' ? localStorage.getItem('ai-workbench-plan-taskid') : null,
+            logs: [],
+        },
+        execution: {status: null, logs: [], executionId: null},
+        tests: {results: null, running: false},
+        pipelines: {list: [], active: null},
+        ws: {connected: false},
+        ui: {theme: initialTheme, sidebarCollapsed: false},
+
+        // === 需求管理 Actions ===
+        setRequirements: (list) =>
+            set((state) => ({requirements: {...state.requirements, list}})),
+        setSelectedRequirement: (selected) =>
+            set((state) => ({requirements: {...state.requirements, selected}})),
+        setRequirementsLoading: (loading) =>
+            set((state) => ({requirements: {...state.requirements, loading}})),
+
+        // === 工作空间 Actions ===
+        setCurrentWorkspace: (current) =>
+            set((state) => ({workspace: {...state.workspace, current}})),
+        setWorkspaceHistory: (history) =>
+            set((state) => ({workspace: {...state.workspace, history}})),
+
+        // === 计划 Actions ===
+        setCurrentPlan: (current) =>
+            set((state) => ({plan: {...state.plan, current}})),
+        setPlanStatus: (status) =>
+            set((state) => ({plan: {...state.plan, status}})),
+        setPlanTaskId: (taskId) => {
+            // 同步持久化任务 ID 到 localStorage，确保页面刷新后可恢复关联
+            if (taskId) {
+                localStorage.setItem('ai-workbench-plan-taskid', taskId);
+            } else {
+                localStorage.removeItem('ai-workbench-plan-taskid');
+            }
+            return set((state) => ({plan: {...state.plan, taskId}}));
+        },
+        addPlanLog: (content) =>
+            set((state) => ({plan: {...state.plan, logs: [...state.plan.logs, content]}})),
+        clearPlanLogs: () =>
+            set((state) => ({plan: {...state.plan, logs: []}})),
+
+        // === 执行 Actions ===
+        setExecutionStatus: (status) =>
+            set((state) => ({execution: {...state.execution, status}})),
+        setExecutionId: (executionId) =>
+            set((state) => ({execution: {...state.execution, executionId}})),
+        addExecutionLog: (entry) =>
+            set((state) => ({
+                execution: {...state.execution, logs: [...state.execution.logs, entry]},
+            })),
+        clearExecutionLogs: () =>
+            set((state) => ({execution: {...state.execution, logs: []}})),
+
+        // === 测试 Actions ===
+        setTestResults: (results) =>
+            set((state) => ({tests: {...state.tests, results}})),
+        setTestRunning: (running) =>
+            set((state) => ({tests: {...state.tests, running}})),
+
+        // === 管道 Actions ===
+        setPipelines: (list) =>
+            set((state) => ({pipelines: {...state.pipelines, list}})),
+        setActivePipeline: (active) =>
+            set((state) => ({pipelines: {...state.pipelines, active}})),
+
+        // === WebSocket Actions ===
+        setWsConnected: (connected) => set({ws: {connected}}),
+
+        // === UI Actions ===
+        toggleTheme: () =>
+            set((state) => {
+                const newTheme = state.ui.theme === 'dark' ? 'light' : 'dark';
+                applyTheme(newTheme);
+                return {ui: {...state.ui, theme: newTheme}};
+            }),
+        toggleSidebar: () =>
+            set((state) => ({
+                ui: {...state.ui, sidebarCollapsed: !state.ui.sidebarCollapsed},
+            })),
+        setSidebarCollapsed: (collapsed) =>
+            set((state) => ({
+                ui: {...state.ui, sidebarCollapsed: collapsed},
+            })),
+        setTheme: (theme) => {
+            applyTheme(theme);
+            return set((state) => ({ui: {...state.ui, theme}}));
+        },
+    };
 });

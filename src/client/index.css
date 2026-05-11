@@ -3,77 +3,234 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-  }
+    :root {
+        --background: 0 0% 98%;
+        --foreground: 240 6% 10%;
+        --card: 0 0% 100%;
+        --card-foreground: 240 6% 10%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 240 6% 10%;
+        --primary: 221 83% 53%;
+        --primary-foreground: 210 40% 98%;
+        --secondary: 220 14% 96%;
+        --secondary-foreground: 240 6% 10%;
+        --muted: 220 14% 96%;
+        --muted-foreground: 220 9% 46%;
+        --accent: 220 14% 96%;
+        --accent-foreground: 240 6% 10%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 220 13% 91%;
+        --input: 220 13% 91%;
+        --ring: 221 83% 53%;
+        --radius: 0.75rem;
+    }
 
-  .dark {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 224 71% 4%;
-    --card-foreground: 213 31% 91%;
-    --popover: 224 71% 4%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 222.2 47.4% 11.2%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 223 47% 11%;
-    --muted-foreground: 215.4 16.3% 56.9%;
-    --accent: 216 34% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-    --ring: 224.3 76.3% 48%;
-    --radius: 0.5rem;
-  }
+    .dark {
+        --background: 240 6% 7%;
+        --foreground: 240 5% 92%;
+        --card: 240 5% 11%;
+        --card-foreground: 240 5% 92%;
+        --popover: 240 5% 11%;
+        --popover-foreground: 240 5% 92%;
+        --primary: 217 91% 60%;
+        --primary-foreground: 222 47% 11%;
+        --secondary: 240 4% 16%;
+        --secondary-foreground: 240 5% 92%;
+        --muted: 240 4% 16%;
+        --muted-foreground: 240 5% 65%;
+        --accent: 240 4% 16%;
+        --accent-foreground: 240 5% 92%;
+        --destructive: 0 63% 31%;
+        --destructive-foreground: 240 5% 92%;
+        --border: 240 4% 16%;
+        --input: 240 4% 16%;
+        --ring: 217 91% 60%;
+        --radius: 0.75rem;
+    }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
 }
 
-/* Custom scrollbar */
+/* === 毛玻璃效果 === */
+.glass {
+    background: hsl(var(--card) / 0.6);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+.glass-sidebar {
+    background: hsl(var(--card) / 0.75);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+/* === Apple 风格阴影 === */
+.shadow-apple {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-apple-lg {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+/* === 自定义滚动条 === */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
-  border-radius: 3px;
+    background: hsl(var(--muted-foreground) / 0.2);
+    border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+    background: hsl(var(--muted-foreground) / 0.35);
+}
+
+/* === Markdown Content Styles (Apple 风格) === */
+.markdown-body > *:first-child {
+    margin-top: 0 !important;
+}
+
+.markdown-body > *:last-child {
+    margin-bottom: 0 !important;
+}
+
+.markdown-body img {
+    max-height: 400px;
+    object-fit: contain;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    color: hsl(var(--foreground));
+}
+
+.markdown-body h1 {
+    font-size: 1.5rem;
+    margin: 1.5em 0 0.5em;
+}
+
+.markdown-body h2 {
+    font-size: 1.25rem;
+    margin: 1.25em 0 0.5em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.markdown-body h3 {
+    font-size: 1.1rem;
+    margin: 1em 0 0.4em;
+}
+
+.markdown-body h4 {
+    font-size: 1rem;
+    margin: 1em 0 0.3em;
+}
+
+.markdown-body code {
+    background: hsl(var(--muted) / 0.8);
+    border-radius: 0.375rem;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.875em;
+}
+
+.markdown-body pre {
+    border-radius: 0.75rem;
+    border: 1px solid hsl(var(--border) / 0.5);
+    background: hsl(var(--muted));
+    padding: 1rem;
+    overflow-x: auto;
+}
+
+.markdown-body pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.8125em;
+}
+
+.markdown-body table {
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+    border: 1px solid hsl(var(--border) / 0.5);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+}
+
+.markdown-body table th {
+    background: hsl(var(--muted) / 0.5);
+    font-weight: 600;
+    font-size: 0.8125rem;
+}
+
+.markdown-body blockquote {
+    border-left: 2px solid hsl(var(--primary) / 0.3);
+    background: hsl(var(--primary) / 0.05);
+    border-radius: 0 0.5rem 0.5rem 0;
+    padding: 0.5rem 1rem;
+    margin: 0.75em 0;
+    color: hsl(var(--muted-foreground));
+}
+
+.markdown-body ul,
+.markdown-body ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+}
+
+.markdown-body li {
+    margin: 0.25em 0;
+}
+
+.markdown-body a {
+    color: hsl(var(--primary));
+    text-decoration: none;
+    transition: opacity 0.2s;
+}
+
+.markdown-body a:hover {
+    opacity: 0.8;
+}
+
+.markdown-body hr {
+    border: none;
+    border-top: 1px solid hsl(var(--border) / 0.5);
+    margin: 1.5em 0;
+}
+
+.markdown-body strong {
+    font-weight: 600;
+}
+
+.markdown-body p {
+    margin: 0.5em 0;
+    line-height: 1.7;
 }

@@ -9,6 +9,13 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/server/**/*", "src/cli/**/*"],
-  "exclude": ["node_modules", "dist", "src/client/**/*"]
+  "include": [
+    "src/server/**/*",
+    "src/cli/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/client/**/*"
+  ]
 }

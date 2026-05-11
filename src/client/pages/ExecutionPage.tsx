@@ -1,648 +1,786 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { apiGet, apiPost } from '../api';
-import { useAppStore } from '../stores/app-store';
-import { cn, formatRelativeTime } from '../lib/utils';
+/**
+ * @file ExecutionPage.tsx
+ * @description 执行监控页面 - 用于实时查看和管理 AI 代理（Claude）执行计划的过程。
+ *
+ * 主要功能：
+ * - 左侧面板：显示历史执行记录列表，支持选择和删除
+ * - 右侧面板：显示当前选中执行的详细信息，包括进度条、控制按钮、回复输入框和实时日志输出
+ * - 支持暂停、重试、跳过、中止等执行控制操作
+ * - 支持在执行过程中向 Claude 发送回复消息（当 Claude 需要用户确认或提问时）
+ * - 通过轮询机制（每1.5秒）实时更新执行状态和日志
+ * - 与全局状态管理（Zustand store）集成，支持从计划页面触发的实时执行同步
+ */
+
+import {useEffect, useRef, useState, useCallback} from 'react';
+import {useNavigate} from 'react-router-dom';
+import {apiGet, apiPost} from '../api';
+import {useAppStore} from '../stores/app-store';
+import {cn, formatRelativeTime} from '../lib/utils';
 import {
-  Pause,
-  RotateCcw,
-  SkipForward,
-  Square,
-  Trash2,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Loader2,
-  Terminal,
-  Send,
-  MessageSquare,
-  Play,
-  Clock,
-  FolderOpen,
-  TestTube,
+    Pause,
+    RotateCcw,
+    SkipForward,
+    Square,
+    Trash2,
+    CheckCircle2,
+    XCircle,
+    AlertCircle,
+    Loader2,
+    Terminal,
+    Send,
+    MessageSquare,
+    Play,
+    Clock,
+    FolderOpen,
+    TestTube,
 } from 'lucide-react';
-import { Button } from '../components/ui/button';
-import { Card, CardContent } from '../components/ui/card';
+import {Button} from '../components/ui/button';
+import {Card, CardContent} from '../components/ui/card';
 
-// === Types ===
+// === 类型定义 ===
 
+/**
+ * 执行记录摘要接口
+ * @description 用于列表展示的精简执行信息，包含基本状态和元数据
+ */
 interface ExecutionSummary {
-  id: string;
-  planId: string;
-  status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
-  currentStep: number;
-  totalSteps: number;
-  startedAt: string;
-  completedAt?: string;
-  workspacePath?: string;
-  logCount: number;
+    /** 执行记录唯一标识 */
+    id: string;
+    /** 关联的计划 ID */
+    planId: string;
+    /** 执行状态：运行中、已暂停、已完成、已失败、已中止 */
+    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+    /** 当前执行的步骤编号 */
+    currentStep: number;
+    /** 总步骤数 */
+    totalSteps: number;
+    /** 执行开始时间（ISO 格式字符串） */
+    startedAt: string;
+    /** 执行完成时间（ISO 格式字符串），未完成时为 undefined */
+    completedAt?: string;
+    /** 工作区路径 */
+    workspacePath?: string;
+    /** 日志条目数量 */
+    logCount: number;
 }
 
+/**
+ * 执行详情接口
+ * @description 继承 ExecutionSummary，额外包含完整日志列表和会话 ID
+ */
 interface ExecutionDetail extends ExecutionSummary {
-  logs: string[];
-  sessionId?: string;
+    /** 完整的日志输出列表，每条可以是字符串或结构化日志对象 */
+    logs: string[];
+    /** Claude 会话 ID，用于标识与 Claude 的交互会话 */
+    sessionId?: string;
 }
 
-// === Helpers ===
+// === 辅助函数 ===
 
+/**
+ * 根据执行状态返回对应的图标组件
+ * @param status - 执行状态字符串
+ * @returns 对应的 React 图标元素
+ */
 function statusIcon(status: string) {
-  switch (status) {
-    case 'completed': return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
-    case 'failed': return <XCircle className="h-3.5 w-3.5 text-destructive" />;
-    case 'running': return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin" />;
-    case 'paused': return <AlertCircle className="h-3.5 w-3.5 text-yellow-500" />;
-    case 'aborted': return <Square className="h-3.5 w-3.5 text-muted-foreground" />;
-    default: return <Terminal className="h-3.5 w-3.5 text-muted-foreground" />;
-  }
+    switch (status) {
+        case 'completed':
+            return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500"/>;
+        case 'failed':
+            return <XCircle className="h-3.5 w-3.5 text-destructive"/>;
+        case 'running':
+            return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin"/>;
+        case 'paused':
+            return <AlertCircle className="h-3.5 w-3.5 text-yellow-500"/>;
+        case 'aborted':
+            return <Square className="h-3.5 w-3.5 text-muted-foreground"/>;
+        default:
+            return <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>;
+    }
 }
 
-// === Component ===
+// === 主组件 ===
 
+/**
+ * 执行监控页面组件
+ *
+ * @description 提供执行过程的完整监控界面，包括：
+ * - 执行历史列表的加载与展示
+ * - 实时轮询当前执行状态（1.5秒间隔）
+ * - 执行控制操作（暂停/重试/跳过/中止）
+ * - 与 Claude 的交互式回复功能
+ * - 日志的实时滚动展示
+ * - 执行完成后的摘要信息和测试跳转
+ *
+ * @component
+ * @example
+ * // 在路由中使用
+ * <Route path="/execution" element={<ExecutionPage />} />
+ */
 export default function ExecutionPage() {
-  const navigate = useNavigate();
+    const navigate = useNavigate();
 
-  // From store (for live execution triggered from Plan page)
-  const storeExecutionId = useAppStore((s) => s.execution.executionId);
-  const storeStatus = useAppStore((s) => s.execution.status);
-  const storeLogs = useAppStore((s) => s.execution.logs);
-  const setExecutionStatus = useAppStore((s) => s.setExecutionStatus);
-  const addExecutionLog = useAppStore((s) => s.addExecutionLog);
-  const clearExecutionLogs = useAppStore((s) => s.clearExecutionLogs);
-  const setExecutionId = useAppStore((s) => s.setExecutionId);
+    // 从全局状态管理（Zustand store）中获取和设置执行相关的状态
+    // 这些状态用于与计划页面触发的实时执行保持同步
+    const storeExecutionId = useAppStore((s) => s.execution.executionId);
+    const storeStatus = useAppStore((s) => s.execution.status);
+    const storeLogs = useAppStore((s) => s.execution.logs);
+    const setExecutionStatus = useAppStore((s) => s.setExecutionStatus);
+    const addExecutionLog = useAppStore((s) => s.addExecutionLog);
+    const clearExecutionLogs = useAppStore((s) => s.clearExecutionLogs);
+    const setExecutionId = useAppStore((s) => s.setExecutionId);
 
-  // History list
-  const [history, setHistory] = useState<ExecutionSummary[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+    // 执行历史列表相关状态
+    const [history, setHistory] = useState<ExecutionSummary[]>([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Active execution (from history click or store)
-  const [activeId, setActiveId] = useState<string | null>(storeExecutionId);
-  const [detail, setDetail] = useState<ExecutionDetail | null>(null);
-  const [replyText, setReplyText] = useState('');
-  const [replying, setReplying] = useState(false);
+    // 当前活跃执行的详情状态
+    // activeId 可以来自历史记录点击或从 store 同步的实时执行 ID
+    const [activeId, setActiveId] = useState<string | null>(storeExecutionId);
+    const [detail, setDetail] = useState<ExecutionDetail | null>(null);
+    const [replyText, setReplyText] = useState('');
+    const [replying, setReplying] = useState(false);
 
-  const logEndRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+    // DOM 引用：用于日志自动滚动、轮询清理和回复输入框聚焦
+    const logEndRef = useRef<HTMLDivElement>(null);
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Derive execution status
-  const execStatus = detail?.status ?? storeStatus?.status ?? 'idle';
-  const isRunning = execStatus === 'running';
-  const isPaused = execStatus === 'paused';
-  const isCompleted = execStatus === 'completed';
-  const isFailed = execStatus === 'failed';
-  const isAborted = execStatus === 'aborted';
-  const isDone = isCompleted || isFailed || isAborted;
+    // 根据详情数据和 store 状态派生当前的执行状态
+    // 优先使用 detail 中的状态，回退到 store 中的实时状态
+    const execStatus = detail?.status ?? storeStatus?.status ?? 'idle';
+    const isRunning = execStatus === 'running';
+    const isPaused = execStatus === 'paused';
+    const isCompleted = execStatus === 'completed';
+    const isFailed = execStatus === 'failed';
+    const isAborted = execStatus === 'aborted';
+    const isDone = isCompleted || isFailed || isAborted;
 
-  // Build merged logs: use storeLogs for live execution, detail.logs for historical
-  const displayLogs = activeId === storeExecutionId && storeLogs.length > 0
-    ? storeLogs
-    : (detail?.logs ?? []);
+    // 合并日志来源：实时执行时使用 store 中的日志（实时推送），历史执行使用详情中的日志
+    const displayLogs = activeId === storeExecutionId && storeLogs.length > 0
+        ? storeLogs
+        : (detail?.logs ?? []);
 
-  // Auto-scroll logs
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [displayLogs]);
+    // 日志自动滚动到底部效果
+    useEffect(() => {
+        logEndRef.current?.scrollIntoView({behavior: 'smooth'});
+    }, [displayLogs]);
 
-  // Load execution history
-  const loadHistory = useCallback(async () => {
-    setLoadingHistory(true);
-    try {
-      const data = await apiGet<ExecutionSummary[]>('/execution/list');
-      setHistory(data);
-    } catch {
-      // ignore
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, []);
+    /**
+     * 加载执行历史列表
+     * 从后端 API 获取所有执行记录的摘要信息
+     */
+    const loadHistory = useCallback(async () => {
+        setLoadingHistory(true);
+        try {
+            const data = await apiGet<ExecutionSummary[]>('/execution/list');
+            setHistory(data);
+        } catch {
+            // 忽略加载错误，保持现有历史列表不变
+        } finally {
+            setLoadingHistory(false);
+        }
+    }, []);
 
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    // 组件挂载时加载执行历史
+    useEffect(() => {
+        loadHistory();
+    }, [loadHistory]);
 
-  // Load execution detail
-  const loadDetail = useCallback(async (id: string) => {
-    try {
-      const data = await apiGet<ExecutionDetail>(`/execution/${id}/status`);
-      setDetail(data);
-      setActiveId(id);
-    } catch {
-      // ignore
-    }
-  }, []);
+    /**
+     * 加载指定执行记录的详细信息
+     * @param id - 执行记录 ID
+     */
+    const loadDetail = useCallback(async (id: string) => {
+        try {
+            const data = await apiGet<ExecutionDetail>(`/execution/${id}/status`);
+            setDetail(data);
+            setActiveId(id);
+        } catch {
+            // 忽略加载错误
+        }
+    }, []);
 
-  // When storeExecutionId changes (new execution triggered from Plan page), switch to it
-  useEffect(() => {
-    if (!storeExecutionId) return;
-    setActiveId(storeExecutionId);
-    setDetail(null);
-  }, [storeExecutionId]);
+    // 当 storeExecutionId 变化时（即从计划页面触发新执行），自动切换到该执行
+    useEffect(() => {
+        if (!storeExecutionId) return;
+        setActiveId(storeExecutionId);
+        setDetail(null); // 清空旧详情，等待轮询填充新数据
+    }, [storeExecutionId]);
 
-  // Poll active execution
-  useEffect(() => {
-    if (!activeId) return;
+    // 轮询当前活跃执行的状态和日志
+    // 每 1.5 秒请求一次后端，实时更新执行进度和日志输出
+    useEffect(() => {
+        if (!activeId) return;
 
-    const poll = async () => {
-      try {
-        const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
+        const poll = async () => {
+            try {
+                const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
 
-        // Update detail
-        setDetail(data);
+                // 更新本地详情状态
+                setDetail(data);
 
-        // Also sync store if this is the live execution
-        if (activeId === storeExecutionId) {
-          setExecutionStatus({
-            executionId: data.id,
-            planId: data.planId,
-            currentStep: data.currentStep,
-            totalSteps: data.totalSteps,
-            status: data.status as 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted',
-            startedAt: data.startedAt,
-            completedAt: data.completedAt,
-          });
+                // 如果当前活跃执行就是 store 中的实时执行，则同步更新 store 状态
+                if (activeId === storeExecutionId) {
+                    setExecutionStatus({
+                        executionId: data.id,
+                        planId: data.planId,
+                        currentStep: data.currentStep,
+                        totalSteps: data.totalSteps,
+                        status: data.status as 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted',
+                        startedAt: data.startedAt,
+                        completedAt: data.completedAt,
+                    });
 
-          // Add new logs to store for live display
-          if (data.logs && data.logs.length > storeLogs.length) {
-            const newLogs = data.logs.slice(storeLogs.length);
-            for (const log of newLogs) {
-              addExecutionLog({
-                timestamp: new Date().toISOString(),
-                stepIndex: data.currentStep,
-                type: 'output',
-                content: log,
-              });
+                    // 将新增的日志追加到 store 中，用于实时日志展示
+                    if (data.logs && data.logs.length > storeLogs.length) {
+                        const newLogs = data.logs.slice(storeLogs.length);
+                        for (const log of newLogs) {
+                            addExecutionLog({
+                                timestamp: new Date().toISOString(),
+                                stepIndex: data.currentStep,
+                                type: 'output',
+                                content: log,
+                            });
+                        }
+                    }
+                }
+
+                // 执行结束时停止轮询，刷新历史列表，并自动聚焦回复输入框
+                if (['completed', 'failed', 'aborted'].includes(data.status)) {
+                    if (pollRef.current) clearInterval(pollRef.current);
+                    loadHistory();
+                    setTimeout(() => replyInputRef.current?.focus(), 100);
+                }
+            } catch {
+                // 轮询请求失败时保持轮询，不中断
             }
-          }
+        };
+
+        // 立即执行一次，然后设置定时轮询
+        poll();
+        pollRef.current = setInterval(poll, 1500);
+
+        // 组件卸载或依赖变化时清理轮询定时器
+        return () => {
+            if (pollRef.current) clearInterval(pollRef.current);
+        };
+    }, [activeId, storeExecutionId, storeLogs.length, setExecutionStatus, addExecutionLog, loadHistory]);
+
+    // 组件卸载时确保清理轮询定时器，防止内存泄漏
+    useEffect(() => {
+        return () => {
+            if (pollRef.current) clearInterval(pollRef.current);
+        };
+    }, []);
+
+    // 当没有活跃执行但有历史记录时，自动选中最近的一条执行记录
+    useEffect(() => {
+        if (!activeId && history.length > 0) {
+            loadDetail(history[0].id);
         }
+    }, [activeId, history, loadDetail]);
 
-        // Stop polling when done
-        if (['completed', 'failed', 'aborted'].includes(data.status)) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          loadHistory();
-          setTimeout(() => replyInputRef.current?.focus(), 100);
+    // === 操作处理函数 ===
+
+    /** 暂停当前正在运行的执行 */
+    const handlePause = async () => {
+        if (!activeId) return;
+        try {
+            await apiPost(`/execution/${activeId}/pause`);
+        } catch { /* 通过轮询处理状态更新 */
         }
-      } catch {
-        // keep polling
-      }
     };
 
-    poll();
-    pollRef.current = setInterval(poll, 1500);
-
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+    /** 重试当前失败或暂停的步骤 */
+    const handleRetry = async () => {
+        if (!activeId) return;
+        try {
+            await apiPost(`/execution/${activeId}/retry-step`);
+        } catch { /* 通过轮询处理状态更新 */
+        }
     };
-  }, [activeId, storeExecutionId, storeLogs.length, setExecutionStatus, addExecutionLog, loadHistory]);
 
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+    /** 跳过当前暂停或失败的步骤，继续执行下一步 */
+    const handleSkip = async () => {
+        if (!activeId) return;
+        try {
+            await apiPost(`/execution/${activeId}/skip-step`);
+        } catch { /* 通过轮询处理状态更新 */
+        }
     };
-  }, []);
 
-  // Auto-select the first (most recent) execution if no active one
-  useEffect(() => {
-    if (!activeId && history.length > 0) {
-      loadDetail(history[0].id);
-    }
-  }, [activeId, history, loadDetail]);
+    /** 中止当前执行，不再继续后续步骤 */
+    const handleAbort = async () => {
+        if (!activeId) return;
+        try {
+            await apiPost(`/execution/${activeId}/abort`);
+        } catch { /* 通过轮询处理状态更新 */
+        }
+    };
 
-  // === Actions ===
+    /**
+     * 删除指定的执行记录
+     * @param id - 要删除的执行记录 ID
+     * @param e - 鼠标事件，用于阻止事件冒泡（避免触发选中操作）
+     */
+    const handleDelete = async (id: string, e: React.MouseEvent) => {
+        e.stopPropagation(); // 阻止点击事件冒泡到父级元素（避免触发选中该执行记录）
+        try {
+            const res = await fetch(`/api/execution/${id}`, {method: 'DELETE'});
+            if (!res.ok) throw new Error('Delete failed');
+            // 从历史列表中移除已删除的记录
+            setHistory(prev => prev.filter(e => e.id !== id));
+            // 如果删除的是当前选中的记录，则清空详情和选中状态
+            if (activeId === id) {
+                setDetail(null);
+                setActiveId(null);
+                setExecutionId(null);
+            }
+        } catch {
+            // 忽略删除错误
+        }
+    };
 
-  const handlePause = async () => {
-    if (!activeId) return;
-    try { await apiPost(`/execution/${activeId}/pause`); } catch { /* handled via polling */ }
-  };
+    /**
+     * 向当前执行中的 Claude 发送回复消息
+     * 当 Claude 在执行过程中需要用户确认或提出问题时使用
+     * 发送后 Claude 将根据回复内容继续执行
+     */
+    const handleReply = async () => {
+        if (!activeId || !replyText.trim() || replying) return;
+        const message = replyText.trim();
+        setReplying(true);
+        setReplyText(''); // 清空输入框
+        try {
+            await apiPost(`/execution/${activeId}/reply`, {message});
+        } catch (err) {
+            // 回复失败时将错误信息添加到日志中，便于用户了解失败原因
+            addExecutionLog({
+                timestamp: new Date().toISOString(),
+                stepIndex: 0,
+                type: 'error',
+                content: `Reply failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+        } finally {
+            setReplying(false);
+        }
+    };
 
-  const handleRetry = async () => {
-    if (!activeId) return;
-    try { await apiPost(`/execution/${activeId}/retry-step`); } catch { /* handled via polling */ }
-  };
+    /**
+     * 重新执行当前计划
+     * 导航回计划页面，用户可以在那里重新确认并执行
+     */
+    const handleReExecute = () => {
+        if (!detail?.planId) return;
+        // 导航到计划页面，store 中已有 planId 上下文
+        navigate('/plan');
+    };
 
-  const handleSkip = async () => {
-    if (!activeId) return;
-    try { await apiPost(`/execution/${activeId}/skip-step`); } catch { /* handled via polling */ }
-  };
+    // 执行状态对应的显示配置（标签文本、颜色类名）
+    const statusConfig = {
+        idle: {label: 'Idle', color: 'text-muted-foreground', bg: 'bg-muted'},
+        running: {label: 'Running', color: 'text-blue-500', bg: 'bg-blue-500/10'},
+        paused: {label: 'Paused', color: 'text-yellow-500', bg: 'bg-yellow-500/10'},
+        completed: {label: 'Completed', color: 'text-emerald-500', bg: 'bg-emerald-500/10'},
+        failed: {label: 'Failed', color: 'text-destructive', bg: 'bg-destructive/10'},
+        aborted: {label: 'Aborted', color: 'text-muted-foreground', bg: 'bg-muted'},
+    };
 
-  const handleAbort = async () => {
-    if (!activeId) return;
-    try { await apiPost(`/execution/${activeId}/abort`); } catch { /* handled via polling */ }
-  };
+    const cfg = statusConfig[execStatus] ?? statusConfig.idle;
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      const res = await fetch(`/api/execution/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
-      setHistory(prev => prev.filter(e => e.id !== id));
-      if (activeId === id) {
-        setDetail(null);
-        setActiveId(null);
-        setExecutionId(null);
-      }
-    } catch {
-      // ignore
-    }
-  };
+    /**
+     * 根据日志类型返回对应的颜色类名
+     * @param type - 日志类型：error（错误）、warning（警告）、info（信息）、output（普通输出）
+     * @returns Tailwind CSS 文字颜色类名
+     */
+    const logTypeColor = (type: string) => {
+        switch (type) {
+            case 'error':
+                return 'text-red-400';
+            case 'warning':
+                return 'text-yellow-400';
+            case 'info':
+                return 'text-blue-400';
+            default:
+                return 'text-gray-300';
+        }
+    };
 
-  const handleReply = async () => {
-    if (!activeId || !replyText.trim() || replying) return;
-    const message = replyText.trim();
-    setReplying(true);
-    setReplyText('');
-    try {
-      await apiPost(`/execution/${activeId}/reply`, { message });
-    } catch (err) {
-      addExecutionLog({
-        timestamp: new Date().toISOString(),
-        stepIndex: 0,
-        type: 'error',
-        content: `Reply failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      });
-    } finally {
-      setReplying(false);
-    }
-  };
-
-  const handleReExecute = () => {
-    if (!detail?.planId) return;
-    // Navigate to plan page with the plan selected
-    navigate('/plan');
-  };
-
-  const statusConfig = {
-    idle: { label: 'Idle', color: 'text-muted-foreground', bg: 'bg-muted' },
-    running: { label: 'Running', color: 'text-blue-500', bg: 'bg-blue-500/10' },
-    paused: { label: 'Paused', color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
-    completed: { label: 'Completed', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-    failed: { label: 'Failed', color: 'text-destructive', bg: 'bg-destructive/10' },
-    aborted: { label: 'Aborted', color: 'text-muted-foreground', bg: 'bg-muted' },
-  };
-
-  const cfg = statusConfig[execStatus] ?? statusConfig.idle;
-
-  const logTypeColor = (type: string) => {
-    switch (type) {
-      case 'error': return 'text-red-400';
-      case 'warning': return 'text-yellow-400';
-      case 'info': return 'text-blue-400';
-      default: return 'text-gray-300';
-    }
-  };
-
-  return (
-    <div className="flex h-full">
-      {/* Left: Execution History */}
-      <div className="w-64 flex flex-col border-r border-border bg-muted/10 shrink-0">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+    return (
+        <div className="flex h-full">
+            {/* 左侧面板：执行历史记录列表 */}
+            <div className="w-64 flex flex-col border-r border-border bg-muted/10 shrink-0">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
             Execution History
           </span>
-          {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-        </div>
+                    {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
+                </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {history.length === 0 && !loadingHistory && (
-            <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
-              <Terminal className="h-7 w-7 text-muted-foreground/30" />
-              <p className="text-xs text-muted-foreground">No executions yet</p>
-            </div>
-          )}
+                <div className="flex-1 overflow-y-auto">
+                    {/* 空状态：暂无执行记录 */}
+                    {history.length === 0 && !loadingHistory && (
+                        <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
+                            <Terminal className="h-7 w-7 text-muted-foreground/30"/>
+                            <p className="text-xs text-muted-foreground">No executions yet</p>
+                        </div>
+                    )}
 
-          {history.map((exec) => (
-            <div
-              key={exec.id}
-              onClick={() => loadDetail(exec.id)}
-              className={cn(
-                'group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors',
-                activeId === exec.id
-                  ? 'bg-primary/5 border-l-2 border-l-primary'
-                  : 'hover:bg-accent/50'
-              )}
-            >
-              <div className="mt-0.5 shrink-0">{statusIcon(exec.status)}</div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium truncate text-foreground">
-                  {exec.planId.substring(0, 8)}...
-                </p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <Clock className="h-3 w-3 text-muted-foreground/50" />
-                  <span className="text-xs text-muted-foreground/60">
+                    {/* 渲染每条执行历史记录 */}
+                    {history.map((exec) => (
+                        <div
+                            key={exec.id}
+                            onClick={() => loadDetail(exec.id)}
+                            className={cn(
+                                'group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors',
+                                activeId === exec.id
+                                    ? 'bg-primary/5 border-l-2 border-l-primary'  // 当前选中项高亮样式
+                                    : 'hover:bg-accent/50'  // 悬停效果
+                            )}
+                        >
+                            {/* 状态图标 */}
+                            <div className="mt-0.5 shrink-0">{statusIcon(exec.status)}</div>
+                            <div className="flex-1 min-w-0">
+                                {/* 显示计划 ID 的前8位作为标识 */}
+                                <p className="text-xs font-medium truncate text-foreground">
+                                    {exec.planId.substring(0, 8)}...
+                                </p>
+                                {/* 显示相对时间 */}
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    <Clock className="h-3 w-3 text-muted-foreground/50"/>
+                                    <span className="text-xs text-muted-foreground/60">
                     {formatRelativeTime(exec.startedAt)}
                   </span>
-                </div>
-                {exec.workspacePath && (
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <FolderOpen className="h-3 w-3 text-muted-foreground/40" />
-                    <span className="text-xs text-muted-foreground/40 truncate font-mono">
+                                </div>
+                                {/* 显示工作区目录名 */}
+                                {exec.workspacePath && (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                        <FolderOpen className="h-3 w-3 text-muted-foreground/40"/>
+                                        <span className="text-xs text-muted-foreground/40 truncate font-mono">
                       {exec.workspacePath.split(/[/\\]/).pop()}
                     </span>
-                  </div>
-                )}
-              </div>
-              <button
-                onClick={(e) => handleDelete(exec.id, e)}
-                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Right: Execution Detail */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <div className="border-b border-border px-6 py-4 shrink-0">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-semibold">Execution</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {isRunning ? 'Execution is in progress...' :
-                 isDone ? `Execution ${execStatus}` :
-                 activeId ? 'Monitor real-time progress' :
-                 'Select an execution from history or start from Plan page'}
-              </p>
+                                    </div>
+                                )}
+                            </div>
+                            {/* 删除按钮：仅悬停时显示 */}
+                            <button
+                                onClick={(e) => handleDelete(exec.id, e)}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
+                            >
+                                <Trash2 className="h-3.5 w-3.5"/>
+                            </button>
+                        </div>
+                    ))}
+                </div>
             </div>
 
-            {/* Status badge */}
-            {activeId && (
-              <div className={cn('flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium', cfg.bg, cfg.color)}>
-                {isRunning && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {isCompleted && <CheckCircle2 className="h-3.5 w-3.5" />}
-                {isFailed && <XCircle className="h-3.5 w-3.5" />}
-                {isPaused && <AlertCircle className="h-3.5 w-3.5" />}
-                {cfg.label}
-              </div>
-            )}
-          </div>
-        </div>
+            {/* 右侧面板：执行详情展示区域 */}
+            <div className="flex-1 flex flex-col min-w-0">
+                {/* 页面头部：标题和状态徽章 */}
+                <div className="border-b border-border px-6 py-4 shrink-0">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h1 className="text-xl font-semibold">Execution</h1>
+                            <p className="mt-0.5 text-sm text-muted-foreground">
+                                {isRunning ? 'Execution is in progress...' :
+                                    isDone ? `Execution ${execStatus}` :
+                                        activeId ? 'Monitor real-time progress' :
+                                            'Select an execution from history or start from Plan page'}
+                            </p>
+                        </div>
 
-        <div className="flex-1 flex flex-col min-h-0 p-6 gap-4">
-          {/* No execution */}
-          {!activeId && (
-            <Card>
-              <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
-                <Terminal className="h-10 w-10 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">No execution selected</p>
-                <p className="text-xs text-muted-foreground/60">
-                  Go to Plan page, confirm a plan to start execution, or select from history
-                </p>
-              </CardContent>
-            </Card>
-          )}
+                        {/* 状态徽章：显示当前执行状态和对应颜色 */}
+                        {activeId && (
+                            <div
+                                className={cn('flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium', cfg.bg, cfg.color)}>
+                                {isRunning && <Loader2 className="h-3.5 w-3.5 animate-spin"/>}
+                                {isCompleted && <CheckCircle2 className="h-3.5 w-3.5"/>}
+                                {isFailed && <XCircle className="h-3.5 w-3.5"/>}
+                                {isPaused && <AlertCircle className="h-3.5 w-3.5"/>}
+                                {cfg.label}
+                            </div>
+                        )}
+                    </div>
+                </div>
 
-          {/* Progress bar */}
-          {activeId && detail && (
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex-1 flex flex-col min-h-0 p-6 gap-4">
+                    {/* 空状态：未选中任何执行记录 */}
+                    {!activeId && (
+                        <Card>
+                            <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
+                                <Terminal className="h-10 w-10 text-muted-foreground/30"/>
+                                <p className="text-sm text-muted-foreground">No execution selected</p>
+                                <p className="text-xs text-muted-foreground/60">
+                                    Go to Plan page, confirm a plan to start execution, or select from history
+                                </p>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* 进度条：显示当前步骤和总步骤 */}
+                    {activeId && detail && (
+                        <Card>
+                            <CardContent className="p-4">
+                                <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium">
                     Step {detail.currentStep} / {detail.totalSteps || '?'}
                   </span>
-                  {detail.totalSteps > 0 && (
-                    <span className="text-sm text-muted-foreground">
+                                    {detail.totalSteps > 0 && (
+                                        <span className="text-sm text-muted-foreground">
                       {Math.round((detail.currentStep / detail.totalSteps) * 100)}%
                     </span>
-                  )}
-                </div>
-                {detail.totalSteps > 0 && (
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={cn(
-                        'h-full rounded-full transition-all duration-500',
-                        isCompleted ? 'bg-emerald-500' : isFailed ? 'bg-destructive' : 'bg-primary'
-                      )}
-                      style={{
-                        width: `${(detail.currentStep / detail.totalSteps) * 100}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                                    )}
+                                </div>
+                                {detail.totalSteps > 0 && (
+                                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                        <div
+                                            className={cn(
+                                                'h-full rounded-full transition-all duration-500',
+                                                isCompleted ? 'bg-emerald-500' : isFailed ? 'bg-destructive' : 'bg-primary'
+                                            )}
+                                            style={{
+                                                width: `${(detail.currentStep / detail.totalSteps) * 100}%`,
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
 
-          {/* Controls */}
-          {activeId && (
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePause}
-                disabled={!isRunning}
-              >
-                <Pause className="h-4 w-4 mr-1.5" />
-                Pause
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRetry}
-                disabled={!isPaused && !isFailed}
-              >
-                <RotateCcw className="h-4 w-4 mr-1.5" />
-                Retry
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSkip}
-                disabled={!isPaused && !isFailed}
-              >
-                <SkipForward className="h-4 w-4 mr-1.5" />
-                Skip
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAbort}
-                disabled={isDone || (!isRunning && !isPaused)}
-                className="text-destructive hover:text-destructive"
-              >
-                <Square className="h-4 w-4 mr-1.5" />
-                Abort
-              </Button>
-              {isDone && detail?.planId && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleReExecute}
-                  className="ml-1"
-                >
-                  <Play className="h-4 w-4 mr-1.5" />
-                  Re-execute
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearExecutionLogs}
-                className="ml-auto text-muted-foreground"
-              >
-                <Trash2 className="h-4 w-4 mr-1.5" />
-                Clear
-              </Button>
-            </div>
-          )}
+                    {/* 控制按钮栏：暂停、重试、跳过、中止、重新执行、清除 */}
+                    {activeId && (
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handlePause}
+                                disabled={!isRunning} // 仅运行中可暂停
+                            >
+                                <Pause className="h-4 w-4 mr-1.5"/>
+                                Pause
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleRetry}
+                                disabled={!isPaused && !isFailed} // 仅暂停或失败时可重试
+                            >
+                                <RotateCcw className="h-4 w-4 mr-1.5"/>
+                                Retry
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleSkip}
+                                disabled={!isPaused && !isFailed} // 仅暂停或失败时可跳过
+                            >
+                                <SkipForward className="h-4 w-4 mr-1.5"/>
+                                Skip
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleAbort}
+                                disabled={isDone || (!isRunning && !isPaused)} // 已结束或未运行时不可中止
+                                className="text-destructive hover:text-destructive"
+                            >
+                                <Square className="h-4 w-4 mr-1.5"/>
+                                Abort
+                            </Button>
+                            {/* 执行完成后显示重新执行按钮 */}
+                            {isDone && detail?.planId && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleReExecute}
+                                    className="ml-1"
+                                >
+                                    <Play className="h-4 w-4 mr-1.5"/>
+                                    Re-execute
+                                </Button>
+                            )}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={clearExecutionLogs}
+                                className="ml-auto text-muted-foreground"
+                            >
+                                <Trash2 className="h-4 w-4 mr-1.5"/>
+                                Clear
+                            </Button>
+                        </div>
+                    )}
 
-          {/* Reply input */}
-          {activeId && (
-            <Card className="border-primary/20 bg-primary/5">
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <MessageSquare className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-semibold">Reply to Claude</span>
-                  <span className="text-xs text-muted-foreground">
+                    {/* 回复输入区域：向 Claude 发送交互消息 */}
+                    {activeId && (
+                        <Card className="border-primary/20 bg-primary/5">
+                            <CardContent className="p-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <MessageSquare className="h-4 w-4 text-primary"/>
+                                    <span className="text-sm font-semibold">Reply to Claude</span>
+                                    <span className="text-xs text-muted-foreground">
                     If Claude asks questions during execution, answer here
                   </span>
-                </div>
-                <div className="flex gap-2">
+                                </div>
+                                <div className="flex gap-2">
                   <textarea
-                    ref={replyInputRef}
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                        e.preventDefault();
-                        handleReply();
-                      }
-                    }}
-                    placeholder="Type your reply... (Ctrl+Enter to send)"
-                    rows={2}
-                    disabled={isRunning}
-                    className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+                      ref={replyInputRef}
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      onKeyDown={(e) => {
+                          // 支持 Ctrl+Enter 或 Cmd+Enter 快捷发送
+                          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              handleReply();
+                          }
+                      }}
+                      placeholder="Type your reply... (Ctrl+Enter to send)"
+                      rows={2}
+                      disabled={isRunning} // Claude 运行时禁用回复输入
+                      className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
                   />
-                  <Button
-                    onClick={handleReply}
-                    disabled={!replyText.trim() || replying || isRunning}
-                    className="self-end"
-                    size="sm"
-                  >
-                    {replying ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
+                                    <Button
+                                        onClick={handleReply}
+                                        disabled={!replyText.trim() || replying || isRunning} // 无内容、发送中或运行中时禁用
+                                        className="self-end"
+                                        size="sm"
+                                    >
+                                        {replying ? (
+                                            <Loader2 className="h-4 w-4 animate-spin"/>
+                                        ) : (
+                                            <Send className="h-4 w-4"/>
+                                        )}
+                                    </Button>
+                                </div>
+                                {/* Claude 运行时显示提示信息 */}
+                                {isRunning && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Claude is working... reply will be available when it pauses or asks a question
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
                     )}
-                  </Button>
-                </div>
-                {isRunning && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Claude is working... reply will be available when it pauses or asks a question
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
-          {/* Log output */}
-          {activeId && (
-            <div className="flex-1 min-h-0 rounded-lg border border-border bg-gray-950 dark:bg-gray-950 overflow-hidden flex flex-col">
-              <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
-                <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground font-mono">Output</span>
-                {isRunning && (
-                  <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {/* 日志输出终端：显示执行过程的实时日志 */}
+                    {activeId && (
+                        <div
+                            className="flex-1 min-h-0 rounded-lg border border-border bg-gray-950 dark:bg-gray-950 overflow-hidden flex flex-col">
+                            {/* 终端标题栏 */}
+                            <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
+                                <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
+                                <span className="text-xs text-muted-foreground font-mono">Output</span>
+                                {/* 实时运行指示器 */}
+                                {isRunning && (
+                                    <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
                     Live
                   </span>
-                )}
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
-                {displayLogs.length === 0 ? (
-                  <div className="text-gray-500 text-center py-8">
-                    {activeId ? 'Waiting for output...' : 'No output yet'}
-                  </div>
-                ) : (
-                  displayLogs.map((entry, i) => {
-                    // Handle both string logs and ExecutionLogEntry objects
-                    const isObj = typeof entry === 'object' && 'content' in entry;
-                    const content = isObj ? (entry as { content: string }).content : String(entry);
-                    const type = isObj ? (entry as { type: string }).type : 'output';
-                    const stepIndex = isObj ? (entry as { stepIndex: number }).stepIndex : 0;
-                    const timestamp = isObj ? (entry as { timestamp: string }).timestamp : '';
+                                )}
+                            </div>
+                            {/* 日志内容区域 */}
+                            <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
+                                {displayLogs.length === 0 ? (
+                                    <div className="text-gray-500 text-center py-8">
+                                        {activeId ? 'Waiting for output...' : 'No output yet'}
+                                    </div>
+                                ) : (
+                                    displayLogs.map((entry, i) => {
+                                        // 兼容两种日志格式：字符串和结构化日志对象（ExecutionLogEntry）
+                                        const isObj = typeof entry === 'object' && 'content' in entry;
+                                        const content = isObj ? (entry as { content: string }).content : String(entry);
+                                        const type = isObj ? (entry as { type: string }).type : 'output';
+                                        const stepIndex = isObj ? (entry as { stepIndex: number }).stepIndex : 0;
+                                        const timestamp = isObj ? (entry as { timestamp: string }).timestamp : '';
 
-                    return (
-                      <div key={i} className={cn('py-0.5 leading-relaxed', logTypeColor(type))}>
-                        {timestamp && (
-                          <span className="text-gray-600 mr-2 select-none">
+                                        return (
+                                            <div key={i} className={cn('py-0.5 leading-relaxed', logTypeColor(type))}>
+                                                {/* 显示时间戳 */}
+                                                {timestamp && (
+                                                    <span className="text-gray-600 mr-2 select-none">
                             {new Date(timestamp).toLocaleTimeString()}
                           </span>
-                        )}
-                        {stepIndex > 0 && (
-                          <span className="text-gray-500 mr-2 select-none">[Step {stepIndex}]</span>
-                        )}
-                        <span>{content}</span>
-                      </div>
-                    );
-                  })
-                )}
-                <div ref={logEndRef} />
-              </div>
-            </div>
-          )}
+                                                )}
+                                                {/* 显示步骤编号 */}
+                                                {stepIndex > 0 && (
+                                                    <span
+                                                        className="text-gray-500 mr-2 select-none">[Step {stepIndex}]</span>
+                                                )}
+                                                <span>{content}</span>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                                {/* 日志滚动锚点元素 */}
+                                <div ref={logEndRef}/>
+                            </div>
+                        </div>
+                    )}
 
-          {/* Completion summary */}
-          {isDone && detail && (
-            <Card className={cn(
-              'border',
-              isCompleted ? 'border-emerald-500/30 bg-emerald-500/5' :
-              isFailed ? 'border-destructive/30 bg-destructive/5' :
-              'border-border'
-            )}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  {isCompleted ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  ) : isFailed ? (
-                    <XCircle className="h-4 w-4 text-destructive" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <h3 className="text-sm font-semibold">
-                    Execution {isCompleted ? 'Completed' : isFailed ? 'Failed' : 'Aborted'}
-                  </h3>
+                    {/* 执行完成摘要卡片：显示执行统计信息和后续操作 */}
+                    {isDone && detail && (
+                        <Card className={cn(
+                            'border',
+                            isCompleted ? 'border-emerald-500/30 bg-emerald-500/5' :
+                                isFailed ? 'border-destructive/30 bg-destructive/5' :
+                                    'border-border'
+                        )}>
+                            <CardContent className="p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    {isCompleted ? (
+                                        <CheckCircle2 className="h-4 w-4 text-emerald-500"/>
+                                    ) : isFailed ? (
+                                        <XCircle className="h-4 w-4 text-destructive"/>
+                                    ) : (
+                                        <AlertCircle className="h-4 w-4 text-muted-foreground"/>
+                                    )}
+                                    <h3 className="text-sm font-semibold">
+                                        Execution {isCompleted ? 'Completed' : isFailed ? 'Failed' : 'Aborted'}
+                                    </h3>
+                                </div>
+                                {/* 执行统计信息：步骤数、开始时间、完成时间 */}
+                                <div className="grid grid-cols-3 gap-4 text-sm">
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Steps</p>
+                                        <p className="font-medium">
+                                            {detail.currentStep} / {detail.totalSteps}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Started</p>
+                                        <p className="font-medium text-xs">
+                                            {new Date(detail.startedAt).toLocaleTimeString()}
+                                        </p>
+                                    </div>
+                                    {detail.completedAt && (
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">Completed</p>
+                                            <p className="font-medium text-xs">
+                                                {new Date(detail.completedAt).toLocaleTimeString()}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                                {/* 执行成功后提供跳转到测试页面的入口 */}
+                                {isCompleted && (
+                                    <div className="mt-3 pt-3 border-t border-border/50">
+                                        <Button
+                                            size="sm"
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            onClick={() => navigate(`/tests?executionId=${detail.id}`)}
+                                        >
+                                            <TestTube className="h-4 w-4 mr-1.5"/>
+                                            Run Tests
+                                        </Button>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Steps</p>
-                    <p className="font-medium">
-                      {detail.currentStep} / {detail.totalSteps}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Started</p>
-                    <p className="font-medium text-xs">
-                      {new Date(detail.startedAt).toLocaleTimeString()}
-                    </p>
-                  </div>
-                  {detail.completedAt && (
-                    <div>
-                      <p className="text-xs text-muted-foreground">Completed</p>
-                      <p className="font-medium text-xs">
-                        {new Date(detail.completedAt).toLocaleTimeString()}
-                      </p>
-                    </div>
-                  )}
-                </div>
-                {isCompleted && (
-                  <div className="mt-3 pt-3 border-t border-border/50">
-                    <Button
-                      size="sm"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={() => navigate(`/tests?executionId=${detail.id}`)}
-                    >
-                      <TestTube className="h-4 w-4 mr-1.5" />
-                      Run Tests
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 }

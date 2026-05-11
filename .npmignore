@@ -7,3 +7,6 @@ tailwind.config.ts
 postcss.config.js
 .kiro/
 node_modules/
+.claude/
+.github/
+*.map
