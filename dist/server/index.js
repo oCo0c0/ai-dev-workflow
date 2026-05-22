@@ -1,0 +1,159 @@
+"use strict";
+/**
+ * 服务端核心模块
+ *
+ * 应用服务器工厂函数，负责：
+ * 1. 创建 Express 应用并注册全局中间件（CORS、JSON 解析、请求日志）
+ * 2. 实例化所有业务服务（MCP配置、MCP桥接、工作区、CLI运行器、测试执行器、技能、流水线、需求存储）
+ * 3. 注册所有 API 路由模块（/api/*）
+ * 4. 配置静态文件服务和 SPA 回退
+ * 5. 创建 HTTP 服务器并初始化 WebSocket
+ */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.createServer = createServer;
+const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
+const http_1 = __importDefault(require("http"));
+const path_1 = __importDefault(require("path"));
+const websocket_js_1 = require("./websocket.js");
+const logger_js_1 = require("./middleware/logger.js");
+const validation_js_1 = require("./middleware/validation.js");
+// 服务层
+const mcp_config_service_js_1 = require("./services/mcp-config-service.js");
+const mcp_bridge_service_js_1 = require("./services/mcp-bridge-service.js");
+const workspace_service_js_1 = require("./services/workspace-service.js");
+const cli_runner_service_js_1 = require("./services/cli-runner-service.js");
+const test_executor_service_js_1 = require("./services/test-executor-service.js");
+const skills_service_js_1 = require("./services/skills-service.js");
+const pipeline_service_js_1 = require("./services/pipeline-service.js");
+const requirement_store_service_js_1 = require("./services/requirement-store-service.js");
+const plan_store_service_js_1 = require("./services/plan-store-service.js");
+const execution_store_service_js_1 = require("./services/execution-store-service.js");
+const memory_service_js_1 = require("./services/memory/memory-service.js");
+const analytics_store_service_js_1 = require("./services/analytics-store-service.js");
+const analytics_service_js_1 = require("./services/analytics-service.js");
+const skill_derivation_service_js_1 = require("./services/skill-derivation-service.js");
+const sandbox_service_js_1 = require("./services/sandbox-service.js");
+const config_service_js_1 = require("./services/config-service.js");
+// 路由层
+const requirements_js_1 = require("./routes/requirements.js");
+const workspace_js_1 = require("./routes/workspace.js");
+const plan_js_1 = require("./routes/plan.js");
+const execution_js_1 = require("./routes/execution.js");
+const tests_js_1 = require("./routes/tests.js");
+const skills_js_1 = require("./routes/skills.js");
+const mcp_servers_js_1 = require("./routes/mcp-servers.js");
+const pipelines_js_1 = require("./routes/pipelines.js");
+const system_js_1 = require("./routes/system.js");
+const analytics_js_1 = require("./routes/analytics.js");
+/**
+ * 创建并启动应用服务器
+ *
+ * 组装完整的 HTTP + WebSocket 服务：
+ * - 注册 CORS、JSON 解析、请求日志中间件
+ * - 实例化 8 个业务服务并注入路由
+ * - 注册 9 组 API 路由
+ * - 配置前端静态资源和 SPA 回退
+ * - 初始化 WebSocket 服务（路径 /ws）
+ *
+ * @param port - 服务监听端口号
+ * @returns 已启动监听的 HTTP Server 实例
+ */
+async function createServer(port) {
+    const app = (0, express_1.default)();
+    // 全局中间件
+    app.use((0, cors_1.default)());
+    app.use(express_1.default.json());
+    app.use(logger_js_1.requestLogger);
+    // 加载应用配置（必须在服务实例化之前）
+    const configService = new config_service_js_1.ConfigService();
+    let config;
+    try {
+        config = configService.load();
+        console.log(`[config] loaded from ${configService.getConfigFile()}`);
+    }
+    catch (err) {
+        console.warn(`[config] failed to load config, using defaults: ${err instanceof Error ? err.message : err}`);
+        config = configService.getDefaultConfig();
+    }
+    // 实例化业务服务
+    const mcpConfigService = new mcp_config_service_js_1.MCPConfigService();
+    const mcpBridgeService = new mcp_bridge_service_js_1.MCPBridgeService(mcpConfigService);
+    const workspaceService = new workspace_service_js_1.WorkspaceService();
+    const cliRunnerService = new cli_runner_service_js_1.CLIRunnerService(config.cliProvider?.active);
+    const testExecutorService = new test_executor_service_js_1.TestExecutorService();
+    const skillsService = new skills_service_js_1.SkillsService();
+    const pipelineService = new pipeline_service_js_1.PipelineService();
+    const requirementStore = new requirement_store_service_js_1.RequirementStoreService();
+    // 旧版 requirements.json → 文件夹结构迁移
+    requirementStore.migrateFromLegacy();
+    // 旧版 plans.json / executions.json → 按需求文件夹存储迁移
+    const planStoreMigrator = new plan_store_service_js_1.PlanStoreService();
+    planStoreMigrator.migrateFromLegacy();
+    const executionStoreMigrator = new execution_store_service_js_1.ExecutionStoreService();
+    executionStoreMigrator.migrateFromLegacy();
+    // 初始化沙箱服务
+    const sandboxService = new sandbox_service_js_1.SandboxService(config.daytona);
+    testExecutorService.setSandboxService(sandboxService);
+    // 记忆与分析子系统
+    const memoryService = new memory_service_js_1.MemoryService();
+    const analyticsStore = new analytics_store_service_js_1.AnalyticsStoreService();
+    const analyticsService = new analytics_service_js_1.AnalyticsService(analyticsStore, memoryService);
+    const skillDerivationService = new skill_derivation_service_js_1.SkillDerivationService(analyticsService, skillsService, analyticsStore);
+    // 注册 API 路由
+    app.use('/api/requirements', (0, requirements_js_1.createRequirementsRoutes)(mcpBridgeService, requirementStore));
+    app.use('/api/workspace', (0, workspace_js_1.createWorkspaceRoutes)(workspaceService));
+    app.use('/api/plan', (0, plan_js_1.createPlanRoutes)(cliRunnerService, mcpBridgeService, pipelineService, memoryService));
+    app.use('/api/execution', (0, execution_js_1.createExecutionRoutes)(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService));
+    app.use('/api/tests', (0, tests_js_1.createTestRoutes)(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService));
+    app.use('/api/skills', (0, skills_js_1.createSkillsRoutes)(skillsService));
+    app.use('/api/mcp-servers', (0, mcp_servers_js_1.createMCPServersRoutes)(mcpConfigService));
+    app.use('/api/pipelines', (0, pipelines_js_1.createPipelineRoutes)(pipelineService));
+    app.use('/api/system', (0, system_js_1.createSystemRoutes)(cliRunnerService, mcpConfigService, sandboxService));
+    app.use('/api/analytics', (0, analytics_js_1.createAnalyticsRoutes)(analyticsService, memoryService));
+    // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
+    void analyticsService;
+    void skillDerivationService;
+    void memoryService;
+    // 静态文件服务（生产模式）
+    // 编译后 __dirname = dist/server/server/，前端资源位于 dist/client/
+    const clientDistPath = path_1.default.resolve(__dirname, '../client');
+    app.use(express_1.default.static(clientDistPath));
+    // SPA 回退：非 API/WS 请求均返回 index.html
+    // 注意：Express 的 app.get('*') 会匹配所有 GET 请求（包括 /api），
+    // 当 API 路由已正确处理请求时不会到达此处；
+    // 但为安全起见，仅对非 API 路径做 SPA 回退，其余调用 next() 继续处理链
+    app.get('*', (req, res, next) => {
+        if (!req.path.startsWith('/api') && !req.path.startsWith('/ws')) {
+            res.sendFile(path_1.default.join(clientDistPath, 'index.html'));
+        }
+        else {
+            next();
+        }
+    });
+    // 全局错误处理（必须注册在最后）
+    app.use(validation_js_1.errorHandler);
+    // 创建 HTTP 服务器
+    const server = http_1.default.createServer(app);
+    // 初始化 WebSocket
+    (0, websocket_js_1.setupWebSocket)(server);
+    // 开始监听
+    return new Promise((resolve) => {
+        server.listen(port, '0.0.0.0', () => {
+            // graceful shutdown: 清理 Daytona 沙箱
+            const cleanup = async () => {
+                await cliRunnerService.dispose();
+                await sandboxService.cleanup();
+                server.close();
+                process.exit(0);
+            };
+            process.on('SIGINT', cleanup);
+            process.on('SIGTERM', cleanup);
+            resolve(server);
+        });
+    });
+}
+//# sourceMappingURL=index.js.map
