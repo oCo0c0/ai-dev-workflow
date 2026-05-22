@@ -56,6 +56,14 @@ AI 驱动的智能开发工作台，将需求管理、智能规划、AI 辅助�
 - 查看和管理 Claude Code CLI 技能配置
 - 对 `~/.claude/commands/` 和 `~/.claude/skills/` 进行增删改查
 
+### 自进化系统（Hermes 式）
+借鉴 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 的自进化架构，工作台从每次执行中学习，越用越顺手：
+- **记忆系统** — 跨会话持久化用户偏好（语言、编码风格、框架选择）和项目特征（技术栈、测试框架、目录约定）
+- **执行分析** — 追踪每次规划、执行、测试的成功/失败模式、技能效果和恢复策略
+- **技能自动沉淀** — 从成功恢复模式中自动生成可复用技能（如"执行失败后成功 → 提炼修复策略"）
+- **Curator 清理器** — 定期清理冗余、低置信度或长期未使用的自动生成技能
+- **Prompt 增强** — 将学习到的上下文（用户画像 + 项目特征）注入每次 Claude 调用，提升输出相关性
+
 ### MCP 配置
 - 通过 Web 界面管理 MCP Server 连接
 - 测试服务器连通性
@@ -93,6 +101,16 @@ AI 驱动的智能开发工作台，将需求管理、智能规划、AI 辅助�
 **异步操作模式：** 规划生成、代码执行、测试运行均为异步操作。端点立即返回任务 ID，然后通过 WebSocket `broadcast()` 流式推送进度。客户端实时更新 Zustand Store。
 
 **双重持久化：** 活跃操作驻留在内存 Map 中以获得快速访问。完成后的记录持久化到 `~/.ai-dev-workbench/` 下的 JSON 文件（各最多 50 条）。
+
+**自进化事件循环：** 服务端 EventBus 拦截所有 `broadcast()` 调用。分析和记忆服务订阅 `execution:complete` 和 `test:complete` 事件，自动记录结果、检测模式、增强后续 prompt —— 无需修改任何现有路由代码。
+
+```
+路由处理器 → broadcast() → eventBus.dispatch()
+                               ├──→ AnalyticsService（模式检测）
+                               ├──→ MemoryService（偏好学习）
+                               ├──→ SkillDerivationService（自动技能生成）
+                               └──→ WebSocket → 前端
+```
 
 ## 环境要求
 
@@ -148,9 +166,11 @@ src/
 │   └── stores/       # Zustand 应用状态
 └── server/           # 后端 (Express.js)
     ├── middleware/    # 请求日志、参数校验
-    ├── routes/       # 9 个路由模块（30+ 端点）
-    ├── services/     # 12 个服务类
-    └── utils/        # 技能解析工具
+    ├── routes/       # 10 个路由模块（35+ 端点）
+    ├── services/     # 16+ 个服务类
+    │   └── memory/   # 记忆子系统（画像、特征、反馈存储）
+    ├── event-bus.ts  # 服务端事件总线（自进化循环核心）
+    └── utils/        # 技能解析、Prompt 增强工具
 ```
 
 ## 配置说明
@@ -178,6 +198,10 @@ src/
 | `pipelines.json` | 工作流 Pipeline 定义 |
 | `saved-workspaces.json` | 已保存的工作空间 |
 | `workspace-history.json` | 最近打开的工作空间路径（最多 10 条） |
+| `analytics.json` | 执行分析记录（最多 200 条） |
+| `memory/user-profile.json` | 用户偏好（语言、编码风格） |
+| `memory/project-facts.json` | 按工作空间索引的项目特征（最多 20 条） |
+| `memory/feedback-log.json` | 用户反馈记录（最多 50 条） |
 | `logs/app.log` | HTTP 请求日志 |
 
 ## API 端点一览
@@ -190,6 +214,7 @@ src/
 | 执行 | `/api/execution` | 启动/暂停/终止执行、日志流 |
 | 测试 | `/api/tests` | 框架检测、运行测试、结果查询 |
 | 技能 | `/api/skills` | Claude 技能文件管理 |
+| 分析 | `/api/analytics` | 执行分析概览、模式检测、记忆系统管理 |
 | MCP | `/api/mcp-servers` | MCP 服务器增删改查、连接测试 |
 | Pipeline | `/api/pipelines` | 工作流模板管理 |
 | 系统 | `/api/system` | 系统状态（CLI 可用性、运行时间） |

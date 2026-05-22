@@ -39,6 +39,7 @@ import {
     Clock,
     BookOpen,
     Download,
+    RefreshCw,
 } from 'lucide-react';
 
 /**
@@ -69,14 +70,20 @@ interface PipelineStepConfig {
     mcpToolSet: { mode: string; selectedServers: string[] };
     /** 测试策略配置 */
     testStrategy: {
-        /** 测试模式：AI自动生成 或 运行已有测试 */
-        mode: 'ai_generate' | 'run_existing';
+        /** 测试模式 */
+        mode: 'ai_generate' | 'run_existing' | 'ai_generate_e2e';
         /** 测试框架类型（仅run_existing模式使用） */
         framework?: string;
         /** 自定义测试命令 */
         command?: string;
         /** 是否在执行完成后自动运行测试 */
         autoRunAfterExecution: boolean;
+        /** 是否仅运行变更文件相关的测试 */
+        changedFilesOnly?: boolean;
+        /** 测试执行环境：local 本地（默认），sandbox 远程沙箱 */
+        environment?: 'local' | 'sandbox';
+        /** Daytona 沙箱 ID（environment 为 sandbox 时必填） */
+        sandboxId?: string;
     };
 }
 
@@ -132,6 +139,8 @@ interface Skill {
 interface StoredRequirement {
     /** 需求唯一标识符 */
     id: string;
+    /** 需求编号（如 #125975） */
+    number?: string;
     /** 需求标题 */
     title: string;
     /** 需求状态 */
@@ -558,7 +567,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                                         </div>
                                                         {/* 需求详情：标题、ID和保存时间 */}
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="text-sm font-medium truncate">{req.title}</p>
+                                                            <p className="text-sm font-medium truncate">{req.number ? `${req.number} ` : ''}{req.title}</p>
                                                             <div className="mt-0.5 flex items-center gap-2">
                                                                 <span
                                                                     className="text-xs text-muted-foreground">{req.id}</span>
@@ -635,8 +644,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                         </p>
                                     ) : state.selectedRequirement ? (
                                         <div>
-                                            <p className="text-sm font-medium">{state.selectedRequirement.title}</p>
-                                            <p className="text-xs text-muted-foreground mt-0.5">{state.selectedRequirement.id}</p>
+                                            <p className="text-sm font-medium">{state.selectedRequirement.number ? `${state.selectedRequirement.number} ` : ''}{state.selectedRequirement.title}</p>
                                         </div>
                                     ) : null}
                                 </div>
@@ -763,7 +771,7 @@ const defaultSteps: PipelineStepConfig = {
     executionSkills: {mode: 'all', selectedSkills: []},
     testSkills: {mode: 'all', selectedSkills: []},
     mcpToolSet: {mode: 'all', selectedServers: []},
-    testStrategy: {mode: 'ai_generate', autoRunAfterExecution: true},
+    testStrategy: {mode: 'ai_generate', autoRunAfterExecution: true, changedFilesOnly: false, environment: 'local'},
 };
 
 /**
@@ -991,11 +999,21 @@ export default function PipelinesPage() {
             <div className="flex-1 flex gap-4 min-h-0">
                 {/* ─── 左侧：流水线列表 ─── */}
                 <div className="w-72 flex flex-col flex-shrink-0">
-                    {/* 新建流水线按钮 */}
-                    <Button onClick={startCreate} className="w-full mb-3" size="sm">
-                        <Plus className="h-4 w-4 mr-1"/>
-                        New Pipeline
-                    </Button>
+                    {/* 新建流水线按钮 + 刷新依赖数据 */}
+                    <div className="flex gap-2 mb-3">
+                        <Button onClick={startCreate} className="flex-1" size="sm">
+                            <Plus className="h-4 w-4 mr-1"/>
+                            New Pipeline
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={fetchDependencies}
+                            title="Reload MCP servers and skills"
+                        >
+                            <RefreshCw className="h-4 w-4"/>
+                        </Button>
+                    </div>
                     <div className="flex-1 overflow-y-auto space-y-2">
                         {/* 加载中状态 */}
                         {loading && (
@@ -1293,8 +1311,8 @@ export default function PipelinesPage() {
                                 <div className="border-t border-border pt-4">
                                     <h4 className="text-xs font-medium mb-2">Test Strategy</h4>
 
-                                    {/* 测试模式选择：AI自动生成 vs 运行已有测试 */}
-                                    <div className="grid grid-cols-2 gap-2 mb-3">
+                                    {/* 测试模式选择：AI自动生成 vs 运行已有测试 vs AI E2E */}
+                                    <div className="grid grid-cols-3 gap-2 mb-3">
                                         {[
                                             {
                                                 value: 'ai_generate',
@@ -1303,8 +1321,13 @@ export default function PipelinesPage() {
                                             },
                                             {
                                                 value: 'run_existing',
-                                                label: '▶ Run Existing Tests',
+                                                label: '▶ Run Existing',
                                                 desc: 'Run tests already in the project'
+                                            },
+                                            {
+                                                value: 'ai_generate_e2e',
+                                                label: '🌐 AI E2E Tests',
+                                                desc: 'Generate Playwright files, then run structurally'
                                             },
                                         ].map((opt) => (
                                             <div
@@ -1313,7 +1336,7 @@ export default function PipelinesPage() {
                                                     ...formSteps,
                                                     testStrategy: {
                                                         ...formSteps.testStrategy,
-                                                        mode: opt.value as 'ai_generate' | 'run_existing'
+                                                        mode: opt.value as 'ai_generate' | 'run_existing' | 'ai_generate_e2e'
                                                     },
                                                 })}
                                                 className={`cursor-pointer rounded-md border p-3 transition-all ${
@@ -1338,6 +1361,17 @@ export default function PipelinesPage() {
                                             <p>• Execute the tests and report results</p>
                                             <p className="text-primary mt-2">Configure test-related skills above to
                                                 guide Claude's testing approach.</p>
+                                        </div>
+                                    )}
+
+                                    {formSteps.testStrategy.mode === 'ai_generate_e2e' && (
+                                        <div
+                                            className="rounded-md bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-muted-foreground space-y-1">
+                                            <p className="text-blue-500 font-medium">Two-phase E2E testing:</p>
+                                            <p><strong>Phase 1:</strong> Claude uses Playwright MCP to explore UI, generates <code>.spec.ts</code> files and saves to project</p>
+                                            <p><strong>Phase 2:</strong> Playwright Provider runs the generated files → structured results (pass/fail/skip)</p>
+                                            <p className="mt-2">Generated test files become project assets — reusable, version-controlled, CI-ready.</p>
+                                            <p className="text-primary mt-1">Ensure Playwright MCP server is configured in MCP Tools section.</p>
                                         </div>
                                     )}
 
@@ -1416,6 +1450,82 @@ export default function PipelinesPage() {
                                         />
                                         Auto-run tests after execution completes
                                     </label>
+
+                                    {/* 仅运行变更文件相关测试开关 */}
+                                    {formSteps.testStrategy.autoRunAfterExecution && formSteps.testStrategy.mode === 'run_existing' && (
+                                        <label className="flex items-center gap-2 text-sm mt-2 ml-5">
+                                            <input
+                                                type="checkbox"
+                                                checked={formSteps.testStrategy.changedFilesOnly ?? false}
+                                                onChange={(e) => setFormSteps({
+                                                    ...formSteps,
+                                                    testStrategy: {
+                                                        ...formSteps.testStrategy,
+                                                        changedFilesOnly: e.target.checked
+                                                    },
+                                                })}
+                                                className="rounded border-input"
+                                            />
+                                            Only run tests for changed files (git diff)
+                                        </label>
+                                    )}
+
+                                    {/* 测试执行环境选择 */}
+                                    <div className="mt-3 space-y-2">
+                                        <label className="text-xs font-medium text-muted-foreground">
+                                            Test Execution Environment
+                                        </label>
+                                        <div className="flex gap-3">
+                                            <label className="flex items-center gap-1.5 text-sm">
+                                                <input
+                                                    type="radio"
+                                                    name="testEnvironment"
+                                                    checked={(formSteps.testStrategy.environment ?? 'local') === 'local'}
+                                                    onChange={() => setFormSteps({
+                                                        ...formSteps,
+                                                        testStrategy: {
+                                                            ...formSteps.testStrategy,
+                                                            environment: 'local',
+                                                            sandboxId: undefined,
+                                                        },
+                                                    })}
+                                                />
+                                                Local
+                                            </label>
+                                            <label className="flex items-center gap-1.5 text-sm">
+                                                <input
+                                                    type="radio"
+                                                    name="testEnvironment"
+                                                    checked={formSteps.testStrategy.environment === 'sandbox'}
+                                                    onChange={() => setFormSteps({
+                                                        ...formSteps,
+                                                        testStrategy: {
+                                                            ...formSteps.testStrategy,
+                                                            environment: 'sandbox',
+                                                        },
+                                                    })}
+                                                />
+                                                Sandbox (Daytona)
+                                            </label>
+                                        </div>
+
+                                        {/* 沙箱 ID 输入 */}
+                                        {formSteps.testStrategy.environment === 'sandbox' && (
+                                            <input
+                                                type="text"
+                                                placeholder="Pre-created Sandbox ID"
+                                                value={formSteps.testStrategy.sandboxId || ''}
+                                                onChange={(e) => setFormSteps({
+                                                    ...formSteps,
+                                                    testStrategy: {
+                                                        ...formSteps.testStrategy,
+                                                        sandboxId: e.target.value || undefined,
+                                                    },
+                                                })}
+                                                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                                            />
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* 表单底部操作按钮：保存和取消 */}

@@ -41,6 +41,8 @@ import {
     CheckCircle2,
     XCircle,
     Pause,
+    RotateCcw,
+    Ban,
 } from 'lucide-react';
 
 /**
@@ -55,16 +57,22 @@ interface PlanSummary {
     id: string;
     /** 关联的需求ID */
     requirementId: string;
+    /** 关联需求标题 */
+    requirementTitle?: string;
+    /** 关联需求编号（如 #125975） */
+    requirementNumber?: string;
     /** 工作空间路径 */
     workspacePath: string;
-    /** 计划状态：generating（生成中）、paused（已暂停）、ready（就绪）、failed（失败） */
-    status: 'generating' | 'paused' | 'ready' | 'failed';
+    /** 计划状态 */
+    status: 'generating' | 'paused' | 'ready' | 'failed' | 'waiting_input';
     /** 计划摘要文本（截取前段用于列表展示） */
     summary?: string;
     /** 创建时间（ISO 8601格式） */
     createdAt: string;
     /** 更新时间（ISO 8601格式） */
     updatedAt: string;
+    /** 关联的流水线ID */
+    pipelineId?: string;
 }
 
 /**
@@ -107,6 +115,7 @@ export default function PlanPage() {
     const taskId = useAppStore((s) => s.plan.taskId);                         // 当前计划任务ID（从流水线执行或localStorage恢复）
     const planLogs = useAppStore((s) => s.plan.logs);                         // Claude实时输出日志（WebSocket推送）
     const selectedRequirement = useAppStore((s) => s.requirements.selected);   // 当前选中的需求
+    const requirementList = useAppStore((s) => s.requirements.list);           // 已保存需求列表
     const currentWorkspace = useAppStore((s) => s.workspace.current);          // 当前工作空间
     const setPlanStatus = useAppStore((s) => s.setPlanStatus);                // 设置计划状态
     const planPhase = useAppStore((s) => s.plan.status);                      // 当前计划阶段状态
@@ -172,6 +181,7 @@ export default function PlanPage() {
      * @param id - 计划ID
      */
     const loadPlan = useCallback(async (id: string) => {
+        setError(null);
         try {
             const data = await apiGet<StoredPlan>(`/plan/${id}`);
             setPlan(data);
@@ -237,7 +247,6 @@ export default function PlanPage() {
                     if (pollRef.current) clearInterval(pollRef.current);
                 } else if (result.status === 'failed') {
                     setPlan(result);
-                    setError(result.error || 'Plan generation failed');
                     setGenerating(false);
                     setPlanStatus('idle');
                     if (pollRef.current) clearInterval(pollRef.current);
@@ -281,17 +290,31 @@ export default function PlanPage() {
      *
      * 调用/plan/generate API启动Claude计划生成流程，
      * 成功后将taskId存入全局状态，轮询机制会自动跟踪进度。
+     *
+     * @param overrideRequirementId - 可选的需求ID覆盖（重新生成时使用 plan 自带的需求ID）
+     * @param overrideWorkspacePath - 可选的工作空间路径覆盖
      */
-    const generatePlan = async () => {
-        if (!selectedRequirement || !currentWorkspace) return;
+    const generatePlan = async (overrideRequirementId?: string, overrideWorkspacePath?: string) => {
+        const requirementId = overrideRequirementId || selectedRequirement?.id;
+        const workspacePath = overrideWorkspacePath || currentWorkspace?.path;
+        if (!requirementId || !workspacePath) return;
+
+        // 从已选需求或全局列表中查找需求信息
+        const reqInfo = overrideRequirementId
+            ? requirementList.find(r => r.id === overrideRequirementId)
+            : selectedRequirement;
+
         setGenerating(true);
         setError(null);
         setPlan(null);
         clearPlanLogs();
         try {
             const {taskId: newTaskId} = await apiPost<{ taskId: string }>('/plan/generate', {
-                requirementId: selectedRequirement.id,
-                workspacePath: currentWorkspace.path,
+                requirementId,
+                workspacePath,
+                pipelineId: plan?.pipelineId,
+                requirementTitle: reqInfo?.title,
+                requirementNumber: reqInfo?.number,
             });
             // 将新任务ID存入全局状态，触发轮询effect
             setPlanTaskId(newTaskId);
@@ -502,7 +525,7 @@ export default function PlanPage() {
                             {/* 计划摘要信息 */}
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium truncate text-foreground">
-                                    {p.summary?.substring(0, 50) || p.requirementId || 'Plan'}
+                                    {p.requirementNumber ? `${p.requirementNumber} ` : ''}{p.requirementTitle || p.requirementId}
                                 </p>
                                 {/* 更新时间 */}
                                 <div className="flex items-center gap-1.5 mt-0.5">
@@ -546,19 +569,90 @@ export default function PlanPage() {
                             </p>
                         </div>
 
-                        {/* 操作按钮组：根据状态动态显示 */}
+                        {/* 操作按钮组：根据计划状态动态显示 */}
                         <div className="flex items-center gap-2">
                             {/* 无计划且未生成时：显示"生成计划"按钮 */}
                             {!plan && !generating && (
-                                <Button onClick={generatePlan} disabled={!canGenerate}>
+                                <Button onClick={() => generatePlan()} disabled={!canGenerate}>
                                     <Sparkles className="h-4 w-4 mr-2"/>
                                     Generate Plan
                                 </Button>
                             )}
-                            {/* 有计划且未编辑且未生成时：显示编辑、重新生成、确认执行按钮 */}
-                            {plan && !editing && !generating && (
+
+                            {/* === failed 状态：重新生成 + 重新执行 === */}
+                            {plan && plan.status === 'failed' && !editing && !generating && (
                                 <>
-                                    {/* 编辑按钮 */}
+                                    <Button variant="outline" size="sm" onClick={async () => {
+                                        try {
+                                            setGenerating(true);
+                                            setError(null);
+                                            clearPlanLogs();
+                                            await apiPost(`/plan/${activePlanId}/regenerate`, {});
+                                            setPlanStatus('generating');
+                                        } catch (err) {
+                                            setError(err instanceof Error ? err.message : 'Failed to regenerate');
+                                            setGenerating(false);
+                                        }
+                                    }}>
+                                        <RefreshCw className="h-4 w-4 mr-1.5"/>
+                                        Regenerate
+                                    </Button>
+                                    {(plan.rawOutput || plan.summary) && (
+                                        <Button
+                                            size="sm"
+                                            className="bg-amber-600 hover:bg-amber-700 text-white"
+                                            onClick={handleConfirmAndExecute}
+                                            disabled={executing}
+                                        >
+                                            {executing ? (
+                                                <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
+                                            ) : (
+                                                <RotateCcw className="h-4 w-4 mr-1.5"/>
+                                            )}
+                                            {executing ? 'Starting...' : 'Retry Execute'}
+                                        </Button>
+                                    )}
+                                </>
+                            )}
+
+                            {/* === paused 状态：恢复生成 + 取消 === */}
+                            {plan && plan.status === 'paused' && !editing && !generating && (
+                                <>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={async () => {
+                                            try {
+                                                await apiPost(`/plan/${activePlanId}/resume`, {});
+                                                setGenerating(true);
+                                            } catch (err) {
+                                                setError(err instanceof Error ? err.message : 'Failed to resume');
+                                            }
+                                        }}
+                                    >
+                                        <Play className="h-4 w-4 mr-1.5"/>
+                                        Resume
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={async () => {
+                                            try {
+                                                await apiPost(`/plan/${activePlanId}/abort`, {});
+                                                loadPlan(activePlanId!);
+                                            } catch {
+                                            }
+                                        }}
+                                    >
+                                        <Ban className="h-4 w-4 mr-1.5"/>
+                                        Cancel
+                                    </Button>
+                                </>
+                            )}
+
+                            {/* === ready 状态：编辑 + 重新生成 + 确认执行 === */}
+                            {plan && plan.status === 'ready' && !editing && !generating && (
+                                <>
                                     <Button variant="outline" size="sm" onClick={() => {
                                         setEditing(true);
                                         setEditedSummary(plan.rawOutput || plan.summary || '');
@@ -566,17 +660,15 @@ export default function PlanPage() {
                                         <Pencil className="h-4 w-4 mr-1.5"/>
                                         Edit
                                     </Button>
-                                    {/* 重新生成按钮 */}
-                                    <Button variant="outline" size="sm" onClick={generatePlan} disabled={generating}>
+                                    <Button variant="outline" size="sm" onClick={() => generatePlan()} disabled={!canGenerate}>
                                         <RefreshCw className="h-4 w-4 mr-1.5"/>
                                         New Plan
                                     </Button>
-                                    {/* 确认并执行按钮（仅计划就绪时可用） */}
                                     <Button
                                         size="sm"
                                         className="bg-emerald-600 hover:bg-emerald-700 text-white"
                                         onClick={handleConfirmAndExecute}
-                                        disabled={executing || plan.status !== 'ready'}
+                                        disabled={executing}
                                     >
                                         {executing ? (
                                             <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
@@ -587,6 +679,7 @@ export default function PlanPage() {
                                     </Button>
                                 </>
                             )}
+
                             {/* 编辑模式下：显示保存和取消按钮 */}
                             {editing && (
                                 <>
@@ -777,14 +870,14 @@ export default function PlanPage() {
                         </Card>
                     )}
 
-                    {/* 错误信息提示条 */}
-                    {error && (
+                    {/* 错误信息提示条：操作错误（启动执行/保存失败等）或计划本身的失败 */}
+                    {(error || (plan?.status === 'failed' && plan.error)) && (
                         <div
                             className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
                             <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0"/>
                             <div>
                                 <p className="text-sm font-medium text-destructive">Error</p>
-                                <p className="text-sm text-muted-foreground mt-1">{error}</p>
+                                <p className="text-sm text-muted-foreground mt-1">{error || plan?.error}</p>
                             </div>
                         </div>
                     )}
@@ -798,7 +891,7 @@ export default function PlanPage() {
                                     <div className="flex items-center gap-2 text-sm">
                                         <span className="text-muted-foreground">Requirement:</span>
                                         <span className="font-medium">
-                      {selectedRequirement?.title || plan.requirementId}
+                      {plan.requirementNumber ? `${plan.requirementNumber} ` : ''}{plan.requirementTitle || plan.requirementId}
                     </span>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm mt-1">

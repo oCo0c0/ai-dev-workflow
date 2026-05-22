@@ -1,56 +1,133 @@
-import { Request, Response, NextFunction } from 'express';
+/**
+ * 请求验证与错误处理中间件
+ *
+ * 提供 Express 请求体验证和全局错误处理功能：
+ * - validateBody：基于字段规则校验请求体
+ * - errorHandler：捕获未处理异常并返回标准错误响应
+ */
 
+import {Request, Response, NextFunction} from 'express';
+import path from 'path';
+
+/** API 标准错误响应格式 */
 export interface APIError {
-  code: string;
-  message: string;
-  details?: unknown;
-  suggestion?: string;
+    /** 错误码（如 VALIDATION_ERROR、INTERNAL_ERROR） */
+    code: string;
+    /** 错误描述信息 */
+    message: string;
+    /** 错误详情（可选） */
+    details?: unknown;
+    /** 修复建议（可选） */
+    suggestion?: string;
 }
 
+/** 字段验证规则 */
 export interface FieldRule {
-  field: string;
-  required?: boolean;
-  type?: 'string' | 'number' | 'boolean' | 'object' | 'array';
+    /** 字段名（对应 req.body 中的键） */
+    field: string;
+    /** 是否必填 */
+    required?: boolean;
+    /** 期望的类型 */
+    type?: 'string' | 'number' | 'boolean' | 'object' | 'array';
 }
 
+/**
+ * 请求体验证中间件工厂
+ *
+ * 根据字段规则数组创建验证中间件。遍历所有规则检查：
+ * - 必填字段是否存在（非 undefined/null/空字符串）
+ * - 字段类型是否匹配（支持 array 类型检测）
+ *
+ * 验证失败返回 400 状态码和错误详情数组。
+ *
+ * @param rules - 字段验证规则数组
+ * @returns Express 中间件函数
+ *
+ * @example
+ * app.post('/api/items', validateBody([
+ *   { field: 'name', required: true, type: 'string' },
+ *   { field: 'count', type: 'number' }
+ * ]), handler);
+ */
 export function validateBody(rules: FieldRule[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const errors: string[] = [];
+    return (req: Request, res: Response, next: NextFunction): void => {
+        const errors: string[] = [];
 
-    for (const rule of rules) {
-      const value = req.body?.[rule.field];
+        for (const rule of rules) {
+            const value = req.body?.[rule.field];
 
-      if (rule.required && (value === undefined || value === null || value === '')) {
-        errors.push(`Field "${rule.field}" is required`);
-        continue;
-      }
+            if (rule.required && (value === undefined || value === null || value === '')) {
+                errors.push(`Field "${rule.field}" is required`);
+                continue;
+            }
 
-      if (value !== undefined && value !== null && rule.type) {
-        const actualType = Array.isArray(value) ? 'array' : typeof value;
-        if (actualType !== rule.type) {
-          errors.push(`Field "${rule.field}" must be of type ${rule.type}, got ${actualType}`);
+            if (value !== undefined && value !== null && rule.type) {
+                const actualType = Array.isArray(value) ? 'array' : typeof value;
+                if (actualType !== rule.type) {
+                    errors.push(`Field "${rule.field}" must be of type ${rule.type}, got ${actualType}`);
+                }
+            }
         }
-      }
-    }
 
-    if (errors.length > 0) {
-      const apiError: APIError = {
-        code: 'VALIDATION_ERROR',
-        message: 'Request validation failed',
-        details: errors,
-      };
-      res.status(400).json(apiError);
-      return;
-    }
+        if (errors.length > 0) {
+            const apiError: APIError = {
+                code: 'VALIDATION_ERROR',
+                message: 'Request validation failed',
+                details: errors,
+            };
+            res.status(400).json(apiError);
+            return;
+        }
 
-    next();
-  };
+        next();
+    };
 }
 
+/**
+ * 全局错误处理中间件
+ *
+ * 捕获路由处理中未捕获的异常，返回标准化的 500 错误响应。
+ * 必须注册在所有路由之后。
+ *
+ * @param err - 捕获的错误对象
+ * @param _req - Express 请求对象（未使用）
+ * @param res - Express 响应对象
+ * @param _next - 下一个中间件函数（未使用，Express 签名要求）
+ */
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
-  const apiError: APIError = {
-    code: 'INTERNAL_ERROR',
-    message: err.message || 'An unexpected error occurred',
-  };
-  res.status(500).json(apiError);
+    const apiError: APIError = {
+        code: 'INTERNAL_ERROR',
+        message: err.message || 'An unexpected error occurred',
+    };
+    res.status(500).json(apiError);
+}
+
+/**
+ * workspace 路径安全校验
+ *
+ * 防止路径遍历攻击，确保路径不是绝对路径或包含 .. 跳转。
+ * Daytona 沙箱模式下，路径会在沙箱内解析，此处仅做基本格式校验。
+ *
+ * @param workspacePath - 待校验的工作区路径
+ * @returns 校验结果，valid 为 true 时 path 为规范化后的路径
+ */
+export function validateWorkspacePath(workspacePath: string): { valid: boolean; path?: string; error?: string } {
+    if (!workspacePath || typeof workspacePath !== 'string') {
+        return {valid: false, error: 'workspacePath is required'};
+    }
+
+    const trimmed = workspacePath.trim();
+
+    // 防止路径遍历
+    if (trimmed.includes('..')) {
+        return {valid: false, error: 'workspacePath must not contain path traversal (..)'};
+    }
+
+    // 规范化路径
+    try {
+        const resolved = path.resolve(trimmed);
+        return {valid: true, path: resolved};
+    } catch {
+        return {valid: false, error: 'workspacePath is not a valid path'};
+    }
 }

@@ -2,4 +2,4 @@
 
 'use strict';
 
-require('../dist/server/cli/index.js');
+require('../dist/cli/index.js');

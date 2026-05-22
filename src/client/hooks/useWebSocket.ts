@@ -66,6 +66,7 @@ export function useWebSocket() {
     const setExecutionId = useAppStore((s) => s.setExecutionId);
     const setTestResults = useAppStore((s) => s.setTestResults);
     const setTestRunning = useAppStore((s) => s.setTestRunning);
+    const setTestPhase = useAppStore((s) => s.setTestPhase);
     const setPlanStatus = useAppStore((s) => s.setPlanStatus);
     const addPlanLog = useAppStore((s) => s.addPlanLog);
 
@@ -155,10 +156,16 @@ export function useWebSocket() {
                         });
                         break;
 
+                    // 沙箱测试阶段变更
+                    case 'test:phase_change':
+                        setTestPhase(message.data.phase, message.data.label);
+                        break;
+
                     // 测试完成：保存测试结果并标记测试运行结束
                     case 'test:complete':
                         setTestResults(message.data);
                         setTestRunning(false);
+                        setTestPhase(null, null);
                         break;
 
                     // 服务端错误：将错误信息记录到执行日志，并退出 generating 状态
@@ -180,7 +187,7 @@ export function useWebSocket() {
                 // 非标准 JSON 消息，静默忽略（如心跳帧等）
             }
         },
-        [addExecutionLog, addPlanLog, setExecutionId, setExecutionStatus, setPlanStatus, setTestResults, setTestRunning]
+        [addExecutionLog, addPlanLog, setExecutionId, setExecutionStatus, setPlanStatus, setTestResults, setTestRunning, setTestPhase]
     );
 
     /**

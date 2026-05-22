@@ -30,6 +30,7 @@ import {
     Wifi,
     Server,
     AlertCircle,
+    RefreshCw,
 } from 'lucide-react';
 
 /**
@@ -274,10 +275,25 @@ export default function MCPPage() {
             <div className="flex-1 flex gap-4 min-h-0">
                 {/* 左侧面板：MCP 服务器列表 */}
                 <div className="w-80 flex flex-col flex-shrink-0">
-                    <Button onClick={startCreate} className="w-full mb-3" size="sm">
-                        <Plus className="h-4 w-4 mr-1"/>
-                        Add Server
-                    </Button>
+                    <div className="flex gap-2 mb-3">
+                        <Button onClick={startCreate} className="flex-1" size="sm">
+                            <Plus className="h-4 w-4 mr-1"/>
+                            Add Server
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={fetchServers}
+                            disabled={loading}
+                            title="Reload MCP servers from ~/.claude/settings.json"
+                        >
+                            {loading ? (
+                                <Loader2 className="h-4 w-4 animate-spin"/>
+                            ) : (
+                                <RefreshCw className="h-4 w-4"/>
+                            )}
+                        </Button>
+                    </div>
                     <div className="flex-1 overflow-y-auto space-y-2">
                         {/* 加载中状态 */}
                         {loading && (

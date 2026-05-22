@@ -1,91 +1,198 @@
+/**
+ * @module plan-store-service
+ * @description 开发计划持久化存储服务模块
+ *
+ * 管理由 Claude Agent 生成的开发计划的持久化存储。
+ * 每个需求的计划存储在其需求文件夹下：requirements/{requirementId}/plan.json
+ * 同时维护从 planId → requirementId 的索引以支持按 planId 查询。
+ */
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+import {REQUIREMENTS_DIR, APP_DATA_DIR} from '../utils/constants.js';
 
+/**
+ * 持久化开发计划接口
+ */
 export interface PersistedPlan {
-  id: string;
-  requirementId: string;
-  workspacePath: string;
-  status: 'generating' | 'ready' | 'failed' | 'waiting_input';
-  summary?: string;
-  rawOutput?: string;
-  createdAt: string;
-  updatedAt: string;
-  error?: string;
-  sessionId?: string;
-  pipelineId?: string;  // Which pipeline triggered this plan
+    /** 计划唯一标识符 */
+    id: string;
+    /** 关联需求 ID */
+    requirementId: string;
+    /** 关联需求标题（冗余存储，避免跨服务查询） */
+    requirementTitle?: string;
+    /** 关联需求编号（如 #125975） */
+    requirementNumber?: string;
+    /** 工作区路径 */
+    workspacePath: string;
+    /** 计划状态 */
+    status: 'generating' | 'paused' | 'ready' | 'failed' | 'waiting_input';
+    /** 计划摘要 */
+    summary?: string;
+    /** Claude Agent 原始输出 */
+    rawOutput?: string;
+    /** 创建时间 */
+    createdAt: string;
+    /** 最后更新时间 */
+    updatedAt: string;
+    /** 错误信息 */
+    error?: string;
+    /** 会话 ID */
+    sessionId?: string;
+    /** 流水线 ID */
+    pipelineId?: string;
 }
 
-const CONFIG_DIR = path.join(os.homedir(), '.ai-dev-workbench');
-const PLANS_FILE = path.join(CONFIG_DIR, 'plans.json');
-const MAX_PLANS = 50; // Keep last 50 plans
+/** planId → requirementId 的索引文件路径 */
+const PLAN_INDEX_FILE = path.join(APP_DATA_DIR, 'plan-index.json');
 
+/**
+ * 开发计划存储服务类
+ *
+ * 按需求文件夹存储：requirements/{requirementId}/plan.json
+ * 每个需求只有一个 plan（regenerate 覆盖）。
+ * 维护 plan-index.json 索引以支持按 planId 快速查找 requirementId。
+ */
 export class PlanStoreService {
-  private storeFile: string;
-
-  constructor(storeFile?: string) {
-    this.storeFile = storeFile ?? PLANS_FILE;
-  }
-
-  private ensureDir(): void {
-    const dir = path.dirname(this.storeFile);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    /** 读取 planId → requirementId 索引 */
+    private loadIndex(): Record<string, string> {
+        if (!fs.existsSync(PLAN_INDEX_FILE)) return {};
+        try {
+            return JSON.parse(fs.readFileSync(PLAN_INDEX_FILE, 'utf-8'));
+        } catch {
+            return {};
+        }
     }
-  }
 
-  private load(): PersistedPlan[] {
-    if (!fs.existsSync(this.storeFile)) return [];
-    try {
-      const raw = fs.readFileSync(this.storeFile, 'utf-8');
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
+    /** 写入索引 */
+    private saveIndex(index: Record<string, string>): void {
+        fs.writeFileSync(PLAN_INDEX_FILE, JSON.stringify(index, null, 2), 'utf-8');
     }
-  }
 
-  private save(plans: PersistedPlan[]): void {
-    this.ensureDir();
-    // Keep only the most recent MAX_PLANS
-    const trimmed = plans
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, MAX_PLANS);
-    fs.writeFileSync(this.storeFile, JSON.stringify(trimmed, null, 2), 'utf-8');
-  }
-
-  list(): PersistedPlan[] {
-    return this.load().sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-  }
-
-  get(id: string): PersistedPlan | undefined {
-    return this.load().find(p => p.id === id);
-  }
-
-  upsert(plan: Omit<PersistedPlan, 'updatedAt'> & { updatedAt?: string }): PersistedPlan {
-    const plans = this.load();
-    const idx = plans.findIndex(p => p.id === plan.id);
-    const updated: PersistedPlan = {
-      ...plan,
-      updatedAt: plan.updatedAt ?? new Date().toISOString(),
-    };
-    if (idx >= 0) {
-      plans[idx] = updated;
-    } else {
-      plans.push(updated);
+    /** 获取需求文件夹下的 plan.json 路径 */
+    private planFilePath(requirementId: string): string {
+        return path.join(REQUIREMENTS_DIR, requirementId, 'plan.json');
     }
-    this.save(plans);
-    return updated;
-  }
 
-  delete(id: string): boolean {
-    const plans = this.load();
-    const idx = plans.findIndex(p => p.id === id);
-    if (idx < 0) return false;
-    plans.splice(idx, 1);
-    this.save(plans);
-    return true;
-  }
+    /** 从文件读取单个 plan */
+    private readPlanFile(requirementId: string): PersistedPlan | undefined {
+        const filePath = this.planFilePath(requirementId);
+        if (!fs.existsSync(filePath)) return undefined;
+        try {
+            return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** 写入 plan 到需求文件夹 */
+    private writePlanFile(plan: PersistedPlan): void {
+        const dir = path.join(REQUIREMENTS_DIR, plan.requirementId);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, {recursive: true});
+        }
+        fs.writeFileSync(this.planFilePath(plan.requirementId), JSON.stringify(plan, null, 2), 'utf-8');
+        // 更新索引
+        const index = this.loadIndex();
+        index[plan.id] = plan.requirementId;
+        this.saveIndex(index);
+    }
+
+    /**
+     * 列出所有计划（按 updatedAt 倒序）
+     */
+    list(): PersistedPlan[] {
+        if (!fs.existsSync(REQUIREMENTS_DIR)) return [];
+
+        const plans: PersistedPlan[] = [];
+        const dirs = fs.readdirSync(REQUIREMENTS_DIR, {withFileTypes: true});
+
+        for (const dir of dirs) {
+            if (!dir.isDirectory()) continue;
+            const plan = this.readPlanFile(dir.name);
+            if (plan) plans.push(plan);
+        }
+
+        return plans.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    }
+
+    /**
+     * 根据 planId 获取计划
+     */
+    get(planId: string): PersistedPlan | undefined {
+        const index = this.loadIndex();
+        const requirementId = index[planId];
+        if (requirementId) {
+            return this.readPlanFile(requirementId);
+        }
+        // 索引未命中，扫描（兼容旧数据）
+        return this.list().find(p => p.id === planId);
+    }
+
+    /**
+     * 根据需求 ID 获取计划（直接读取，无需索引）
+     */
+    getByRequirement(requirementId: string): PersistedPlan | undefined {
+        return this.readPlanFile(requirementId);
+    }
+
+    /**
+     * 创建或更新计划（自动填充 updatedAt）
+     */
+    upsert(plan: Omit<PersistedPlan, 'updatedAt'> & { updatedAt?: string }): PersistedPlan {
+        const updated: PersistedPlan = {
+            ...plan,
+            updatedAt: plan.updatedAt ?? new Date().toISOString(),
+        };
+        this.writePlanFile(updated);
+        return updated;
+    }
+
+    /**
+     * 根据 planId 删除计划
+     */
+    delete(planId: string): boolean {
+        const plan = this.get(planId);
+        if (!plan) return false;
+
+        const filePath = this.planFilePath(plan.requirementId);
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+        // 清理索引
+        const index = this.loadIndex();
+        delete index[planId];
+        this.saveIndex(index);
+        return true;
+    }
+
+    // === 数据迁移 ===
+
+    /**
+     * 从旧版 plans.json 迁移到按需求文件夹存储
+     */
+    migrateFromLegacy(): void {
+        const legacyFile = path.join(APP_DATA_DIR, 'plans.json');
+        if (!fs.existsSync(legacyFile)) return;
+
+        try {
+            const raw = fs.readFileSync(legacyFile, 'utf-8');
+            const items: PersistedPlan[] = JSON.parse(raw);
+            if (!Array.isArray(items)) return;
+
+            let migrated = 0;
+            for (const item of items) {
+                if (!item.id || !item.requirementId) continue;
+                // 跳过已存在的
+                if (fs.existsSync(this.planFilePath(item.requirementId))) continue;
+                this.writePlanFile(item);
+                migrated++;
+            }
+
+            // 重命名旧文件
+            fs.renameSync(legacyFile, legacyFile + '.bak');
+            console.log(`[migration] migrated ${migrated} plans from legacy plans.json`);
+        } catch (err) {
+            console.warn(`[migration] failed to migrate plans.json: ${err}`);
+        }
+    }
 }

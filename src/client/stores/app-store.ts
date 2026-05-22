@@ -277,6 +277,10 @@ interface AppState {
         results: TestResults | null;
         /** 测试是否正在运行 */
         running: boolean;
+        /** 当前沙箱测试阶段 */
+        phase: string | null;
+        /** 阶段描述标签 */
+        phaseLabel: string | null;
     };
 
     // --- 工作流管道 ---
@@ -302,6 +306,17 @@ interface AppState {
         theme: 'dark' | 'light';
         /** 侧边栏是否折叠 */
         sidebarCollapsed: boolean;
+    };
+
+    // --- CLI Provider ---
+    /** CLI Provider 相关状态 */
+    cliProvider: {
+        /** 是否已完成首次引导 */
+        configured: boolean;
+        /** 当前激活的 Provider ID */
+        active: string;
+        /** 显示引导弹窗 */
+        showSetupModal: boolean;
     };
 
     // === Action 方法 ===
@@ -347,6 +362,8 @@ interface AppState {
     setTestResults: (results: TestResults | null) => void;
     /** 设置测试运行状态 */
     setTestRunning: (running: boolean) => void;
+    /** 设置当前沙箱测试阶段 */
+    setTestPhase: (phase: string | null, label: string | null) => void;
 
     // 管道 actions
     /** 设置管道列表 */
@@ -367,6 +384,12 @@ interface AppState {
     setSidebarCollapsed: (collapsed: boolean) => void;
     /** 直接设置主题 */
     setTheme: (theme: 'dark' | 'light') => void;
+
+    // CLI Provider actions
+    /** 设置 CLI Provider 配置状态 */
+    setCliProvider: (configured: boolean, active: string) => void;
+    /** 显示/隐藏引导弹窗 */
+    setShowSetupModal: (show: boolean) => void;
 }
 
 // === 辅助函数：主题持久化 ===
@@ -429,10 +452,11 @@ export const useAppStore = create<AppState>((set) => {
             logs: [],
         },
         execution: {status: null, logs: [], executionId: null},
-        tests: {results: null, running: false},
+        tests: {results: null, running: false, phase: null, phaseLabel: null},
         pipelines: {list: [], active: null},
         ws: {connected: false},
         ui: {theme: initialTheme, sidebarCollapsed: false},
+        cliProvider: {configured: false, active: 'claude', showSetupModal: false},
 
         // === 需求管理 Actions ===
         setRequirements: (list) =>
@@ -481,9 +505,11 @@ export const useAppStore = create<AppState>((set) => {
 
         // === 测试 Actions ===
         setTestResults: (results) =>
-            set((state) => ({tests: {...state.tests, results}})),
+            set((state) => ({tests: {...state.tests, results, phase: null, phaseLabel: null}})),
         setTestRunning: (running) =>
             set((state) => ({tests: {...state.tests, running}})),
+        setTestPhase: (phase, label) =>
+            set((state) => ({tests: {...state.tests, phase, phaseLabel: label}})),
 
         // === 管道 Actions ===
         setPipelines: (list) =>
@@ -513,5 +539,11 @@ export const useAppStore = create<AppState>((set) => {
             applyTheme(theme);
             return set((state) => ({ui: {...state.ui, theme}}));
         },
+
+        // === CLI Provider Actions ===
+        setCliProvider: (configured, active) =>
+            set((state) => ({cliProvider: {...state.cliProvider, configured, active}})),
+        setShowSetupModal: (show) =>
+            set((state) => ({cliProvider: {...state.cliProvider, showSetupModal: show}})),
     };
 });

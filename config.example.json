@@ -1,0 +1,18 @@
+{
+  "server": {
+    "host": "localhost"
+  },
+  "claudeCodeCli": {
+    "path": "claude"
+  },
+  "ui": {
+    "theme": "dark",
+    "sidebarCollapsed": false
+  },
+  "daytona": {
+    "enabled": false,
+    "apiKey": "",
+    "apiUrl": "https://app.daytona.io/api",
+    "template": "default"
+  }
+}

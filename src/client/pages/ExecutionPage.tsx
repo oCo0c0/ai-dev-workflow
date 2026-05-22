@@ -48,6 +48,10 @@ interface ExecutionSummary {
     id: string;
     /** 关联的计划 ID */
     planId: string;
+    /** 关联需求标题 */
+    requirementTitle?: string;
+    /** 关联需求编号（如 #125975） */
+    requirementNumber?: string;
     /** 执行状态：运行中、已暂停、已完成、已失败、已中止 */
     status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
     /** 当前执行的步骤编号 */
@@ -145,6 +149,7 @@ export default function ExecutionPage() {
     const logEndRef = useRef<HTMLDivElement>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const replyInputRef = useRef<HTMLTextAreaElement>(null);
+    const [pollKey, setPollKey] = useState(0); // 递增以重启轮询
 
     // 根据详情数据和 store 状态派生当前的执行状态
     // 优先使用 detail 中的状态，回退到 store 中的实时状态
@@ -265,7 +270,7 @@ export default function ExecutionPage() {
         return () => {
             if (pollRef.current) clearInterval(pollRef.current);
         };
-    }, [activeId, storeExecutionId, storeLogs.length, setExecutionStatus, addExecutionLog, loadHistory]);
+    }, [activeId, storeExecutionId, storeLogs.length, setExecutionStatus, addExecutionLog, loadHistory, pollKey]);
 
     // 组件卸载时确保清理轮询定时器，防止内存泄漏
     useEffect(() => {
@@ -297,6 +302,10 @@ export default function ExecutionPage() {
         if (!activeId) return;
         try {
             await apiPost(`/execution/${activeId}/retry-step`);
+            // retry 后端已将状态改为 running，立即刷新 detail 并重启轮询
+            const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
+            setDetail(data);
+            setPollKey(k => k + 1);
         } catch { /* 通过轮询处理状态更新 */
         }
     };
@@ -306,6 +315,10 @@ export default function ExecutionPage() {
         if (!activeId) return;
         try {
             await apiPost(`/execution/${activeId}/skip-step`);
+            // skip 后端已将状态改为 running，立即刷新 detail 并重启轮询
+            const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
+            setDetail(data);
+            setPollKey(k => k + 1);
         } catch { /* 通过轮询处理状态更新 */
         }
     };
@@ -444,7 +457,7 @@ export default function ExecutionPage() {
                             <div className="flex-1 min-w-0">
                                 {/* 显示计划 ID 的前8位作为标识 */}
                                 <p className="text-xs font-medium truncate text-foreground">
-                                    {exec.planId.substring(0, 8)}...
+                                    {exec.requirementNumber ? `${exec.requirementNumber} ` : ''}{exec.requirementTitle || exec.planId.substring(0, 8)}
                                 </p>
                                 {/* 显示相对时间 */}
                                 <div className="flex items-center gap-1.5 mt-0.5">
@@ -654,6 +667,12 @@ export default function ExecutionPage() {
                                         )}
                                     </Button>
                                 </div>
+                                {/* 无会话时显示提示信息 */}
+                                {!detail?.sessionId && !isRunning && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        No active session available for reply. Use Retry to restart execution.
+                                    </p>
+                                )}
                                 {/* Claude 运行时显示提示信息 */}
                                 {isRunning && (
                                     <p className="text-xs text-muted-foreground mt-1">

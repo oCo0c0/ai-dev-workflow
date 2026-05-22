@@ -2,22 +2,16 @@
  * @file TestsPage.tsx
  * @description 测试管理页面组件
  *
- * 该页面用于管理和查看项目测试的运行结果。
- * 支持手动执行测试和通过 Pipeline 执行测试两种模式，
- * 并提供测试框架自动检测、结果展示和历史记录管理功能。
- *
- * 核心功能：
- * 1. 自动检测工作区中的测试框架（如 Jest、Vitest、pytest 等）
- * 2. 手动触发测试运行，或关联 Pipeline 执行来运行测试
- * 3. 查看测试运行结果的详细报告（通过/失败/跳过统计、测试套件详情）
- * 4. 支持按状态过滤测试用例
- * 5. 查看原始测试输出（适用于 AI 生成测试模式）
- * 6. 管理测试运行历史记录
+ * 该页面提供三种测试模式的完整支持：
+ * 1. Run Existing - 运行项目中已有的测试用例（Provider 架构，支持 Node/Java/Python）
+ * 2. AI Generate - Claude 自动分析代码、编写测试、运行并报告结果
+ * 3. AI E2E - 两阶段 E2E 测试：AI 生成 Playwright 文件 → Provider 结构化执行
  *
  * 页面布局采用左右分栏结构：
  * - 左侧：测试运行历史列表
- * - 右侧：测试结果详情、操作按钮和关联执行上下文
+ * - 右侧：模式选择器、操作按钮、测试结果详情、AI 实时输出
  */
+
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {useSearchParams} from 'react-router-dom';
 import {apiGet, apiPost, apiDelete} from '../api';
@@ -44,183 +38,141 @@ import {
     Terminal,
     Link,
     Zap,
+    GitCompare,
+    RefreshCw,
+    Layers,
+    Globe,
+    Wrench,
+    Square,
 } from 'lucide-react';
 
 // ============================================================
 // 类型定义
 // ============================================================
 
-/**
- * @interface TestFrameworkInfo
- * @description 测试框架检测信息接口
- * 表示一个被检测到的测试框架及其配置信息
- */
 interface TestFrameworkInfo {
-    /** 框架名称（如 jest、vitest、pytest 等） */
     name: string;
-    /** 是否在当前工作区中检测到该框架 */
     detected: boolean;
-    /** 框架配置文件路径（可选） */
     configFile?: string;
-    /** 运行该框架测试的命令 */
     command: string;
 }
 
-/**
- * @interface TestCase
- * @description 单个测试用例的运行结果
- */
+interface ProjectInfo {
+    type: string;
+    label: string;
+    buildTool: string;
+    testFrameworks: Array<{
+        name: string;
+        detected: boolean;
+        configFile?: string;
+        command: string;
+        supportsJsonOutput: boolean;
+    }>;
+    rootPath: string;
+}
+
+interface TestTarget {
+    filePath: string;
+    sourceFile?: string;
+    framework: string;
+}
+
 interface TestCase {
-    /** 测试用例名称 */
     name: string;
-    /** 测试状态：通过、失败或跳过 */
     status: 'passed' | 'failed' | 'skipped';
-    /** 执行耗时（毫秒） */
     duration: number;
-    /** 失败时的错误信息（可选） */
     error?: string;
 }
 
-/**
- * @interface TestSuite
- * @description 测试套件接口
- * 包含一组相关的测试用例
- */
 interface TestSuite {
-    /** 套件名称 */
     name: string;
-    /** 套件中的测试用例列表 */
     tests: TestCase[];
 }
 
-/**
- * @interface TestResults
- * @description 测试运行结果详情
- * 包含汇总统计信息和所有测试套件
- */
 interface TestResults {
-    /** 测试框架名称 */
     framework: string;
-    /** 总测试用例数 */
     totalTests: number;
-    /** 通过的测试用例数 */
     passed: number;
-    /** 失败的测试用例数 */
     failed: number;
-    /** 跳过的测试用例数 */
     skipped: number;
-    /** 总执行耗时（毫秒） */
     duration: number;
-    /** 代码覆盖率百分比（可选） */
     coverage?: number;
-    /** 测试套件列表 */
     suites: TestSuite[];
 }
 
-/**
- * @interface TestRunSummary
- * @description 测试运行摘要接口
- * 用于历史列表展示，不包含详细的测试结果
- */
 interface TestRunSummary {
-    /** 运行记录唯一标识 */
     id: string;
-    /** 运行状态：运行中、已完成或失败 */
     status: 'running' | 'completed' | 'failed';
-    /** 运行模式：手动执行、Pipeline 执行已有测试或 Pipeline AI 生成测试 */
-    mode: 'manual' | 'pipeline_run_existing' | 'pipeline_ai_generate';
-    /** 使用的测试框架名称（可选） */
+    mode: 'manual' | 'pipeline_run_existing' | 'pipeline_ai_generate'
+        | 'manual_ai_generate' | 'manual_ai_generate_e2e';
     framework?: string;
-    /** 工作区路径 */
     workspacePath: string;
-    /** 开始时间（ISO 格式） */
     startedAt: string;
-    /** 完成时间（ISO 格式，可选） */
     completedAt?: string;
-    /** 关联的执行 ID（可选） */
     executionId?: string;
-    /** 关联的 Pipeline ID（可选） */
     pipelineId?: string;
-    /** 总测试数（可选，运行中时可能为空） */
     totalTests?: number;
-    /** 通过数（可选） */
     passed?: number;
-    /** 失败数（可选） */
     failed?: number;
-    /** 跳过数（可选） */
     skipped?: number;
+    environment?: 'local' | 'sandbox';
+    currentPhase?: 'writing' | 'sandbox_run' | 'fixing' | 'sandbox_rerun';
 }
 
-/**
- * @interface TestRunDetail
- * @extends TestRunSummary
- * @description 测试运行详情接口
- * 在摘要基础上包含完整的测试结果和原始输出
- */
 interface TestRunDetail extends TestRunSummary {
-    /** 详细的测试结果（可选，运行中时为空） */
     results?: TestResults;
-    /** 原始测试输出文本（可选） */
     rawOutput?: string;
-    /** 运行错误信息（可选） */
     error?: string;
+    sandboxId?: string;
+    phases?: Array<{
+        phase: 'writing' | 'sandbox_run' | 'fixing' | 'sandbox_rerun';
+        label: string;
+        startedAt: string;
+        completedAt?: string;
+        status: 'running' | 'completed' | 'failed' | 'skipped';
+    }>;
 }
 
-/**
- * @interface ExecutionSummary
- * @description Pipeline 执行摘要接口
- * 用于关联测试运行与 Pipeline 执行上下文
- */
 interface ExecutionSummary {
-    /** 执行唯一标识 */
     id: string;
-    /** 关联的计划 ID */
     planId: string;
-    /** 执行状态 */
     status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
-    /** 开始时间（ISO 格式） */
     startedAt: string;
-    /** 完成时间（ISO 格式，可选） */
     completedAt?: string;
-    /** 关联的工作区路径（可选） */
     workspacePath?: string;
 }
 
-/**
- * @interface PipelineInfo
- * @description Pipeline 信息接口
- * 包含 Pipeline 的测试策略配置
- */
 interface PipelineInfo {
-    /** Pipeline 唯一标识 */
     id: string;
-    /** Pipeline 名称 */
     name: string;
-    /** Pipeline 步骤配置（可选） */
     steps?: {
-        /** 测试策略配置 */
         testStrategy?: {
-            /** 测试模式：AI 生成测试或执行已有测试 */
-            mode: 'ai_generate' | 'run_existing';
-            /** 指定的测试框架（可选） */
+            mode: 'ai_generate' | 'run_existing' | 'ai_generate_e2e';
             framework?: string;
-            /** 自定义测试命令（可选） */
             command?: string;
-            /** 是否在执行完成后自动运行测试 */
             autoRunAfterExecution: boolean;
+            environment?: 'local' | 'sandbox';
+            sandboxId?: string;
+        };
+        testSkills?: {
+            mode: 'all' | 'selected';
+            selectedSkills: string[];
         };
     };
 }
+
+interface SkillInfo {
+    name: string;
+    description: string;
+}
+
+/** 测试运行模式 */
+type TestRunMode = 'run_existing' | 'ai_generate' | 'ai_generate_e2e';
 
 // ============================================================
 // 辅助函数
 // ============================================================
 
-/**
- * 根据测试运行状态返回对应的状态图标组件
- * @param status - 运行状态字符串
- * @returns 对应的 React 图标元素
- */
 function statusIcon(status: string) {
     switch (status) {
         case 'completed':
@@ -234,17 +186,15 @@ function statusIcon(status: string) {
     }
 }
 
-/**
- * 根据运行模式返回可读的标签文本
- * @param mode - 运行模式字符串
- * @returns 模式的中文标签
- */
 function modeLabel(mode: string) {
     switch (mode) {
         case 'pipeline_ai_generate':
+        case 'manual_ai_generate':
             return 'AI Test';
         case 'pipeline_run_existing':
             return 'Pipeline';
+        case 'manual_ai_generate_e2e':
+            return 'AI E2E';
         case 'manual':
             return 'Manual';
         default:
@@ -252,14 +202,11 @@ function modeLabel(mode: string) {
     }
 }
 
-/**
- * 根据运行模式返回 Badge 组件的变体样式
- * @param mode - 运行模式字符串
- * @returns Badge 的 variant 属性值
- */
 function modeBadgeVariant(mode: string): 'default' | 'secondary' | 'outline' {
     switch (mode) {
         case 'pipeline_ai_generate':
+        case 'manual_ai_generate':
+        case 'manual_ai_generate_e2e':
             return 'default';
         case 'pipeline_run_existing':
             return 'secondary';
@@ -268,11 +215,6 @@ function modeBadgeVariant(mode: string): 'default' | 'secondary' | 'outline' {
     }
 }
 
-/**
- * 根据测试用例状态返回对应的状态图标组件
- * @param status - 测试用例状态
- * @returns 对应的 React 图标元素（未知状态返回 null）
- */
 function testCaseStatusIcon(status: string) {
     switch (status) {
         case 'passed':
@@ -286,71 +228,96 @@ function testCaseStatusIcon(status: string) {
     }
 }
 
+/**
+ * 将前端模式值映射为后端持久化 mode 值
+ */
+function mapModeToDisplay(
+    mode: TestRunMode,
+    linkedExecution: ExecutionSummary | null
+): TestRunDetail['mode'] {
+    if (mode === 'ai_generate') return linkedExecution ? 'pipeline_ai_generate' : 'manual_ai_generate';
+    if (mode === 'ai_generate_e2e') return linkedExecution ? 'pipeline_ai_generate' : 'manual_ai_generate_e2e';
+    return linkedExecution ? 'pipeline_run_existing' : 'manual';
+}
+
+function logTypeColor(type: string) {
+    switch (type) {
+        case 'error':
+            return 'text-red-400';
+        case 'warning':
+            return 'text-yellow-400';
+        case 'info':
+            return 'text-blue-400';
+        default:
+            return 'text-gray-300';
+    }
+}
+
 // ============================================================
 // 主组件
 // ============================================================
 
-/**
- * @function TestsPage
- * @description 测试管理页面主组件
- *
- * 提供测试框架检测、手动/自动测试执行、结果展示和历史管理功能。
- * 支持从 Execution 页面通过 URL 参数传入执行上下文，实现测试与 Pipeline 的联动。
- *
- * @returns {JSX.Element} 测试管理页面的 React 组件
- */
 export default function TestsPage() {
-    /** URL 查询参数，用于接收从 Execution 页面传入的 executionId */
     const [searchParams] = useSearchParams();
-    /** 从全局状态获取当前工作区信息 */
     const currentWorkspace = useAppStore((s) => s.workspace.current);
 
     // === 历史记录相关状态 ===
-    /** 测试运行历史列表 */
     const [history, setHistory] = useState<TestRunSummary[]>([]);
-    /** 是否正在加载历史记录 */
     const [loadingHistory, setLoadingHistory] = useState(false);
 
     // === 当前测试运行相关状态 ===
-    /** 当前激活（查看中）的测试运行 ID */
     const [activeId, setActiveId] = useState<string | null>(null);
-    /** 当前查看的测试运行详情 */
     const [detail, setDetail] = useState<TestRunDetail | null>(null);
-    /** 检测到的测试框架列表 */
     const [frameworks, setFrameworks] = useState<TestFrameworkInfo[]>([]);
-    /** 是否正在检测框架 */
     const [detecting, setDetecting] = useState(false);
-    /** 是否正在运行测试 */
     const [running, setRunning] = useState(false);
-    /** 错误信息 */
     const [error, setError] = useState<string | null>(null);
-    /** 测试用例过滤条件 */
     const [filter, setFilter] = useState<'all' | 'passed' | 'failed' | 'skipped'>('all');
-    /** 是否展开原始输出面板 */
     const [showRawOutput, setShowRawOutput] = useState(false);
-    /** 轮询定时器引用 */
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // === 执行上下文关联状态 ===
-    /** 关联的执行摘要（从 Execution 页面或手动选择） */
     const [linkedExecution, setLinkedExecution] = useState<ExecutionSummary | null>(null);
-    /** 关联的 Pipeline 信息（包含测试策略配置） */
     const [pipelineInfo, setPipelineInfo] = useState<PipelineInfo | null>(null);
-    /** 可选的执行列表（用于执行选择器） */
     const [executionList, setExecutionList] = useState<ExecutionSummary[]>([]);
-    /** 是否显示执行选择器下拉面板 */
     const [showExecSelector, setShowExecSelector] = useState(false);
 
-    /**
-     * 计算有效的工作区路径
-     * 优先使用关联执行的工作区路径，其次使用全局状态中的工作区路径
-     */
-    const effectiveWorkspace = linkedExecution?.workspacePath || currentWorkspace?.path || '';
+    // === 项目信息状态（Provider 架构） ===
+    const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+    const [changedTargets, setChangedTargets] = useState<TestTarget[]>([]);
+    const [detectingTargets, setDetectingTargets] = useState(false);
 
-    /**
-     * 组件挂载时：从 URL 参数加载执行上下文
-     * 如果 URL 中包含 executionId，自动加载该执行信息并关联到测试页面
-     */
+    // === 实时日志（来自 WebSocket，复用 execution store） ===
+    const storeLogs = useAppStore((s) => s.execution.logs);
+    const testPhase = useAppStore((s) => s.tests.phase);
+    const testPhaseLabel = useAppStore((s) => s.tests.phaseLabel);
+    const testRunning = useAppStore((s) => s.tests.running);
+    const logEndRef = useRef<HTMLDivElement>(null);
+    // 记录 AI 模式开始时已有日志数量，只展示此后新增的
+    const [aiLogStartIndex, setAiLogStartIndex] = useState(0);
+
+    // === 模式选择相关状态 ===
+    const [selectedMode, setSelectedMode] = useState<TestRunMode>('run_existing');
+    const [activeTab, setActiveTab] = useState<'local' | 'sandbox'>('local');
+    const [sandboxIdInput, setSandboxIdInput] = useState('');
+    // 切换到沙箱 Tab 时自动选中 AI Generate 模式
+    useEffect(() => {
+        if (activeTab === 'sandbox' && selectedMode !== 'ai_generate') {
+            setSelectedMode('ai_generate');
+        }
+    }, [activeTab]);
+    const [cliAvailable, setCliAvailable] = useState(true);
+    const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
+    const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+    const [showSkillSelector, setShowSkillSelector] = useState(false);
+    const [customPrompt, setCustomPrompt] = useState('');
+    const rawOutputRef = useRef<HTMLDivElement>(null);
+
+    const effectiveWorkspace = linkedExecution?.workspacePath || currentWorkspace?.path || '';
+    const isAiMode = selectedMode === 'ai_generate' || selectedMode === 'ai_generate_e2e';
+
+    // === 初始化 ===
+
     useEffect(() => {
         const execId = searchParams.get('executionId');
         if (!execId) return;
@@ -359,11 +326,9 @@ export default function TestsPage() {
             .then((exec) => {
                 if (exec.status === 'completed') {
                     setLinkedExecution(exec);
-                    // 尝试加载关联的 Pipeline 信息以获取测试策略配置
                     apiGet<{ pipelineId?: string }>(`/plan/${exec.planId}`)
                         .then((plan) => {
                             if (plan.pipelineId) {
-                                // 通过列表接口查找对应的 Pipeline（因无单独 GET /:id 端点）
                                 return apiGet<PipelineInfo[]>('/pipelines').then((list) => {
                                     const found = list.find(p => p.id === plan.pipelineId);
                                     if (found) setPipelineInfo(found);
@@ -375,7 +340,6 @@ export default function TestsPage() {
                         .catch(() => {
                         });
 
-                    // 为关联的工作区自动检测测试框架
                     if (exec.workspacePath) {
                         apiGet<TestFrameworkInfo[]>(
                             `/tests/detect?workspacePath=${encodeURIComponent(exec.workspacePath)}`
@@ -388,16 +352,55 @@ export default function TestsPage() {
             });
     }, [searchParams]);
 
-    /**
-     * 加载可关联的执行列表
-     * 仅加载已完成的执行记录供用户选择
-     */
+    // 检查 CLI 可用性和加载 skills 列表
+    // 默认 cliAvailable=true，避免异步检查期间 UI 不可用
+    useEffect(() => {
+        apiGet<{ available: boolean }>('/tests/cli-available')
+            .then(info => setCliAvailable(info.available))
+            .catch(() => {
+            });  // 检查失败不关闭，运行时再报错
+
+        apiGet<SkillInfo[]>('/tests/skills')
+            .then(setAvailableSkills)
+            .catch(() => {
+            });
+    }, []);
+
+    // Pipeline 跳转时，根据 pipelineInfo.steps 同步模式、沙箱配置和 skills
+    useEffect(() => {
+        if (!pipelineInfo?.steps) return;
+
+        // 同步模式
+        const strategy = pipelineInfo.steps.testStrategy;
+        if (strategy?.mode) {
+            if (strategy.mode === 'ai_generate') setSelectedMode('ai_generate');
+            else if (strategy.mode === 'ai_generate_e2e') setSelectedMode('ai_generate_e2e');
+            else setSelectedMode('run_existing');
+        }
+
+        // 同步沙箱环境配置：从流水线配置读取 environment 和 sandboxId
+        if (strategy?.environment === 'sandbox' && strategy.sandboxId) {
+            setActiveTab('sandbox');
+            setSandboxIdInput(strategy.sandboxId);
+        } else if (strategy?.environment === 'local') {
+            setActiveTab('local');
+        }
+
+        // 同步 skills
+        const skillConfig = pipelineInfo.steps.testSkills;
+        if (skillConfig?.mode === 'all') {
+            // all 模式：选中所有可用 skills
+            setSelectedSkills(availableSkills.map(s => s.name));
+        } else if (skillConfig?.selectedSkills?.length) {
+            setSelectedSkills(skillConfig.selectedSkills);
+        }
+    }, [pipelineInfo, availableSkills]);
+
     const loadExecutions = useCallback(async () => {
         try {
             const data = await apiGet<ExecutionSummary[]>('/execution/list');
             setExecutionList(data.filter(e => e.status === 'completed'));
         } catch {
-            // 静默处理加载失败
         }
     }, []);
 
@@ -405,16 +408,12 @@ export default function TestsPage() {
         loadExecutions();
     }, [loadExecutions]);
 
-    /**
-     * 加载测试运行历史列表
-     */
     const loadHistory = useCallback(async () => {
         setLoadingHistory(true);
         try {
             const data = await apiGet<TestRunSummary[]>('/tests/list');
             setHistory(data);
         } catch {
-            // 静默处理
         } finally {
             setLoadingHistory(false);
         }
@@ -424,35 +423,60 @@ export default function TestsPage() {
         loadHistory();
     }, [loadHistory]);
 
-    /**
-     * 加载指定测试运行的详细结果
-     */
     const loadDetail = useCallback(async (id: string) => {
         try {
             const data = await apiGet<TestRunDetail>(`/tests/results/${id}`);
             setDetail(data);
             setActiveId(id);
             setError(null);
+            // 根据记录的执行环境自动切换 Tab 并恢复 sandboxId
+            if (data.environment === 'sandbox') {
+                setActiveTab('sandbox');
+                if (data.sandboxId && !sandboxIdInput) {
+                    setSandboxIdInput(data.sandboxId);
+                }
+            } else if (data.environment === 'local' && activeTab !== 'local') {
+                setActiveTab('local');
+            }
+            // 恢复执行上下文关联
+            if (data.executionId && (!linkedExecution || linkedExecution.id !== data.executionId)) {
+                try {
+                    const exec = await apiGet<ExecutionSummary>(`/execution/${data.executionId}/status`);
+                    setLinkedExecution(exec);
+                    if (data.pipelineId && (!pipelineInfo || pipelineInfo.id !== data.pipelineId)) {
+                        try {
+                            const list = await apiGet<PipelineInfo[]>('/pipelines');
+                            const found = list.find(p => p.id === data.pipelineId);
+                            if (found) setPipelineInfo(found);
+                        } catch { /* ignore */
+                        }
+                    }
+                    if (exec.workspacePath) {
+                        try {
+                            const fw = await apiGet<TestFrameworkInfo[]>(
+                                `/tests/detect?workspacePath=${encodeURIComponent(exec.workspacePath)}`
+                            );
+                            setFrameworks(fw);
+                        } catch { /* ignore */
+                        }
+                    }
+                } catch { /* ignore */
+                }
+            }
         } catch {
-            // 静默处理
         }
-    }, []);
+    }, [activeTab, sandboxIdInput, linkedExecution, pipelineInfo]);
 
-    /**
-     * 自动选中历史列表中的第一条记录
-     * 仅在尚未选中任何记录且有历史数据时触发
-     */
     useEffect(() => {
+        // 从 Execution 跳转时（URL 带 executionId），不自动选中历史记录，避免覆盖跳转上下文
+        const execId = searchParams.get('executionId');
+        if (execId) return;
         if (!activeId && history.length > 0) {
             loadDetail(history[0].id);
         }
-    }, [activeId, history, loadDetail]);
+    }, [activeId, history, loadDetail, searchParams]);
 
-    /**
-     * 轮询正在运行的测试任务
-     * 每 2 秒请求一次最新状态，直到测试完成或失败后停止轮询
-     * 测试完成后自动刷新历史列表
-     */
+    // 轮询正在运行的测试任务
     useEffect(() => {
         if (!activeId) return;
         const current = history.find(h => h.id === activeId);
@@ -462,13 +486,11 @@ export default function TestsPage() {
             try {
                 const data = await apiGet<TestRunDetail>(`/tests/results/${activeId}`);
                 setDetail(data);
-                // 测试结束后停止轮询并刷新历史
                 if (['completed', 'failed'].includes(data.status)) {
                     if (pollRef.current) clearInterval(pollRef.current);
                     loadHistory();
                 }
             } catch {
-                // 请求失败时保持轮询，等待服务恢复
             }
         };
 
@@ -478,65 +500,160 @@ export default function TestsPage() {
         };
     }, [activeId, history, loadHistory]);
 
-    // 组件卸载时清理轮询定时器
     useEffect(() => {
         return () => {
             if (pollRef.current) clearInterval(pollRef.current);
         };
     }, []);
 
+    // WebSocket test:complete 通知后立即刷新 detail（避免 2s 轮询延迟）
+    useEffect(() => {
+        if (!testRunning && activeId && detail?.status === 'running') {
+            loadDetail(activeId);
+            loadHistory();
+        }
+    }, [testRunning]);
+
+    // AI 模式 rawOutput 自动滚动
+    useEffect(() => {
+        if (rawOutputRef.current && detail?.status === 'running' && detail?.mode?.includes('ai_generate')) {
+            rawOutputRef.current.scrollTop = rawOutputRef.current.scrollHeight;
+        }
+    }, [detail?.rawOutput, detail?.status, detail?.mode]);
+
+    // 实时日志（WebSocket）自动滚动
+    useEffect(() => {
+        logEndRef.current?.scrollIntoView({behavior: 'smooth'});
+    }, [storeLogs]);
+
     // === 操作方法 ===
 
-    /**
-     * 自动检测当前工作区中的测试框架
-     * 扫描项目配置文件（如 package.json、jest.config 等）来识别可用框架
-     */
-    const detectFrameworks = async () => {
+    const detectProject = async () => {
         if (!effectiveWorkspace) return;
         setDetecting(true);
         setError(null);
         try {
-            const data = await apiGet<TestFrameworkInfo[]>(
-                `/tests/detect?workspacePath=${encodeURIComponent(effectiveWorkspace)}`
-            );
-            setFrameworks(data);
-            // 所有框架都未检测到时显示提示
-            if (data.every((f) => !f.detected)) {
+            const [projInfo, fwData] = await Promise.all([
+                apiGet<ProjectInfo>(`/tests/detect-project?workspacePath=${encodeURIComponent(effectiveWorkspace)}`),
+                apiGet<TestFrameworkInfo[]>(`/tests/detect?workspacePath=${encodeURIComponent(effectiveWorkspace)}`),
+            ]);
+            setProjectInfo(projInfo);
+            setFrameworks(fwData);
+            if (fwData.every((f) => !f.detected)) {
                 setError('No test framework detected in this workspace.');
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to detect frameworks');
+            setError(err instanceof Error ? err.message : 'Failed to detect project');
         } finally {
             setDetecting(false);
         }
     };
 
+    const detectChangedTargets = async () => {
+        if (!effectiveWorkspace) return;
+        setDetectingTargets(true);
+        setError(null);
+        try {
+            const gitStatus = await apiGet<{
+                isGit: boolean;
+                changes: Array<{ path: string; status: string }>;
+            }>(`/workspace/git/status?workspacePath=${encodeURIComponent(effectiveWorkspace)}`);
+
+            if (!gitStatus.isGit || !gitStatus.changes?.length) {
+                setError('No changed files detected. The workspace may not be a git repository or has no uncommitted changes.');
+                return;
+            }
+
+            const changedFiles = gitStatus.changes.map(c => c.path);
+            const targets = await apiGet<TestTarget[]>(
+                `/tests/targets?workspacePath=${encodeURIComponent(effectiveWorkspace)}&changedFiles=${encodeURIComponent(changedFiles.join(','))}`
+            );
+            setChangedTargets(targets);
+
+            if (targets.length === 0) {
+                setError(
+                    `${changedFiles.length} changed files found, but no matching test files exist.\n` +
+                    'The changed source files do not have corresponding test files (e.g. foo.ts → foo.test.ts).\n' +
+                    'Click "Run All" to run the full test suite instead.'
+                );
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to detect changed targets');
+        } finally {
+            setDetectingTargets(false);
+        }
+    };
+
+    const runChangedTests = async () => {
+        if (!effectiveWorkspace || changedTargets.length === 0) return;
+        setRunning(true);
+        setError(null);
+        try {
+            const changedFiles = [...new Set(changedTargets.map(t => t.sourceFile).filter(Boolean))] as string[];
+            const body: Record<string, string | string[]> = {
+                workspacePath: effectiveWorkspace,
+                mode: 'run_existing',
+                changedFiles,
+            };
+            const {taskId} = await apiPost<{ taskId: string }>('/tests/run', body);
+            setActiveId(taskId);
+            setDetail({
+                id: taskId,
+                status: 'running',
+                mode: linkedExecution ? 'pipeline_run_existing' : 'manual',
+                workspacePath: effectiveWorkspace,
+                executionId: linkedExecution?.id,
+                pipelineId: pipelineInfo?.id,
+                startedAt: new Date().toISOString(),
+            });
+            loadHistory();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to run changed tests');
+        } finally {
+            setRunning(false);
+        }
+    };
+
     /**
-     * 运行测试
-     * 根据是否关联执行上下文决定运行模式：
-     * - 有关联：使用 pipeline_run_existing 模式
-     * - 无关联：使用 manual 模式
-     * 运行启动后立即开始轮询状态
+     * 核心运行方法：根据 selectedMode 分流到后端三种模式
      */
     const runTests = async (framework?: string) => {
         if (!effectiveWorkspace) return;
         setRunning(true);
         setError(null);
         try {
-            const body: Record<string, string> = {
+            const body: Record<string, unknown> = {
                 workspacePath: effectiveWorkspace,
-                mode: linkedExecution ? 'pipeline_run_existing' : 'manual',
+                mode: selectedMode,
             };
             if (framework) body.framework = framework;
+            // AI 模式传入已检测到的变更文件，帮助 AI 聚焦测试
+            if (isAiMode && changedTargets.length > 0) {
+                body.changedFiles = [...new Set(changedTargets.map(t => t.sourceFile).filter(Boolean))];
+            }
+            if (isAiMode) {
+                if (selectedSkills.length > 0) body.skills = selectedSkills;
+                if (customPrompt.trim()) body.customPrompt = customPrompt.trim();
+            }
             if (linkedExecution) body.executionId = linkedExecution.id;
             if (pipelineInfo) body.pipelineId = pipelineInfo.id;
+            // 沙箱模式：传入执行环境和沙箱 ID
+            if (isAiMode && activeTab === 'sandbox' && sandboxIdInput.trim()) {
+                body.environment = 'sandbox';
+                body.sandboxId = sandboxIdInput.trim();
+            }
+
             const {taskId} = await apiPost<{ taskId: string }>('/tests/run', body);
-            // 创建临时的运行记录用于立即展示
+            // AI 模式记录当前 store logs 长度，后续只展示新增日志
+            if (isAiMode) {
+                const currentLogs = useAppStore.getState().execution.logs;
+                setAiLogStartIndex(currentLogs.length);
+            }
             setActiveId(taskId);
             setDetail({
                 id: taskId,
                 status: 'running',
-                mode: linkedExecution ? 'pipeline_run_existing' : 'manual',
+                mode: mapModeToDisplay(selectedMode, linkedExecution),
                 framework,
                 workspacePath: effectiveWorkspace,
                 executionId: linkedExecution?.id,
@@ -551,10 +668,18 @@ export default function TestsPage() {
         }
     };
 
-    /**
-     * 删除测试运行记录
-     * 如果删除的是当前查看的记录，同时清空详情视图
-     */
+    const cancelTest = async () => {
+        if (!activeId) return;
+        try {
+            await apiPost<{ ok: boolean }>(`/tests/${activeId}/cancel`, {});
+            setDetail(prev => prev ? {...prev, status: 'failed' as const, error: 'Cancelled by user'} : null);
+            setRunning(false);
+            loadHistory();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to cancel test');
+        }
+    };
+
     const handleDelete = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
         try {
@@ -565,32 +690,56 @@ export default function TestsPage() {
                 setActiveId(null);
             }
         } catch {
-            // 静默处理
         }
     };
 
-    /**
-     * 根据过滤条件过滤测试套件和用例
-     * 空套件（过滤后无用例）会被移除
-     */
     const filteredSuites = detail?.results?.suites.map((suite) => ({
         ...suite,
         tests: suite.tests.filter((t) => filter === 'all' || t.status === filter),
     })).filter((suite) => suite.tests.length > 0);
+
+    // 模式选择器配置
+    const modeOptions: Array<{
+        value: TestRunMode;
+        label: string;
+        desc: string;
+        icon: React.ReactNode;
+        disabled?: boolean;
+    }> = [
+        {
+            value: 'run_existing',
+            label: 'Run Existing',
+            desc: 'Run tests already in the project',
+            icon: <Play className="h-4 w-4"/>,
+        },
+        {
+            value: 'ai_generate',
+            label: 'AI Writes Tests',
+            desc: 'Claude writes and runs tests automatically',
+            icon: <Sparkles className="h-4 w-4"/>,
+            disabled: !cliAvailable,
+        },
+        {
+            value: 'ai_generate_e2e',
+            label: 'AI E2E Tests',
+            desc: 'Generate Playwright files, then run',
+            icon: <Globe className="h-4 w-4"/>,
+            disabled: !cliAvailable,
+        },
+    ];
 
     return (
         <div className="flex h-full">
             {/* === 左侧：测试运行历史列表 === */}
             <div className="w-64 flex flex-col border-r border-border bg-muted/10 shrink-0">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Test History
-          </span>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Test History
+                    </span>
                     {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
-                    {/* 历史为空时的提示 */}
                     {history.length === 0 && !loadingHistory && (
                         <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
                             <TestTube className="h-7 w-7 text-muted-foreground/30"/>
@@ -598,69 +747,67 @@ export default function TestsPage() {
                         </div>
                     )}
 
-                    {/* 历史记录列表项 */}
                     {history.map((run) => (
-                        <div
-                            key={run.id}
-                            onClick={() => loadDetail(run.id)}
-                            className={cn(
-                                'group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors',
-                                activeId === run.id
-                                    ? 'bg-primary/5 border-l-2 border-l-primary'
-                                    : 'hover:bg-accent/50'
-                            )}
-                        >
-                            <div className="mt-0.5 shrink-0">{statusIcon(run.status)}</div>
-                            <div className="flex-1 min-w-0">
-                                {/* 运行模式和框架信息 */}
-                                <div className="flex items-center gap-1.5">
-                                    <Badge variant={modeBadgeVariant(run.mode)} className="text-[10px] px-1.5 py-0">
-                                        {modeLabel(run.mode)}
-                                    </Badge>
-                                    {run.framework && (
-                                        <span className="text-xs text-muted-foreground truncate">{run.framework}</span>
+                            <div
+                                key={run.id}
+                                onClick={() => loadDetail(run.id)}
+                                className={cn(
+                                    'group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors',
+                                    activeId === run.id
+                                        ? 'bg-primary/5 border-l-2 border-l-primary'
+                                        : 'hover:bg-accent/50'
+                                )}
+                            >
+                                <div className="mt-0.5 shrink-0">{statusIcon(run.status)}</div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                        <Badge variant={modeBadgeVariant(run.mode)} className="text-[10px] px-1.5 py-0">
+                                            {modeLabel(run.mode)}
+                                        </Badge>
+                                        {run.environment === 'sandbox' && (
+                                            <span className="text-[10px] px-1.5 py-0 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">sandbox</span>
+                                        )}
+                                        {run.framework && (
+                                            <span
+                                                className="text-xs text-muted-foreground truncate">{run.framework}</span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                        <Clock className="h-3 w-3 text-muted-foreground/50"/>
+                                        <span className="text-xs text-muted-foreground/60">
+                                        {formatRelativeTime(run.startedAt)}
+                                    </span>
+                                    </div>
+                                    {run.workspacePath && (
+                                        <div className="flex items-center gap-1 mt-0.5">
+                                            <FolderOpen className="h-3 w-3 text-muted-foreground/40"/>
+                                            <span className="text-xs text-muted-foreground/40 truncate font-mono">
+                                            {run.workspacePath.split(/[/\\]/).pop()}
+                                        </span>
+                                        </div>
+                                    )}
+                                    {run.status === 'completed' && run.totalTests !== undefined && (
+                                        <div className="flex items-center gap-2 mt-1 text-xs">
+                                            <span className="text-emerald-500">{run.passed} pass</span>
+                                            {(run.failed ?? 0) > 0 &&
+                                                <span className="text-red-500">{run.failed} fail</span>}
+                                            {(run.skipped ?? 0) > 0 &&
+                                                <span className="text-amber-500">{run.skipped} skip</span>}
+                                        </div>
                                     )}
                                 </div>
-                                {/* 相对时间显示 */}
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                    <Clock className="h-3 w-3 text-muted-foreground/50"/>
-                                    <span className="text-xs text-muted-foreground/60">
-                    {formatRelativeTime(run.startedAt)}
-                  </span>
-                                </div>
-                                {/* 工作区路径（仅显示最后一级目录名） */}
-                                {run.workspacePath && (
-                                    <div className="flex items-center gap-1 mt-0.5">
-                                        <FolderOpen className="h-3 w-3 text-muted-foreground/40"/>
-                                        <span className="text-xs text-muted-foreground/40 truncate font-mono">
-                      {run.workspacePath.split(/[/\\]/).pop()}
-                    </span>
-                                    </div>
-                                )}
-                                {/* 已完成运行的结果统计 */}
-                                {run.status === 'completed' && run.totalTests !== undefined && (
-                                    <div className="flex items-center gap-2 mt-1 text-xs">
-                                        <span className="text-emerald-500">{run.passed} pass</span>
-                                        {(run.failed ?? 0) > 0 &&
-                                            <span className="text-red-500">{run.failed} fail</span>}
-                                        {(run.skipped ?? 0) > 0 &&
-                                            <span className="text-amber-500">{run.skipped} skip</span>}
-                                    </div>
-                                )}
+                                <button
+                                    onClick={(e) => handleDelete(run.id, e)}
+                                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
+                                >
+                                    <Trash2 className="h-3.5 w-3.5"/>
+                                </button>
                             </div>
-                            {/* 删除按钮：鼠标悬停时显示 */}
-                            <button
-                                onClick={(e) => handleDelete(run.id, e)}
-                                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
-                            >
-                                <Trash2 className="h-3.5 w-3.5"/>
-                            </button>
-                        </div>
-                    ))}
+                        ))}
                 </div>
             </div>
 
-            {/* === 右侧：测试详情、操作和结果 === */}
+            {/* === 右侧：模式选择、操作和结果 === */}
             <div className="flex-1 flex flex-col min-w-0">
                 {/* 顶部操作栏 */}
                 <div className="border-b border-border px-6 py-4 shrink-0">
@@ -670,16 +817,14 @@ export default function TestsPage() {
                             <p className="mt-0.5 text-sm text-muted-foreground">
                                 {detail?.status === 'running' ? 'Tests are running...' :
                                     detail ? 'Test results' :
-                                        'Run tests manually or via pipeline execution'}
+                                        'Select a test mode and run'}
                             </p>
                         </div>
-                        {/* 操作按钮组 */}
                         <div className="flex items-center gap-2">
-                            {/* 检测测试框架按钮 */}
                             <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={detectFrameworks}
+                                onClick={detectProject}
                                 disabled={!effectiveWorkspace || detecting}
                             >
                                 {detecting ? (
@@ -689,20 +834,41 @@ export default function TestsPage() {
                                 )}
                                 Detect
                             </Button>
-                            {/* 运行测试按钮 */}
                             <Button
                                 size="sm"
                                 onClick={() => runTests()}
-                                disabled={!effectiveWorkspace || running}
+                                disabled={!effectiveWorkspace || running || (activeTab === 'sandbox' && !sandboxIdInput.trim())}
                             >
                                 {running ? (
                                     <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
                                 ) : (
                                     <Play className="h-4 w-4 mr-1.5"/>
                                 )}
-                                Run Tests
+                                Run
                             </Button>
-                            {/* 关联执行按钮：打开执行选择器 */}
+                            {detail?.status === 'running' && (
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={cancelTest}
+                                >
+                                    <Square className="h-4 w-4 mr-1.5"/>
+                                    Cancel
+                                </Button>
+                            )}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={changedTargets.length > 0 ? runChangedTests : detectChangedTargets}
+                                disabled={!effectiveWorkspace || running || detectingTargets}
+                            >
+                                {detectingTargets ? (
+                                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
+                                ) : (
+                                    <GitCompare className="h-4 w-4 mr-1.5"/>
+                                )}
+                                {changedTargets.length > 0 ? `Changed (${changedTargets.length})` : 'Changed Tests'}
+                            </Button>
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -711,13 +877,61 @@ export default function TestsPage() {
                                 <Link className="h-4 w-4 mr-1.5"/>
                                 Link Execution
                             </Button>
-                            {/* 未选择工作区时的提示 */}
                             {!effectiveWorkspace && (
                                 <span
                                     className="text-xs text-muted-foreground">Select a workspace or link an execution</span>
                             )}
                         </div>
                     </div>
+
+                    {/* 测试环境 Tab bar */}
+                    <div className="mt-3 flex items-center gap-1 p-1 bg-secondary rounded-lg w-fit">
+                        <button
+                            className={cn(
+                                'px-3 py-1 rounded-md text-xs font-medium transition-colors',
+                                activeTab === 'local'
+                                    ? 'bg-background text-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:text-foreground'
+                            )}
+                            onClick={() => setActiveTab('local')}
+                        >
+                            <span className="flex items-center gap-1.5">
+                                <TestTube className="h-3.5 w-3.5"/>
+                                Local Tests
+                            </span>
+                        </button>
+                        <button
+                            className={cn(
+                                'px-3 py-1 rounded-md text-xs font-medium transition-colors',
+                                activeTab === 'sandbox'
+                                    ? 'bg-background text-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:text-foreground'
+                            )}
+                            onClick={() => setActiveTab('sandbox')}
+                        >
+                            <span className="flex items-center gap-1.5">
+                                <Globe className="h-3.5 w-3.5"/>
+                                Sandbox Tests
+                            </span>
+                        </button>
+                    </div>
+
+                    {/* 沙箱配置（仅 Sandbox Tab 可见） */}
+                    {activeTab === 'sandbox' && (
+                        <div className="mt-3 flex items-center gap-3">
+                            <label className="text-xs text-muted-foreground">Sandbox ID:</label>
+                            <input
+                                type="text"
+                                placeholder="Enter pre-created Sandbox ID"
+                                value={sandboxIdInput}
+                                onChange={(e) => setSandboxIdInput(e.target.value)}
+                                className="flex-1 max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+                            />
+                            {!sandboxIdInput.trim() && (
+                                <span className="text-xs text-amber-500">Required for sandbox execution</span>
+                            )}
+                        </div>
+                    )}
 
                     {/* 已关联的执行上下文信息栏 */}
                     {linkedExecution && (
@@ -730,14 +944,14 @@ export default function TestsPage() {
                                     {linkedExecution.workspacePath || linkedExecution.id}
                                 </p>
                             </div>
-                            {/* 显示 Pipeline 的测试策略模式 */}
                             {pipelineInfo?.steps?.testStrategy && (
                                 <Badge variant="secondary" className="text-[10px]">
                                     <Zap className="h-3 w-3 mr-0.5"/>
-                                    {pipelineInfo.steps.testStrategy.mode === 'ai_generate' ? 'AI Generate' : 'Run Existing'}
+                                    {pipelineInfo.steps.testStrategy.mode === 'ai_generate' ? 'AI Generate'
+                                        : pipelineInfo.steps.testStrategy.mode === 'ai_generate_e2e' ? 'AI E2E'
+                                            : 'Run Existing'}
                                 </Badge>
                             )}
-                            {/* 取消关联按钮 */}
                             <button
                                 onClick={() => {
                                     setLinkedExecution(null);
@@ -768,14 +982,13 @@ export default function TestsPage() {
                                         onClick={async () => {
                                             setLinkedExecution(exec);
                                             setShowExecSelector(false);
-                                            // 选中执行后自动检测其工作区的测试框架
                                             if (exec.workspacePath) {
                                                 try {
                                                     const fw = await apiGet<TestFrameworkInfo[]>(
                                                         `/tests/detect?workspacePath=${encodeURIComponent(exec.workspacePath)}`
                                                     );
                                                     setFrameworks(fw);
-                                                } catch { /* ignore */
+                                                } catch {
                                                 }
                                             }
                                         }}
@@ -803,8 +1016,168 @@ export default function TestsPage() {
                         </div>
                     )}
 
+                    {/* === 模式选择器（三列卡片，沙箱 Tab 下隐藏） === */}
+                    {activeTab === 'local' && (
+                        <div className="mt-3 grid grid-cols-3 gap-2">
+                            {modeOptions.map((opt) => (
+                                <div
+                                    key={opt.value}
+                                    onClick={() => !opt.disabled && setSelectedMode(opt.value)}
+                                    className={cn(
+                                        'cursor-pointer rounded-md border p-3 transition-all',
+                                        opt.disabled && 'opacity-50 cursor-not-allowed',
+                                        selectedMode === opt.value
+                                            ? 'border-primary bg-primary/5'
+                                            : 'border-border hover:border-primary/40'
+                                    )}
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        {opt.icon}
+                                        <p className="text-sm font-medium">{opt.label}</p>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                                    {opt.disabled && (
+                                        <p className="text-[10px] text-destructive mt-1">Claude CLI not available</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* 沙箱模式说明 */}
+                    {activeTab === 'sandbox' && (
+                        <div
+                            className="mt-3 flex items-center gap-2 px-3 py-2 rounded-md bg-primary/5 border border-primary/20">
+                            <Globe className="h-4 w-4 text-primary shrink-0"/>
+                            <span className="text-xs text-muted-foreground">
+                                Sandbox mode: AI writes tests locally, then executes them in the Daytona sandbox. Three phases: Write → Run → Fix.
+                            </span>
+                        </div>
+                    )}
+
+                    {/* === AI 模式配置面板 === */}
+                    {isAiMode && (
+                        <div className="mt-3 space-y-2">
+                            {/* Skills 选择器 */}
+                            {availableSkills.length > 0 && (
+                                <div>
+                                    <button
+                                        onClick={() => setShowSkillSelector(!showSkillSelector)}
+                                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                    >
+                                        <Wrench className="h-3.5 w-3.5"/>
+                                        Skills {selectedSkills.length > 0 && `(${selectedSkills.length} selected)`}
+                                        {showSkillSelector ? <ChevronUp className="h-3 w-3"/> :
+                                            <ChevronDown className="h-3 w-3"/>}
+                                    </button>
+                                    {showSkillSelector && (
+                                        <div
+                                            className="mt-1 border border-border rounded-md p-2 max-h-32 overflow-y-auto">
+                                            {availableSkills.map(skill => (
+                                                <label key={skill.name}
+                                                       className="flex items-center gap-2 py-0.5 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedSkills.includes(skill.name)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) setSelectedSkills(prev => [...prev, skill.name]);
+                                                            else setSelectedSkills(prev => prev.filter(s => s !== skill.name));
+                                                        }}
+                                                        className="rounded border-input"
+                                                    />
+                                                    <span className="text-xs">{skill.name}</span>
+                                                    <span
+                                                        className="text-[10px] text-muted-foreground ml-auto truncate max-w-40">
+                                                        {skill.description}
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Custom Prompt */}
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">Custom Prompt
+                                    (optional)</label>
+                                <textarea
+                                    value={customPrompt}
+                                    onChange={(e) => setCustomPrompt(e.target.value)}
+                                    placeholder="Leave empty for default prompt..."
+                                    rows={2}
+                                    className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                                />
+                            </div>
+
+                            {/* E2E 模式说明 */}
+                            {selectedMode === 'ai_generate_e2e' && (
+                                <div
+                                    className="rounded-md bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-muted-foreground space-y-1">
+                                    <p className="text-blue-500 font-medium">Two-phase E2E testing:</p>
+                                    <p><strong>Phase 1:</strong> Claude generates .spec.ts files and saves to project
+                                    </p>
+                                    <p><strong>Phase 2:</strong> Playwright Provider runs the generated files with
+                                        structured results</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 项目信息展示（Provider 架构） */}
+                    {projectInfo && (
+                        <div
+                            className="mt-3 flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/50 border border-border">
+                            <Layers className="h-4 w-4 text-primary shrink-0"/>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold">{projectInfo.label}</span>
+                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                        {projectInfo.buildTool}
+                                    </Badge>
+                                    {projectInfo.testFrameworks.filter(f => f.detected).map(f => (
+                                        <Badge key={f.name} variant="outline" className="text-[10px] px-1.5 py-0">
+                                            {f.name}
+                                        </Badge>
+                                    ))}
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setProjectInfo(null);
+                                    setChangedTargets([]);
+                                }}
+                                className="text-xs text-muted-foreground hover:text-foreground"
+                            >
+                                <RefreshCw className="h-3 w-3"/>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* 变更文件测试目标展示 */}
+                    {changedTargets.length > 0 && (
+                        <div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <GitCompare className="h-3.5 w-3.5 text-amber-500"/>
+                                <span className="text-xs font-medium">Changed File Targets</span>
+                                <span className="text-xs text-muted-foreground">({changedTargets.length} tests)</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                                {changedTargets.slice(0, 10).map((t, i) => (
+                                    <span key={i} className="text-[10px] font-mono bg-muted/50 px-1.5 py-0.5 rounded">
+                                        {t.filePath.split('/').pop()}
+                                    </span>
+                                ))}
+                                {changedTargets.length > 10 && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                        +{changedTargets.length - 10} more
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* 检测到的测试框架标签列表 */}
-                    {/* 已检测到的框架可直接点击运行 */}
                     {frameworks.length > 0 && (
                         <div className="mt-3 flex gap-2 flex-wrap">
                             {frameworks.map((fw) => (
@@ -830,35 +1203,159 @@ export default function TestsPage() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6">
-                    {/* 错误提示 */}
+                    {/* 全局错误提示 */}
                     {error && (
                         <div
                             className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
                             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0"/>
-                            <p className="text-sm text-destructive">{error}</p>
+                            <p className="text-sm text-destructive whitespace-pre-line">{error}</p>
                         </div>
                     )}
 
-                    {/* 测试运行中的进度指示器 */}
-                    {detail?.status === 'running' && (
+                    {/* AI 模式运行中：实时日志终端（参考 ExecutionPage） */}
+                    {detail?.status === 'running' && detail?.mode?.includes('ai_generate') && (() => {
+                        const aiLogs = storeLogs.slice(aiLogStartIndex);
+                        // Fallback: WebSocket logs 为空但轮询 rawOutput 有内容时，展示 rawOutput
+                        const rawText = detail.rawOutput || '';
+                        const hasContent = aiLogs.length > 0 || rawText.length > 0;
+                        const isSandbox = detail?.environment === 'sandbox' || !!testPhase;
+                        const phaseLabel = testPhaseLabel || (detail?.currentPhase === 'writing' ? 'AI 编写测试文件'
+                            : detail?.currentPhase === 'sandbox_run' ? '在沙箱中执行测试'
+                                : detail?.currentPhase === 'fixing' ? 'AI 修复失败用例'
+                                    : detail?.currentPhase === 'sandbox_rerun' ? '在沙箱中重新执行测试'
+                                        : null);
+                        const phaseOrder: Array<{ key: string; label: string }> = [
+                            {key: 'writing', label: 'Writing'},
+                            {key: 'sandbox_run', label: 'Running'},
+                            {key: 'fixing', label: 'Fixing'},
+                            {key: 'sandbox_rerun', label: 'Re-running'},
+                        ];
+                        const currentPhaseKey = testPhase || detail?.currentPhase || '';
+                        return (
+                            <div className="mb-4 rounded-lg border border-border bg-gray-950 overflow-hidden">
+                                <div
+                                    className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
+                                    <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse"/>
+                                    <span className="text-xs text-muted-foreground font-mono">
+                                        {phaseLabel || (detail.mode === 'manual_ai_generate_e2e'
+                                            ? 'AI E2E Test Generation'
+                                            : 'AI Test Generation')}
+                                    </span>
+                                    {/* 沙箱阶段进度条 */}
+                                    {isSandbox && (
+                                        <div className="ml-3 flex items-center gap-1">
+                                            {phaseOrder.map((p, i) => {
+                                                const phaseIndex = phaseOrder.findIndex(x => x.key === currentPhaseKey);
+                                                const isDone = i < phaseIndex;
+                                                const isCurrent = p.key === currentPhaseKey;
+                                                return (
+                                                    <div key={p.key} className="flex items-center gap-1">
+                                                        {i > 0 && <span className="text-gray-600 text-xs">→</span>}
+                                                        <span className={cn(
+                                                            'text-[10px] px-1.5 py-0.5 rounded',
+                                                            isDone ? 'bg-emerald-900/40 text-emerald-400' :
+                                                                isCurrent ? 'bg-primary/20 text-primary animate-pulse' :
+                                                                    'bg-gray-800 text-gray-600'
+                                                        )}>
+                                                            {p.label}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
+                                        Live
+                                    </span>
+                                </div>
+                                <div ref={rawOutputRef} className="max-h-96 overflow-y-auto p-4 font-mono text-xs">
+                                    {!hasContent ? (
+                                        <div className="text-gray-500 text-center py-6">
+                                            <Loader2 className="h-4 w-4 animate-spin inline-block mr-2"/>
+                                            Waiting for AI output...
+                                        </div>
+                                    ) : aiLogs.length > 0 ? (
+                                        aiLogs.map((entry, i) => {
+                                            const isObj = typeof entry === 'object' && 'content' in entry;
+                                            const content = isObj ? (entry as {
+                                                content: string
+                                            }).content : String(entry);
+                                            const type = isObj ? (entry as { type: string }).type : 'output';
+                                            const timestamp = isObj ? (entry as { timestamp: string }).timestamp : '';
+
+                                            return (
+                                                <div key={i}
+                                                     className={cn('py-0.5 leading-relaxed', logTypeColor(type))}>
+                                                    {timestamp && (
+                                                        <span className="text-gray-600 mr-2 select-none">
+                                                            {new Date(timestamp).toLocaleTimeString()}
+                                                        </span>
+                                                    )}
+                                                    <span className="whitespace-pre-wrap">{content}</span>
+                                                </div>
+                                            );
+                                        })
+                                    ) : (
+                                        // Fallback: rawOutput from polling
+                                        <pre
+                                            className="text-gray-300 whitespace-pre-wrap leading-relaxed">{rawText}</pre>
+                                    )}
+                                    <div ref={logEndRef}/>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* 非 AI 模式运行中：进度 + 实时输出 */}
+                    {detail?.status === 'running' && !detail?.mode?.includes('ai_generate') && (
                         <Card className="mb-4">
                             <CardContent className="p-4">
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-3 mb-3">
                                     <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0"/>
-                                    <span className="text-sm font-medium">
-                    {detail.mode === 'pipeline_ai_generate' ? 'AI is generating and running tests...' : 'Tests are running...'}
-                  </span>
+                                    <span className="text-sm font-medium">Tests are running...</span>
                                 </div>
-                                {/* 动画进度条（视觉反馈，非真实进度） */}
-                                <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-3">
+                                <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-3">
                                     <div className="h-full bg-primary rounded-full animate-pulse w-2/3"/>
                                 </div>
+                                {detail.rawOutput && (
+                                    <div className="rounded-md bg-gray-950 border border-border overflow-hidden">
+                                        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-gray-900/50">
+                                            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
+                                            <span className="text-xs text-muted-foreground font-mono">Output</span>
+                                        </div>
+                                        <pre className="max-h-64 overflow-y-auto p-3 text-xs text-gray-300 font-mono whitespace-pre-wrap leading-relaxed">
+                                            {detail.rawOutput.slice(-3000)}
+                                        </pre>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     )}
 
                     {/* 详情级别的错误提示 */}
-                    {detail?.error && (
+                    {detail?.status === 'failed' && (
+                        <div
+                            className="mb-4 flex flex-col gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                            <div className="flex items-start gap-3">
+                                <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0"/>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-destructive font-medium">
+                                        {detail.error || 'Test run failed'}
+                                    </p>
+                                    {detail.rawOutput && (
+                                        <pre
+                                            className="mt-2 text-xs text-destructive/80 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+                                            {detail.rawOutput.slice(-2000)}
+                                        </pre>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 非 failed 的 error */}
+                    {detail?.error && detail.status !== 'failed' && (
                         <div
                             className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
                             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0"/>
@@ -866,127 +1363,101 @@ export default function TestsPage() {
                         </div>
                     )}
 
-                    {/* 测试结果详情 */}
-                    {detail?.results && (
-                        <div className="space-y-4">
-                            {/* 结果汇总卡片：总数、通过、失败、跳过、框架信息和耗时 */}
-                            <div className="grid grid-cols-5 gap-3">
-                                <Card>
-                                    <CardContent className="p-4 text-center">
-                                        <p className="text-2xl font-bold">{detail.results.totalTests}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">Total</p>
-                                    </CardContent>
-                                </Card>
-                                <Card className="border-emerald-500/20">
-                                    <CardContent className="p-4 text-center">
-                                        <p className="text-2xl font-bold text-emerald-500">{detail.results.passed}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">Passed</p>
-                                    </CardContent>
-                                </Card>
-                                <Card className="border-red-500/20">
-                                    <CardContent className="p-4 text-center">
-                                        <p className="text-2xl font-bold text-red-500">{detail.results.failed}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">Failed</p>
-                                    </CardContent>
-                                </Card>
-                                <Card className="border-amber-500/20">
-                                    <CardContent className="p-4 text-center">
-                                        <p className="text-2xl font-bold text-amber-500">{detail.results.skipped}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">Skipped</p>
-                                    </CardContent>
-                                </Card>
-                                <Card>
-                                    <CardContent className="p-4 text-center">
-                                        <p className="text-sm font-medium">{detail.results.framework}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            {(detail.results.duration / 1000).toFixed(2)}s
-                                            {detail.results.coverage !== undefined && ` · ${detail.results.coverage}%`}
-                                        </p>
-                                    </CardContent>
-                                </Card>
-                            </div>
-
-                            {/* 按状态过滤的标签页 */}
-                            <div className="flex gap-1 p-1 bg-secondary rounded-lg w-fit">
-                                {(['all', 'passed', 'failed', 'skipped'] as const).map((f) => (
-                                    <button
-                                        key={f}
-                                        onClick={() => setFilter(f)}
-                                        className={cn(
-                                            'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                                            filter === f
-                                                ? 'bg-background text-foreground shadow-sm'
-                                                : 'text-muted-foreground hover:text-foreground'
-                                        )}
-                                    >
-                                        {f.charAt(0).toUpperCase() + f.slice(1)}
-                                    </button>
-                                ))}
-                            </div>
-
-                            {/* 测试套件列表：按套件分组展示测试用例 */}
-                            <div className="space-y-2">
-                                {filteredSuites?.map((suite) => (
-                                    <Card key={suite.name}>
-                                        <div className="px-4 py-2.5 border-b border-border">
-                                            <h4 className="text-sm font-medium">{suite.name}</h4>
+                    {/* Phases 时间线（完成后/失败后也展示） */}
+                    {detail?.phases && detail.phases.length > 0 && (
+                        <Card className="mb-4">
+                            <CardContent className="p-4">
+                                <h3 className="text-sm font-semibold mb-3">Execution Phases</h3>
+                                <div className="space-y-2">
+                                    {detail.phases.map((phase, i) => (
+                                        <div key={i} className="flex items-center gap-3">
+                                            <div className={cn(
+                                                'h-6 w-6 rounded-full flex items-center justify-center shrink-0 text-[10px]',
+                                                phase.status === 'completed' ? 'bg-emerald-500/20 text-emerald-500' :
+                                                phase.status === 'failed' ? 'bg-red-500/20 text-red-500' :
+                                                phase.status === 'running' ? 'bg-primary/20 text-primary animate-pulse' :
+                                                'bg-muted text-muted-foreground'
+                                            )}>
+                                                {phase.status === 'completed' ? '✓' :
+                                                 phase.status === 'failed' ? '✗' :
+                                                 phase.status === 'running' ? '...' : '–'}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-medium">{phase.label}</p>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    {new Date(phase.startedAt).toLocaleTimeString()}
+                                                    {phase.completedAt && ` → ${new Date(phase.completedAt).toLocaleTimeString()}`}
+                                                </p>
+                                            </div>
+                                            <span className={cn(
+                                                'text-[10px] px-1.5 py-0.5 rounded',
+                                                phase.status === 'completed' ? 'bg-emerald-500/10 text-emerald-600' :
+                                                phase.status === 'failed' ? 'bg-red-500/10 text-red-600' :
+                                                phase.status === 'running' ? 'bg-primary/10 text-primary' :
+                                                'bg-muted text-muted-foreground'
+                                            )}>
+                                                {phase.status}
+                                            </span>
                                         </div>
-                                        <div className="divide-y divide-border">
-                                            {suite.tests.map((test, i) => (
-                                                <div key={i} className="px-4 py-2.5">
-                                                    <div className="flex items-center gap-3">
-                                                        {testCaseStatusIcon(test.status)}
-                                                        <span className="text-sm flex-1">{test.name}</span>
-                                                        <span className="text-xs text-muted-foreground font-mono">
-                              {test.duration}ms
-                            </span>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* 执行输出日志（所有模式统一显示） */}
+                    {detail?.rawOutput && (
+                        <Card className="mb-4">
+                            <CardContent className="p-0 overflow-hidden">
+                                <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-gray-900/50">
+                                    <div className="flex items-center gap-2">
+                                        <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
+                                        <span className="text-xs text-muted-foreground font-mono">Execution Output</span>
+                                    </div>
+                                    {/* 结果摘要（如果有） */}
+                                    {detail.results && (
+                                        <div className="flex items-center gap-3 text-xs">
+                                            <span className="text-emerald-500">{detail.results.passed} pass</span>
+                                            {detail.results.failed > 0 && <span className="text-red-500">{detail.results.failed} fail</span>}
+                                            {detail.results.skipped > 0 && <span className="text-amber-500">{detail.results.skipped} skip</span>}
+                                            <span className="text-muted-foreground">{(detail.results.duration / 1000).toFixed(1)}s</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="bg-gray-950 max-h-[500px] overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
+                                    {detail.rawOutput}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* 失败用例详情（有结构化结果时展示） */}
+                    {detail?.results && filteredSuites?.some(s => s.tests.some(t => t.status === 'failed')) && (
+                        <Card className="mb-4">
+                            <CardContent className="p-4">
+                                <h3 className="text-sm font-semibold mb-3 text-red-500">Failed Tests</h3>
+                                <div className="space-y-2">
+                                    {filteredSuites.filter(s => s.tests.some(t => t.status === 'failed')).map((suite) => (
+                                        <div key={suite.name}>
+                                            <p className="text-xs font-medium text-muted-foreground mb-1">{suite.name}</p>
+                                            {suite.tests.filter(t => t.status === 'failed').map((test, i) => (
+                                                <div key={i} className="ml-2 mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0"/>
+                                                        <span className="text-sm">{test.name}</span>
                                                     </div>
-                                                    {/* 失败用例的错误堆栈信息 */}
                                                     {test.error && (
-                                                        <pre
-                                                            className="mt-2 text-xs text-red-400 bg-red-500/5 border border-red-500/10 rounded-md p-2 overflow-x-auto font-mono">
-                              {test.error}
-                            </pre>
+                                                        <pre className="mt-1 ml-5 text-xs text-red-400 bg-red-500/5 border border-red-500/10 rounded-md p-2 overflow-x-auto font-mono whitespace-pre-wrap">
+                                                            {test.error}
+                                                        </pre>
                                                     )}
                                                 </div>
                                             ))}
                                         </div>
-                                    </Card>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 原始测试输出面板（可折叠） */}
-                    {/* 适用于 AI 生成测试模式或其他需要查看原始输出的场景 */}
-                    {detail?.rawOutput && (
-                        <div className="mt-4">
-                            <button
-                                onClick={() => setShowRawOutput(!showRawOutput)}
-                                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                                {showRawOutput ? <ChevronUp className="h-3.5 w-3.5"/> :
-                                    <ChevronDown className="h-3.5 w-3.5"/>}
-                                Raw Output
-                                {/* AI 模式时显示特殊图标标识 */}
-                                {detail.mode === 'pipeline_ai_generate' && (
-                                    <Sparkles className="h-3 w-3 text-primary"/>
-                                )}
-                            </button>
-                            {showRawOutput && (
-                                <div className="mt-2 rounded-lg border border-border bg-gray-950 overflow-hidden">
-                                    <div
-                                        className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
-                                        <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
-                                        <span className="text-xs text-muted-foreground font-mono">Output</span>
-                                    </div>
-                                    <div
-                                        className="max-h-96 overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
-                                        {detail.rawOutput}
-                                    </div>
+                                    ))}
                                 </div>
-                            )}
-                        </div>
+                            </CardContent>
+                        </Card>
                     )}
 
                     {/* 无测试结果时的空状态提示 */}
@@ -996,7 +1467,7 @@ export default function TestsPage() {
                                 <TestTube className="h-10 w-10 text-muted-foreground/30"/>
                                 <p className="text-sm text-muted-foreground">No test results yet</p>
                                 <p className="text-xs text-muted-foreground/60">
-                                    Run tests manually or trigger a Pipeline to see results here
+                                    Select a test mode above and click Run to get started
                                 </p>
                             </CardContent>
                         </Card>

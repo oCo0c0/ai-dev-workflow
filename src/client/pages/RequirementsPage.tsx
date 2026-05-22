@@ -12,7 +12,7 @@
  * 已保存的需求可在 Pipeline 运行时使用，实现需求驱动的开发流程。
  */
 import {useState, useEffect, useCallback} from 'react';
-import {apiGet, apiPost, apiDelete} from '../api';
+import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
 import {Badge} from '../components/ui/badge';
@@ -26,7 +26,6 @@ import {
     CheckCircle2,
     AlertCircle,
     User,
-    Paperclip,
     Link2,
     FileText,
     Loader2,
@@ -35,6 +34,8 @@ import {
     Download,
     BookOpen,
     Clock,
+    Pencil,
+    Save,
 } from 'lucide-react';
 
 /**
@@ -45,6 +46,8 @@ import {
 interface Requirement {
     /** 需求唯一标识符 */
     id: string;
+    /** 需求编号（如 #91086） */
+    number?: string;
     /** 需求标题 */
     title: string;
     /** 需求状态（如：待处理、进行中、已完成等） */
@@ -117,6 +120,16 @@ export default function RequirementsPage() {
     const [searchError, setSearchError] = useState<string | null>(null);
     /** 是否展开搜索面板 */
     const [showSearch, setShowSearch] = useState(false);
+
+    // === 编辑相关状态 ===
+    /** 是否处于编辑模式 */
+    const [editing, setEditing] = useState(false);
+    /** 编辑中的标题 */
+    const [editTitle, setEditTitle] = useState('');
+    /** 编辑中的描述 */
+    const [editDescription, setEditDescription] = useState('');
+    /** 是否正在保存编辑 */
+    const [saving, setSaving] = useState(false);
 
     /** 从全局状态获取设置选中需求的方法 */
     const setSelectedRequirement = useAppStore((s) => s.setSelectedRequirement);
@@ -229,6 +242,48 @@ export default function RequirementsPage() {
     const handleSelect = (req: StoredRequirement) => {
         setSelected(req);
         setSelectedRequirement(req);
+        setEditing(false);
+    };
+
+    /**
+     * 进入编辑模式
+     * 用当前选中需求的数据初始化编辑表单
+     */
+    const startEdit = () => {
+        if (!selected) return;
+        setEditTitle(selected.title);
+        setEditDescription(selected.description);
+        setEditing(true);
+    };
+
+    /**
+     * 取消编辑，恢复原始数据
+     */
+    const cancelEdit = () => {
+        setEditing(false);
+    };
+
+    /**
+     * 保存编辑后的需求
+     * 调用 PUT API 更新标题和描述，成功后刷新本地和全局状态
+     */
+    const saveEdit = async () => {
+        if (!selected) return;
+        setSaving(true);
+        try {
+            const updated = await apiPut<StoredRequirement>(`/requirements/saved/${selected.id}`, {
+                title: editTitle,
+                description: editDescription,
+            });
+            setSelected(updated);
+            setSelectedRequirement(updated);
+            setSaved(prev => prev.map(r => r.id === updated.id ? updated : r));
+            setEditing(false);
+        } catch {
+            // 静默处理保存失败
+        } finally {
+            setSaving(false);
+        }
     };
 
     /**
@@ -295,7 +350,7 @@ export default function RequirementsPage() {
                             value={fetchId}
                             onChange={(e) => setFetchId(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleFetch()}
-                            placeholder="Enter requirement ID (e.g. HRL2p8rTX4mQ9xMv) and press Enter..."
+                            placeholder="Enter requirement ID or #number (e.g. #125975) and press Enter..."
                             className="pl-9"
                         />
                     </div>
@@ -347,7 +402,7 @@ export default function RequirementsPage() {
                                 {searchResults.map(r => (
                                     <div key={r.id}
                                          className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent text-sm">
-                                        <span className="flex-1 truncate">{r.title}</span>
+                                        <span className="flex-1 truncate">{r.number ? `${r.number} ` : ''}{r.title}</span>
                                         <span
                                             className={cn('text-xs px-1.5 py-0.5 rounded', statusColor(r.status))}>{r.status}</span>
                                         <Button
@@ -406,7 +461,7 @@ export default function RequirementsPage() {
                                 )}
                             >
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate">{req.title}</p>
+                                    <p className="text-sm font-medium truncate">{req.number ? `${req.number} ` : ''}{req.title}</p>
                                     <div className="mt-1 flex items-center gap-2">
                     <span className={cn('text-xs px-1.5 py-0.5 rounded', statusColor(req.status))}>
                       {req.status}
@@ -440,16 +495,49 @@ export default function RequirementsPage() {
                 <div className="flex-1 overflow-y-auto">
                     {selected ? (
                         <div className="p-6">
-                            {/* 标题栏：需求标题和关闭按钮 */}
+                            {/* 标题栏：需求标题、编辑和关闭按钮 */}
                             <div className="flex items-start justify-between gap-4">
-                                <h2 className="text-lg font-semibold leading-tight">{selected.title}</h2>
-                                <button
-                                    onClick={() => setSelected(null)}
-                                    className="p-1 rounded hover:bg-accent text-muted-foreground"
-                                >
-                                    <X className="h-4 w-4"/>
-                                </button>
+                                {editing ? (
+                                    <Input
+                                        value={editTitle}
+                                        onChange={(e) => setEditTitle(e.target.value)}
+                                        className="text-lg font-semibold"
+                                    />
+                                ) : (
+                                    <h2 className="text-lg font-semibold leading-tight">{selected.number ? `${selected.number} ` : ''}{selected.title}</h2>
+                                )}
+                                <div className="flex items-center gap-1">
+                                    {!editing && (
+                                        <button
+                                            onClick={startEdit}
+                                            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                                            title="Edit"
+                                        >
+                                            <Pencil className="h-4 w-4"/>
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => setSelected(null)}
+                                        className="p-1 rounded hover:bg-accent text-muted-foreground"
+                                    >
+                                        <X className="h-4 w-4"/>
+                                    </button>
+                                </div>
                             </div>
+
+                            {/* 编辑模式下的保存/取消按钮 */}
+                            {editing && (
+                                <div className="mt-3 flex gap-2">
+                                    <Button size="sm" onClick={saveEdit} disabled={saving}>
+                                        {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> :
+                                            <Save className="h-4 w-4 mr-1.5"/>}
+                                        {saving ? 'Saving...' : 'Save'}
+                                    </Button>
+                                    <Button size="sm" variant="outline" onClick={cancelEdit} disabled={saving}>
+                                        Cancel
+                                    </Button>
+                                </div>
+                            )}
 
                             {/* 元信息标签：状态、优先级、负责人、来源 */}
                             <div className="mt-3 flex flex-wrap gap-2">
@@ -469,11 +557,22 @@ export default function RequirementsPage() {
                 </span>
                             </div>
 
-                            {/* 需求描述 - Markdown 渲染 */}
-                            {selected.description && (
+                            {/* 需求描述 - 编辑模式用 textarea，查看模式用 Markdown 渲染 */}
+                            {editing ? (
                                 <div className="mt-5">
-                                    <MarkdownContent content={selected.description}/>
+                                    <textarea
+                                        value={editDescription}
+                                        onChange={(e) => setEditDescription(e.target.value)}
+                                        className="w-full min-h-[400px] p-3 rounded-lg border border-border bg-background text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                        placeholder="Enter requirement description (Markdown supported)..."
+                                    />
                                 </div>
+                            ) : (
+                                selected.description && (
+                                    <div className="mt-5">
+                                        <MarkdownContent content={selected.description}/>
+                                    </div>
+                                )
                             )}
 
                             {/* 验收标准列表 */}
@@ -486,24 +585,6 @@ export default function RequirementsPage() {
                                                 className="flex items-start gap-2 text-sm text-muted-foreground">
                                                 <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0"/>
                                                 <span>{ac}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-
-                            {/* 附件列表 */}
-                            {selected.attachments.length > 0 && (
-                                <div className="mt-5">
-                                    <h4 className="text-sm font-medium mb-2">Attachments</h4>
-                                    <ul className="space-y-1.5">
-                                        {selected.attachments.map((att, i) => (
-                                            <li key={i}>
-                                                <a href={att.url} target="_blank" rel="noreferrer"
-                                                   className="flex items-center gap-2 text-sm text-primary hover:underline">
-                                                    <Paperclip className="h-3.5 w-3.5"/>
-                                                    {att.name}
-                                                </a>
                                             </li>
                                         ))}
                                     </ul>

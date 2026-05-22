@@ -56,6 +56,14 @@ AI-powered development workbench that integrates requirements management, intell
 - View and manage Claude Code CLI skill configurations
 - CRUD operations for `.claude/commands/` and `.claude/skills/`
 
+### Self-Improving System (Hermes-Inspired)
+Inspired by [Hermes Agent](https://github.com/nousresearch/hermes-agent)'s self-evolution architecture, the workbench learns from every execution to improve over time:
+- **Memory System** — Persists user preferences (language, coding style, framework choices) and project characteristics (tech stack, test frameworks, directory conventions) across sessions
+- **Execution Analytics** — Tracks success/failure patterns, skill effectiveness, and recovery patterns from every plan, execution, and test run
+- **Skill Auto-Derivation** — Automatically generates reusable skills from successful recovery patterns (e.g., "execution failed then succeeded → extract the fix strategy")
+- **Curator** — Periodically cleans up redundant, low-confidence, or unused auto-derived skills
+- **Prompt Enrichment** — Injects learned context (user profile + project facts) into every Claude prompt, improving output relevance
+
 ### MCP Configuration
 - Manage MCP Server connections through web interface
 - Test server connectivity
@@ -93,6 +101,16 @@ AI-powered development workbench that integrates requirements management, intell
 **Async Operation Pattern:** Plan generation, execution, and test runs are asynchronous. Endpoints return task IDs immediately, then stream progress via WebSocket `broadcast()`. The client updates the Zustand store in real time.
 
 **Dual Persistence:** Active operations live in in-memory Maps for fast access. Completed records persist to JSON files (max 50 each) in `~/.ai-dev-workbench/`.
+
+**Self-Improving Event Loop:** A server-side EventBus intercepts all `broadcast()` calls. Analytics and memory services subscribe to `execution:complete` and `test:complete` events, automatically recording outcomes, detecting patterns, and enriching future prompts — without modifying any existing route handler code.
+
+```
+Route Handler → broadcast() → eventBus.dispatch()
+                                  ├──→ AnalyticsService (pattern detection)
+                                  ├──→ MemoryService (preference learning)
+                                  ├──→ SkillDerivationService (auto-skill generation)
+                                  └──→ WebSocket → Frontend
+```
 
 ## Requirements
 
@@ -148,9 +166,11 @@ src/
 │   └── stores/       # Zustand app store
 └── server/           # Backend (Express.js)
     ├── middleware/    # Request logger, validation
-    ├── routes/       # 9 route modules (30+ endpoints)
-    ├── services/     # 12 service classes
-    └── utils/        # Skill resolution helpers
+    ├── routes/       # 10 route modules (35+ endpoints)
+    ├── services/     # 16+ service classes
+    │   └── memory/   # Memory subsystem (profile, facts, feedback stores)
+    ├── event-bus.ts  # Server-side event bus for self-improving loop
+    └── utils/        # Skill resolution, prompt enrichment helpers
 ```
 
 ## Configuration
@@ -178,6 +198,10 @@ All persistent data is stored under `~/.ai-dev-workbench/`:
 | `pipelines.json` | Workflow pipeline definitions |
 | `saved-workspaces.json` | Named workspace bookmarks |
 | `workspace-history.json` | Recent workspace paths (max 10) |
+| `analytics.json` | Execution analytics records (max 200) |
+| `memory/user-profile.json` | User preferences (language, coding style) |
+| `memory/project-facts.json` | Project characteristics per workspace (max 20) |
+| `memory/feedback-log.json` | User feedback records (max 50) |
 | `logs/app.log` | HTTP request logs |
 
 ## License

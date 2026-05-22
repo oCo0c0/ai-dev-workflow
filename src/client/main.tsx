@@ -3,9 +3,11 @@
  * @description AI 开发工作台的前端入口文件，负责初始化 React 应用、
  *              配置客户端路由并挂载根组件到 DOM。
  *              采用 React Router v6 的嵌套路由方案，所有页面共享 Layout 布局。
+ *
+ *              启动时检查 CLI Provider 是否已配置，未配置时弹出引导弹窗。
  */
 
-import React from 'react';
+import React, {useEffect} from 'react';
 import ReactDOM from 'react-dom/client';
 import {BrowserRouter, Routes, Route} from 'react-router-dom';
 import './index.css';
@@ -18,24 +20,36 @@ import TestsPage from './pages/TestsPage';
 import SkillsPage from './pages/SkillsPage';
 import MCPPage from './pages/MCPPage';
 import PipelinesPage from './pages/PipelinesPage';
+import {ProviderSetupModal} from './components/ProviderSetupModal';
+import {useAppStore} from './stores/app-store';
+import {apiGet} from './api';
+
+/** Provider 状态查询响应 */
+interface ProviderStatusResponse {
+    configured: boolean;
+    active: string;
+}
 
 /**
- * 根组件 - 定义应用的路由结构
- *
- * 使用 BrowserRouter 进行客户端路由，所有业务页面嵌套在 Layout 布局组件中，
- * Layout 负责渲染侧边栏导航和顶部栏等公共 UI。
- *
- * 路由映射:
- *   /           -> 需求管理页面
- *   /workspace  -> 工作空间页面
- *   /plan       -> 开发计划页面
- *   /execution  -> 执行监控页面
- *   /tests      -> 测试结果页面
- *   /skills     -> 技能管理页面
- *   /mcp        -> MCP 配置页面
- *   /pipelines  -> 工作流管道页面
+ * 根组件 - 定义应用的路由结构 + CLI Provider 引导流程
  */
 function App() {
+    const {cliProvider, setCliProvider, setShowSetupModal} = useAppStore();
+
+    // 启动时检查 CLI Provider 配置状态
+    useEffect(() => {
+        apiGet<ProviderStatusResponse>('/system/cli-provider/status')
+            .then((data) => {
+                setCliProvider(data.configured, data.active);
+                if (!data.configured) {
+                    setShowSetupModal(true);
+                }
+            })
+            .catch(() => {
+                // 查询失败时使用默认配置，不阻塞应用启动
+            });
+    }, [setCliProvider, setShowSetupModal]);
+
     return (
         <BrowserRouter>
             <Routes>
@@ -50,6 +64,16 @@ function App() {
                     <Route path="/pipelines" element={<PipelinesPage/>}/>
                 </Route>
             </Routes>
+
+            {/* CLI Provider 引导弹窗 */}
+            <ProviderSetupModal
+                open={cliProvider.showSetupModal}
+                onClose={() => setShowSetupModal(false)}
+                onSelected={(providerId) => {
+                    setCliProvider(true, providerId);
+                    setShowSetupModal(false);
+                }}
+            />
         </BrowserRouter>
     );
 }

@@ -202,8 +202,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
     D: {label: 'D', color: 'text-red-500', bg: 'bg-red-500/10'},
     /** Renamed - 已重命名 */
     R: {label: 'R', color: 'text-blue-500', bg: 'bg-blue-500/10'},
-    /** Untracked - 未跟踪 */
-    '?': {label: 'U', color: 'text-gray-400', bg: 'bg-gray-500/10'},
+    /** Untracked - 未跟踪（新增但未 git add） */
+    '?': {label: 'U', color: 'text-emerald-400', bg: 'bg-emerald-500/10'},
     /** Ignored - 已忽略 */
     '!': {label: '!', color: 'text-gray-500', bg: 'bg-gray-500/10'},
 };
