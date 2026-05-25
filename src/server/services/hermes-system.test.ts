@@ -25,14 +25,18 @@ describe('EventBus', () => {
 
     it('should dispatch typed events to subscribers', () => {
         let received: unknown;
-        eventBus.onEvent('test-event', (data) => { received = data; });
+        eventBus.onEvent('test-event', (data) => {
+            received = data;
+        });
         eventBus.dispatch({type: 'test-event', data: {value: 42}});
         expect(received).toEqual({value: 42});
     });
 
     it('should dispatch wildcard events', () => {
         const events: string[] = [];
-        eventBus.onAny((type) => { events.push(type); });
+        eventBus.onAny((type) => {
+            events.push(type);
+        });
         eventBus.dispatch({type: 'event-a', data: null});
         eventBus.dispatch({type: 'event-b', data: null});
         expect(events).toEqual(['event-a', 'event-b']);
@@ -40,8 +44,12 @@ describe('EventBus', () => {
 
     it('should not break on subscriber errors', () => {
         let secondCalled = false;
-        eventBus.onEvent('error-test', () => { throw new Error('boom'); });
-        eventBus.onEvent('error-test', () => { secondCalled = true; });
+        eventBus.onEvent('error-test', () => {
+            throw new Error('boom');
+        });
+        eventBus.onEvent('error-test', () => {
+            secondCalled = true;
+        });
         eventBus.dispatch({type: 'error-test', data: null});
         expect(secondCalled).toBe(true);
     });
@@ -256,8 +264,28 @@ describe('AnalyticsStoreService', () => {
 
     it('should query by workspace', () => {
         const now = new Date().toISOString();
-        store.create({executionId: 'e1', workspacePath: '/a', phase: 'execution', outcome: 'success', startedAt: now, completedAt: now, durationMs: 0, skillsUsed: [], retryCount: 0});
-        store.create({executionId: 'e2', workspacePath: '/b', phase: 'execution', outcome: 'failure', startedAt: now, completedAt: now, durationMs: 0, skillsUsed: [], retryCount: 0});
+        store.create({
+            executionId: 'e1',
+            workspacePath: '/a',
+            phase: 'execution',
+            outcome: 'success',
+            startedAt: now,
+            completedAt: now,
+            durationMs: 0,
+            skillsUsed: [],
+            retryCount: 0
+        });
+        store.create({
+            executionId: 'e2',
+            workspacePath: '/b',
+            phase: 'execution',
+            outcome: 'failure',
+            startedAt: now,
+            completedAt: now,
+            durationMs: 0,
+            skillsUsed: [],
+            retryCount: 0
+        });
         expect(store.getByWorkspace('/a')).toHaveLength(1);
         expect(store.getByWorkspace('/b')).toHaveLength(1);
     });

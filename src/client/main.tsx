@@ -20,6 +20,7 @@ import TestsPage from './pages/TestsPage';
 import SkillsPage from './pages/SkillsPage';
 import MCPPage from './pages/MCPPage';
 import PipelinesPage from './pages/PipelinesPage';
+import MinerUPage from './pages/MinerUPage';
 import {ProviderSetupModal} from './components/ProviderSetupModal';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
@@ -62,6 +63,7 @@ function App() {
                     <Route path="/skills" element={<SkillsPage/>}/>
                     <Route path="/mcp" element={<MCPPage/>}/>
                     <Route path="/pipelines" element={<PipelinesPage/>}/>
+                    <Route path="/mineru" element={<MinerUPage/>}/>
                 </Route>
             </Routes>
 

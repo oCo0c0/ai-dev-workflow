@@ -10,6 +10,7 @@ import {Router} from 'express';
 import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import {OnesImageService} from '../services/ones-image-service.js';
+import type {MinerUService} from '../services/mineru-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 
 /**
@@ -26,7 +27,8 @@ import {getErrorMessage} from '../utils/error-utils.js';
  */
 export function createRequirementsRoutes(
     mcpBridgeService: MCPBridgeService,
-    requirementStore: RequirementStoreService
+    requirementStore: RequirementStoreService,
+    mineruService?: MinerUService,
 ): Router {
     const router = Router();
 
@@ -98,7 +100,7 @@ export function createRequirementsRoutes(
      */
     router.post('/fetch', async (req, res) => {
         try {
-            const {id, mcpServerName} = req.body as { id: string; mcpServerName?: string };
+            const {id, mcpServerName, parseDocuments} = req.body as { id: string; mcpServerName?: string; parseDocuments?: boolean };
             if (!id?.trim()) {
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'Requirement ID is required'});
                 return;
@@ -145,6 +147,21 @@ export function createRequirementsRoutes(
 
                 // 下载图片到本地并替换 description 中的引用
                 await requirementStore.downloadImages(detail, onesImageService);
+
+                // 解析文档附件（PDF/DOCX/PPTX/XLSX）为 Markdown（需前端显式请求）
+                if (parseDocuments && mineruService?.isEnabled()) {
+                    try {
+                        const parsedMd = await requirementStore.downloadAndParseDocuments(
+                            detail, mineruService, onesImageService,
+                        );
+                        if (parsedMd) {
+                            detail.description += '\n\n---\n\n## 附件文档内容\n\n' + parsedMd;
+                        }
+                    } catch (err) {
+                        // 文档解析失败不阻塞需求保存
+                        console.warn(`[requirements] Document parsing failed: ${getErrorMessage(err)}`);
+                    }
+                }
 
                 const saved = requirementStore.upsert({
                     ...detail,

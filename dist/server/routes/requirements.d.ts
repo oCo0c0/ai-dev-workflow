@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { MCPBridgeService } from '../services/mcp-bridge-service.js';
 import { RequirementStoreService } from '../services/requirement-store-service.js';
+import type { MinerUService } from '../services/mineru-service.js';
 /**
  * 创建需求管理路由
  * @param mcpBridgeService - MCP 桥接服务实例，用于与外部需求管理系统通信
@@ -20,5 +21,5 @@ import { RequirementStoreService } from '../services/requirement-store-service.j
  * app.use('/api/requirements', router);
  * ```
  */
-export declare function createRequirementsRoutes(mcpBridgeService: MCPBridgeService, requirementStore: RequirementStoreService): Router;
+export declare function createRequirementsRoutes(mcpBridgeService: MCPBridgeService, requirementStore: RequirementStoreService, mineruService?: MinerUService): Router;
 //# sourceMappingURL=requirements.d.ts.map

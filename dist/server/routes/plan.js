@@ -17,6 +17,7 @@ exports.getPlanStore = getPlanStore;
 exports.createPlanRoutes = createPlanRoutes;
 const express_1 = require("express");
 const crypto_1 = __importDefault(require("crypto"));
+const path_1 = __importDefault(require("path"));
 const validation_js_1 = require("../middleware/validation.js");
 const websocket_js_1 = require("../websocket.js");
 const plan_store_service_js_1 = require("../services/plan-store-service.js");
@@ -174,7 +175,7 @@ async function runBridgeWithTimeout(plan, bridgeOptions, planStore, errorPrefix)
 /**
  * 创建开发计划管理路由
  */
-function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService) {
+function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService) {
     const planStore = new plan_store_service_js_1.PlanStoreService();
     const reqStore = new requirement_store_service_js_1.RequirementStoreService();
     const router = (0, express_1.Router)();
@@ -209,9 +210,31 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
         // 异步生成
         try {
             const { title, description } = await getRequirementContent(requirementId, reqStore, mcpBridgeService);
+            // 如果 Pipeline 配置了额外文件路径，通过 MinerU 解析后追加到 description
+            let enrichedDescription = description;
+            if (pipelineId && mineruService?.isEnabled()) {
+                const pipeline = pipelineService?.get(pipelineId);
+                const docParsing = pipeline?.steps?.documentParsing;
+                if (docParsing?.extraPaths && docParsing.extraPaths.length > 0) {
+                    const extraMdParts = [];
+                    for (const relPath of docParsing.extraPaths) {
+                        const fullPath = path_1.default.resolve(workspacePath, relPath);
+                        try {
+                            const result = await mineruService.parseFile(fullPath);
+                            if (result.success && result.markdown) {
+                                extraMdParts.push(`### ${relPath}\n\n${result.markdown}`);
+                            }
+                        }
+                        catch { /* 跳过解析失败的文件 */ }
+                    }
+                    if (extraMdParts.length > 0) {
+                        enrichedDescription += '\n\n---\n\n## 参考文档\n\n' + extraMdParts.join('\n\n---\n\n');
+                    }
+                }
+            }
             const promptText = PLAN_PROMPT_TEMPLATE
                 .replace('{title}', title)
-                .replace('{description}', description);
+                .replace('{description}', enrichedDescription);
             await runBridgeWithTimeout(plan, {
                 cliRunner: cliRunnerService,
                 prompt: (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, workspacePath),

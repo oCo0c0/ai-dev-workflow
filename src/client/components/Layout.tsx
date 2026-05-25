@@ -33,6 +33,7 @@ import {
     PanelLeft,
     Sun,
     Moon,
+    FileSearch,
 } from 'lucide-react';
 
 /**
@@ -52,6 +53,7 @@ const navItems = [
     {path: '/skills', label: 'Skills', icon: Zap},
     {path: '/mcp', label: 'MCP', icon: Plug},
     {path: '/pipelines', label: 'Pipelines', icon: GitBranch},
+    {path: '/mineru', label: 'MinerU', icon: FileSearch},
 ];
 
 /**
@@ -69,6 +71,7 @@ const pageTitles: Record<string, string> = {
     '/skills': 'Skills',
     '/mcp': 'MCP Servers',
     '/pipelines': 'Pipelines',
+    '/mineru': 'MinerU Doc Parser',
 };
 
 /**

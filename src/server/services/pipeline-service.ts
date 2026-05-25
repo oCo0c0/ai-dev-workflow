@@ -80,6 +80,15 @@ export interface TestStrategyConfig {
 }
 
 /**
+ * 文档解析配置接口
+ * @description 定义工作流中文档解析的配置（MinerU），支持自动解析需求附件和额外文件路径
+ */
+export interface DocumentParsingConfig {
+    /** 额外需要解析的文件路径（相对于 workspace） */
+    extraPaths?: string[];
+}
+
+/**
  * 管线步骤配置接口
  * @description 定义管线中所有步骤的配置集合，是管线的核心配置单元
  */
@@ -88,6 +97,8 @@ export interface PipelineStepConfig {
     requirementSource: RequirementSourceConfig;
     /** 工作空间配置 */
     workspace: WorkspaceStepConfig;
+    /** 文档解析配置（MinerU） */
+    documentParsing?: DocumentParsingConfig;
     /** 规划阶段使用的技能配置（推荐使用，按阶段细分） */
     planSkills?: SkillSetConfig;
     /** 代码执行阶段使用的技能配置 */

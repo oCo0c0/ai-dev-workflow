@@ -108,6 +108,8 @@ export default function RequirementsPage() {
     const [fetching, setFetching] = useState(false);
     /** 获取需求时的错误信息 */
     const [fetchError, setFetchError] = useState<string | null>(null);
+    /** 是否解析文档附件 */
+    const [parseDocuments, setParseDocuments] = useState(false);
 
     // === MCP 搜索相关状态 ===
     /** 搜索关键词 */
@@ -164,7 +166,7 @@ export default function RequirementsPage() {
         setFetching(true);
         setFetchError(null);
         try {
-            const req = await apiPost<StoredRequirement>('/requirements/fetch', {id: fetchId.trim()});
+            const req = await apiPost<StoredRequirement>('/requirements/fetch', {id: fetchId.trim(), parseDocuments});
             // 去重后插入到列表头部（最新的排在前面）
             setSaved(prev => {
                 const filtered = prev.filter(r => r.id !== req.id);
@@ -206,7 +208,7 @@ export default function RequirementsPage() {
      */
     const handleSaveFromSearch = async (req: Requirement) => {
         try {
-            const saved = await apiPost<StoredRequirement>('/requirements/fetch', {id: req.id});
+            const saved = await apiPost<StoredRequirement>('/requirements/fetch', {id: req.id, parseDocuments});
             setSaved(prev => {
                 const filtered = prev.filter(r => r.id !== saved.id);
                 return [saved, ...filtered];
@@ -361,6 +363,17 @@ export default function RequirementsPage() {
                         {fetching ? 'Fetching...' : 'Fetch & Save'}
                     </Button>
                 </div>
+
+                {/* 文档解析开关 */}
+                <label className="flex items-center gap-2 text-xs text-muted-foreground mt-2 cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={parseDocuments}
+                        onChange={(e) => setParseDocuments(e.target.checked)}
+                        className="rounded border-input"
+                    />
+                    Parse document attachments (PDF/DOCX/PPTX/XLSX)
+                </label>
 
                 {/* 获取失败的错误提示 */}
                 {fetchError && (

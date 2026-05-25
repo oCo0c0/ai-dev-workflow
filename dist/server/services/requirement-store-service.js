@@ -167,7 +167,8 @@ class RequirementStoreService {
                     await (0, http_utils_js_1.downloadFile)(directUrl, localPath);
                     downloaded = true;
                 }
-                catch { /* 回退 */ }
+                catch { /* 回退 */
+                }
             }
             // 回退B: OnesImageService 旧方法
             if (!downloaded && onesImageService) {
@@ -175,7 +176,8 @@ class RequirementStoreService {
                     const resourceHash = filename.replace(/\.[^.]+$/, '');
                     downloaded = await onesImageService.downloadImage(resourceHash, localPath);
                 }
-                catch { /* 下载失败不阻塞流程 */ }
+                catch { /* 下载失败不阻塞流程 */
+                }
             }
         }
         let desc = req.description;
@@ -214,6 +216,76 @@ class RequirementStoreService {
                 }
             }
         }
+    }
+    // === 文档解析 ===
+    /** 文档附件扩展名正则 */
+    static DOC_EXTENSIONS = /\.(pdf|docx|pptx|xlsx)$/i;
+    /**
+     * 下载并解析文档附件（PDF/DOCX/PPTX/XLSX）
+     *
+     * 遍历附件列表，对文档类型附件：
+     * 1. 从远程 URL 下载到本地 documents/ 目录
+     * 2. 调用 MinerU 服务解析为 Markdown
+     * 3. 返回所有解析结果合并的 Markdown 字符串
+     *
+     * @param req - 需求数据（需含 id、attachments）
+     * @param mineruService - MinerU 解析服务实例
+     * @param onesImageService - 可选的 ONES 图片服务（用于认证下载）
+     * @returns 合并后的 Markdown 字符串，无文档附件时返回空字符串
+     */
+    async downloadAndParseDocuments(req, mineruService, onesImageService) {
+        // 过滤文档类型附件
+        const docAttachments = req.attachments.filter(att => att.url && RequirementStoreService.DOC_EXTENSIONS.test(att.name));
+        if (docAttachments.length === 0)
+            return '';
+        const docDir = path_1.default.join(this.reqDir(req.id), 'documents');
+        fs_1.default.mkdirSync(docDir, { recursive: true });
+        const mdParts = [];
+        for (const att of docAttachments) {
+            const localPath = path_1.default.join(docDir, att.name);
+            try {
+                // 下载文档文件
+                if (!fs_1.default.existsSync(localPath)) {
+                    let downloaded = false;
+                    // 策略1: 直接下载
+                    if (!downloaded) {
+                        try {
+                            await (0, http_utils_js_1.downloadFile)(att.url, localPath);
+                            downloaded = true;
+                        }
+                        catch { /* 回退 */
+                        }
+                    }
+                    // 策略2: 如果有 ONES 服务且 URL 在 ONES 域名下，尝试认证下载
+                    if (!downloaded && onesImageService) {
+                        try {
+                            const fileUrl = new URL(att.url);
+                            // 构造 wiki 资源下载 URL（与图片类似的认证方式）
+                            const resourceHash = att.name.replace(/\.[^.]+$/, '');
+                            downloaded = await onesImageService.downloadImage(resourceHash, localPath);
+                        }
+                        catch { /* 回退 */
+                        }
+                    }
+                    if (!downloaded) {
+                        console.warn(`[mineru-integration] Failed to download: ${att.name}`);
+                        continue;
+                    }
+                }
+                // 调用 MinerU 解析
+                const result = await mineruService.parseFile(localPath);
+                if (result.success && result.markdown) {
+                    mdParts.push(`### ${att.name}\n\n${result.markdown}`);
+                }
+                else {
+                    console.warn(`[mineru-integration] Failed to parse ${att.name}: ${result.error ?? 'no markdown'}`);
+                }
+            }
+            catch (err) {
+                console.warn(`[mineru-integration] Error processing ${att.name}: ${err instanceof Error ? err.message : err}`);
+            }
+        }
+        return mdParts.join('\n\n---\n\n');
     }
     // === 数据迁移 ===
     /**
@@ -273,7 +345,8 @@ class RequirementStoreService {
         try {
             fs_1.default.renameSync(constants_js_1.LEGACY_IMAGE_DIR, constants_js_1.LEGACY_IMAGE_DIR + '.bak');
         }
-        catch { /* 非关键，忽略 */ }
+        catch { /* 非关键，忽略 */
+        }
     }
 }
 exports.RequirementStoreService = RequirementStoreService;

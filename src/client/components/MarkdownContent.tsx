@@ -7,6 +7,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 
 interface MarkdownContentProps {
     /** Markdown 原始文本 */
@@ -19,12 +20,14 @@ interface MarkdownContentProps {
  * Markdown 内容渲染组件
  * @description 将 Markdown 文本渲染为格式化的 HTML，样式与项目设计系统一致。
  *   支持标题、列表、表格、代码块、引用、图片、链接等常见元素。
+ *   通过 rehype-raw 支持内嵌 HTML（如 MinerU 返回的 HTML 表格）。
  */
 export function MarkdownContent({content, className = ''}: MarkdownContentProps) {
     return (
         <div className={`markdown-body ${className}`}>
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
                 components={{
                     // 标题样式
                     h1: ({children}) => (

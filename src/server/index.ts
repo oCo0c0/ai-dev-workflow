@@ -33,6 +33,7 @@ import {AnalyticsStoreService} from './services/analytics-store-service.js';
 import {AnalyticsService} from './services/analytics-service.js';
 import {SkillDerivationService} from './services/skill-derivation-service.js';
 import {SandboxService} from './services/sandbox-service.js';
+import {MinerUService} from './services/mineru-service.js';
 import {ConfigService} from './services/config-service.js';
 
 // 路由层
@@ -46,6 +47,7 @@ import {createMCPServersRoutes} from './routes/mcp-servers.js';
 import {createPipelineRoutes} from './routes/pipelines.js';
 import {createSystemRoutes} from './routes/system.js';
 import {createAnalyticsRoutes} from './routes/analytics.js';
+import {createMinerURoutes} from './routes/mineru.js';
 
 /**
  * 创建并启动应用服务器
@@ -102,6 +104,9 @@ export async function createServer(port: number): Promise<http.Server> {
     const sandboxService = new SandboxService(config.daytona);
     testExecutorService.setSandboxService(sandboxService);
 
+    // 初始化 MinerU 文档解析服务（旧配置文件无 mineru 字段时使用默认值）
+    const mineruService = new MinerUService(config.mineru ?? configService.getDefaultConfig().mineru);
+
     // 记忆与分析子系统
     const memoryService = new MemoryService();
     const analyticsStore = new AnalyticsStoreService();
@@ -109,9 +114,9 @@ export async function createServer(port: number): Promise<http.Server> {
     const skillDerivationService = new SkillDerivationService(analyticsService, skillsService, analyticsStore);
 
     // 注册 API 路由
-    app.use('/api/requirements', createRequirementsRoutes(mcpBridgeService, requirementStore));
+    app.use('/api/requirements', createRequirementsRoutes(mcpBridgeService, requirementStore, mineruService));
     app.use('/api/workspace', createWorkspaceRoutes(workspaceService));
-    app.use('/api/plan', createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService));
+    app.use('/api/plan', createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
     app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService));
     app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService));
     app.use('/api/skills', createSkillsRoutes(skillsService));
@@ -119,11 +124,13 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/pipelines', createPipelineRoutes(pipelineService));
     app.use('/api/system', createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService));
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));
+    app.use('/api/mineru', createMinerURoutes(mineruService));
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;
     void skillDerivationService;
     void memoryService;
+    void mineruService;
 
     // 静态文件服务（生产模式）
     // 编译后 __dirname = dist/server/server/，前端资源位于 dist/client/

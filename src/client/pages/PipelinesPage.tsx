@@ -68,6 +68,8 @@ interface PipelineStepConfig {
     skillSet?: { mode: string; selectedSkills: string[] }; // legacy
     /** MCP工具集配置 */
     mcpToolSet: { mode: string; selectedServers: string[] };
+    /** 文档解析配置（MinerU） */
+    documentParsing?: { extraPaths?: string[] };
     /** 测试策略配置 */
     testStrategy: {
         /** 测试模式 */
@@ -195,6 +197,8 @@ interface WizardState {
     workspaceHistory: string[];
     /** 是否正在加载工作空间历史 */
     loadingHistory: boolean;
+    /** 是否解析文档附件（PDF/DOCX 等） */
+    parseDocuments: boolean;
     // Step 3 相关状态
     /** 是否正在启动执行 */
     starting: boolean;
@@ -257,6 +261,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
         workspacePath: boundPath || '',
         workspaceHistory: [],
         loadingHistory: false,
+        parseDocuments: false,
         starting: false,
         startError: null,
     });
@@ -299,6 +304,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
             // 调用需求获取API，携带MCP服务器名称（如果配置了的话）
             const req = await apiPost<StoredRequirement>('/requirements/fetch', {
                 id: state.fetchId.trim(),
+                parseDocuments: state.parseDocuments,
                 ...(mcpServerName ? {mcpServerName} : {}),
             });
             // 获取成功后更新状态：选中新需求，将其插入列表顶部，并去重
@@ -513,6 +519,16 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                                 {state.fetchError}
                                             </p>
                                         )}
+                                        {/* 文档解析开关 */}
+                                        <label className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={state.parseDocuments}
+                                                onChange={(e) => update({parseDocuments: e.target.checked})}
+                                                className="rounded border-input"
+                                            />
+                                            Parse document attachments (PDF/DOCX/PPTX/XLSX)
+                                        </label>
                                     </div>
 
                                     {/* 已保存的需求列表，支持单选 */}
@@ -1305,6 +1321,59 @@ export default function PipelinesPage() {
                                             ))}
                                         </div>
                                     )}
+                                </div>
+
+                                {/* ─── 文档解析配置（MinerU 额外文件） ─── */}
+                                <div className="border-t border-border pt-4">
+                                    <h4 className="text-xs font-medium mb-2">Extra Documents (MinerU)</h4>
+                                    <p className="text-xs text-muted-foreground mb-3">
+                                        Additional files to parse as context for plan generation (relative to workspace).
+                                    </p>
+                                    <div>
+                                        {(formSteps.documentParsing?.extraPaths ?? []).map((p, i) => (
+                                            <div key={i} className="flex items-center gap-1.5 mb-1.5">
+                                                <Input
+                                                    value={p}
+                                                    onChange={(e) => {
+                                                        const paths = [...(formSteps.documentParsing?.extraPaths ?? [])];
+                                                        paths[i] = e.target.value;
+                                                        setFormSteps({
+                                                            ...formSteps,
+                                                            documentParsing: {extraPaths: paths},
+                                                        });
+                                                    }}
+                                                    placeholder="docs/api-spec.pdf"
+                                                    className="text-xs h-8"
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        const paths = (formSteps.documentParsing?.extraPaths ?? []).filter((_, j) => j !== i);
+                                                        setFormSteps({
+                                                            ...formSteps,
+                                                            documentParsing: {extraPaths: paths},
+                                                        });
+                                                    }}
+                                                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                                                >
+                                                    <X className="h-3.5 w-3.5"/>
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 text-xs"
+                                            onClick={() => setFormSteps({
+                                                ...formSteps,
+                                                documentParsing: {
+                                                    extraPaths: [...(formSteps.documentParsing?.extraPaths ?? []), ''],
+                                                },
+                                            })}
+                                        >
+                                            <Plus className="h-3 w-3 mr-1"/>
+                                            Add Path
+                                        </Button>
+                                    </div>
                                 </div>
 
                                 {/* ─── 测试策略配置 ─── */}

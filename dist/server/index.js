@@ -37,6 +37,7 @@ const analytics_store_service_js_1 = require("./services/analytics-store-service
 const analytics_service_js_1 = require("./services/analytics-service.js");
 const skill_derivation_service_js_1 = require("./services/skill-derivation-service.js");
 const sandbox_service_js_1 = require("./services/sandbox-service.js");
+const mineru_service_js_1 = require("./services/mineru-service.js");
 const config_service_js_1 = require("./services/config-service.js");
 // 路由层
 const requirements_js_1 = require("./routes/requirements.js");
@@ -49,6 +50,7 @@ const mcp_servers_js_1 = require("./routes/mcp-servers.js");
 const pipelines_js_1 = require("./routes/pipelines.js");
 const system_js_1 = require("./routes/system.js");
 const analytics_js_1 = require("./routes/analytics.js");
+const mineru_js_1 = require("./routes/mineru.js");
 /**
  * 创建并启动应用服务器
  *
@@ -98,15 +100,17 @@ async function createServer(port) {
     // 初始化沙箱服务
     const sandboxService = new sandbox_service_js_1.SandboxService(config.daytona);
     testExecutorService.setSandboxService(sandboxService);
+    // 初始化 MinerU 文档解析服务（旧配置文件无 mineru 字段时使用默认值）
+    const mineruService = new mineru_service_js_1.MinerUService(config.mineru ?? configService.getDefaultConfig().mineru);
     // 记忆与分析子系统
     const memoryService = new memory_service_js_1.MemoryService();
     const analyticsStore = new analytics_store_service_js_1.AnalyticsStoreService();
     const analyticsService = new analytics_service_js_1.AnalyticsService(analyticsStore, memoryService);
     const skillDerivationService = new skill_derivation_service_js_1.SkillDerivationService(analyticsService, skillsService, analyticsStore);
     // 注册 API 路由
-    app.use('/api/requirements', (0, requirements_js_1.createRequirementsRoutes)(mcpBridgeService, requirementStore));
+    app.use('/api/requirements', (0, requirements_js_1.createRequirementsRoutes)(mcpBridgeService, requirementStore, mineruService));
     app.use('/api/workspace', (0, workspace_js_1.createWorkspaceRoutes)(workspaceService));
-    app.use('/api/plan', (0, plan_js_1.createPlanRoutes)(cliRunnerService, mcpBridgeService, pipelineService, memoryService));
+    app.use('/api/plan', (0, plan_js_1.createPlanRoutes)(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
     app.use('/api/execution', (0, execution_js_1.createExecutionRoutes)(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService));
     app.use('/api/tests', (0, tests_js_1.createTestRoutes)(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService));
     app.use('/api/skills', (0, skills_js_1.createSkillsRoutes)(skillsService));
@@ -114,10 +118,12 @@ async function createServer(port) {
     app.use('/api/pipelines', (0, pipelines_js_1.createPipelineRoutes)(pipelineService));
     app.use('/api/system', (0, system_js_1.createSystemRoutes)(cliRunnerService, mcpConfigService, sandboxService));
     app.use('/api/analytics', (0, analytics_js_1.createAnalyticsRoutes)(analyticsService, memoryService));
+    app.use('/api/mineru', (0, mineru_js_1.createMinerURoutes)(mineruService));
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;
     void skillDerivationService;
     void memoryService;
+    void mineruService;
     // 静态文件服务（生产模式）
     // 编译后 __dirname = dist/server/server/，前端资源位于 dist/client/
     const clientDistPath = path_1.default.resolve(__dirname, '../client');

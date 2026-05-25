@@ -54,6 +54,10 @@ const DEFAULT_CONFIG = {
         active: 'claude',
         setupCompleted: false,
     },
+    mineru: {
+        enabled: true,
+        apiUrl: 'http://47.116.44.130:8002',
+    },
 };
 /**
  * 验证配置对象的字段类型是否正确
@@ -162,7 +166,10 @@ function validateConfig(config) {
                 errors.push({ field: 'cliProvider.active', message: 'cliProvider.active must be "claude" or "codex"' });
             }
             if (cliProvider.setupCompleted !== undefined && typeof cliProvider.setupCompleted !== 'boolean') {
-                errors.push({ field: 'cliProvider.setupCompleted', message: 'cliProvider.setupCompleted must be a boolean' });
+                errors.push({
+                    field: 'cliProvider.setupCompleted',
+                    message: 'cliProvider.setupCompleted must be a boolean'
+                });
             }
             if (cliProvider.codex !== undefined) {
                 if (typeof cliProvider.codex !== 'object' || cliProvider.codex === null) {
@@ -171,9 +178,33 @@ function validateConfig(config) {
                 else {
                     const codex = cliProvider.codex;
                     if (codex.model !== undefined && typeof codex.model !== 'string') {
-                        errors.push({ field: 'cliProvider.codex.model', message: 'cliProvider.codex.model must be a string' });
+                        errors.push({
+                            field: 'cliProvider.codex.model',
+                            message: 'cliProvider.codex.model must be a string'
+                        });
                     }
                 }
+            }
+        }
+    }
+    // 验证 MinerU 配置块
+    if (obj.mineru !== undefined) {
+        if (typeof obj.mineru !== 'object' || obj.mineru === null) {
+            errors.push({ field: 'mineru', message: 'mineru must be an object' });
+        }
+        else {
+            const mineru = obj.mineru;
+            if (mineru.apiUrl !== undefined && typeof mineru.apiUrl !== 'string') {
+                errors.push({ field: 'mineru.apiUrl', message: 'mineru.apiUrl must be a string' });
+            }
+            if (mineru.enabled !== undefined && typeof mineru.enabled !== 'boolean') {
+                errors.push({ field: 'mineru.enabled', message: 'mineru.enabled must be a boolean' });
+            }
+            if (mineru.defaultBackend !== undefined && typeof mineru.defaultBackend !== 'string') {
+                errors.push({ field: 'mineru.defaultBackend', message: 'mineru.defaultBackend must be a string' });
+            }
+            if (mineru.defaultLangList !== undefined && !Array.isArray(mineru.defaultLangList)) {
+                errors.push({ field: 'mineru.defaultLangList', message: 'mineru.defaultLangList must be an array' });
             }
         }
     }

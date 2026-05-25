@@ -50,6 +50,17 @@ export interface AppConfig {
             model?: string;
         };
     };
+    /** MinerU 文档解析服务配置 */
+    mineru?: {
+        /** MinerU 服务地址 */
+        apiUrl?: string;
+        /** 是否启用 MinerU 解析（默认 true） */
+        enabled?: boolean;
+        /** 默认解析后端 */
+        defaultBackend?: string;
+        /** 默认语言列表 */
+        defaultLangList?: string[];
+    };
 }
 /**
  * 配置验证错误接口

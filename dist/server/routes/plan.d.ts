@@ -14,6 +14,7 @@ import { MCPBridgeService } from '../services/mcp-bridge-service.js';
 import { PipelineService } from '../services/pipeline-service.js';
 import { type PersistedPlan } from '../services/plan-store-service.js';
 import type { MemoryService } from '../services/memory/memory-service.js';
+import type { MinerUService } from '../services/mineru-service.js';
 /**
  * @type {PersistedPlan}
  * @description 向后兼容的类型别名，导出给 execution 路由模块使用。
@@ -28,5 +29,5 @@ export declare function getPlanStore(): Map<string, PersistedPlan>;
 /**
  * 创建开发计划管理路由
  */
-export declare function createPlanRoutes(cliRunnerService: CLIRunnerService, mcpBridgeService: MCPBridgeService, pipelineService?: PipelineService, memoryService?: MemoryService): Router;
+export declare function createPlanRoutes(cliRunnerService: CLIRunnerService, mcpBridgeService: MCPBridgeService, pipelineService?: PipelineService, memoryService?: MemoryService, mineruService?: MinerUService): Router;
 //# sourceMappingURL=plan.d.ts.map

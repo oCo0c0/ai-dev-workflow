@@ -11,6 +11,7 @@
 
 import {Router} from 'express';
 import crypto from 'crypto';
+import path from 'path';
 import {CLIRunnerService} from '../services/cli-runner-service.js';
 import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {PipelineService} from '../services/pipeline-service.js';
@@ -20,6 +21,7 @@ import {PlanStoreService, type PersistedPlan} from '../services/plan-store-servi
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import {getPhaseSkills} from '../utils/skill-utils.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
+import type {MinerUService} from '../services/mineru-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 
@@ -228,7 +230,8 @@ export function createPlanRoutes(
     cliRunnerService: CLIRunnerService,
     mcpBridgeService: MCPBridgeService,
     pipelineService?: PipelineService,
-    memoryService?: MemoryService
+    memoryService?: MemoryService,
+    mineruService?: MinerUService,
 ): Router {
     const planStore = new PlanStoreService();
     const reqStore = new RequirementStoreService();
@@ -271,9 +274,32 @@ export function createPlanRoutes(
         // 异步生成
         try {
             const {title, description} = await getRequirementContent(requirementId, reqStore, mcpBridgeService);
+
+            // 如果 Pipeline 配置了额外文件路径，通过 MinerU 解析后追加到 description
+            let enrichedDescription = description;
+            if (pipelineId && mineruService?.isEnabled()) {
+                const pipeline = pipelineService?.get(pipelineId);
+                const docParsing = pipeline?.steps?.documentParsing;
+                if (docParsing?.extraPaths && docParsing.extraPaths.length > 0) {
+                    const extraMdParts: string[] = [];
+                    for (const relPath of docParsing.extraPaths) {
+                        const fullPath = path.resolve(workspacePath, relPath);
+                        try {
+                            const result = await mineruService.parseFile(fullPath);
+                            if (result.success && result.markdown) {
+                                extraMdParts.push(`### ${relPath}\n\n${result.markdown}`);
+                            }
+                        } catch { /* 跳过解析失败的文件 */ }
+                    }
+                    if (extraMdParts.length > 0) {
+                        enrichedDescription += '\n\n---\n\n## 参考文档\n\n' + extraMdParts.join('\n\n---\n\n');
+                    }
+                }
+            }
+
             const promptText = PLAN_PROMPT_TEMPLATE
                 .replace('{title}', title)
-                .replace('{description}', description);
+                .replace('{description}', enrichedDescription);
 
             await runBridgeWithTimeout(
                 plan,
