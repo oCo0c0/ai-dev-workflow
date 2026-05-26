@@ -6,6 +6,39 @@
  * 通过 @openai/codex-sdk 直接调用 Codex CLI，无需子进程桥接。
  * 支持流式输出和会话续接。
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -41,7 +74,7 @@ class CodexProvider {
             let sdkPath;
             try {
                 // ESM 动态导入检测
-                const sdk = await import('@openai/codex-sdk');
+                const sdk = await Promise.resolve().then(() => __importStar(require('@openai/codex-sdk')));
                 if (!sdk.Codex) {
                     return { available: false, error: '@openai/codex-sdk: Codex class not exported' };
                 }
@@ -202,7 +235,7 @@ class CodexProvider {
     // === 内部方法 ===
     /** 动态导入并创建 Codex 客户端 */
     async createClient() {
-        const { Codex } = await import('@openai/codex-sdk');
+        const { Codex } = await Promise.resolve().then(() => __importStar(require('@openai/codex-sdk')));
         return new Codex();
     }
     /** 确保客户端已初始化 */

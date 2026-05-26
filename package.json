@@ -5,16 +5,10 @@
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
   "bin": {
-    "adw": "./bin/cli.js"
+    "adw": "./dist/cli/index.js"
   },
   "files": [
-    "bin/",
-    "dist/client/index.html",
-    "dist/client/assets/",
-    "dist/bridge/",
-    "dist/server/**/*.js",
-    "dist/server/**/*.d.ts",
-    "dist/server/**/*.js.map",
+    "dist/",
     "README.md",
     "README_ZH.md"
   ],
@@ -28,7 +22,7 @@
     "build:bridge": "node -e \"const fs=require('fs');const p=require('path');const d=p.join('dist','bridge');fs.mkdirSync(d,{recursive:true});fs.copyFileSync(p.join('src','bridge','claude-bridge.mjs'),p.join(d,'claude-bridge.mjs'))\"",
     "dev": "concurrently -n fe,be -c blue,green \"vite\" \"tsx src/dev-server.ts\"",
     "dev:be": "tsx src/dev-server.ts",
-    "start": "node bin/cli.js",
+    "start": "node dist/cli/index.js",
     "test": "vitest --run",
     "prepublishOnly": "npm run build"
   },

@@ -662,6 +662,7 @@ export function createExecutionRoutes(
  * @param cliRunnerService - CLI 运行器服务实例，用于 AI 生成测试
  * @param testExecutorService - 测试执行器服务实例，用于运行已有测试
  * @param testPersistStore - 测试持久化存储服务实例，用于保存测试结果
+ * @param sandboxService - 沙箱测试接入
  */
 async function triggerTestPhase(
     execution: StoredExecution,

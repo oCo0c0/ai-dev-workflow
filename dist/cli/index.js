@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 "use strict";
 /**
  * CLI 入口模块

@@ -6,6 +6,39 @@
  *   Python（Pytest/unittest）等多种项目类型。
  *   通过子进程方式执行测试命令，支持实时输出流式传输、超时控制和进程取消。
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -131,7 +164,7 @@ class TestExecutorService {
         const { stdout, stderr, exitCode } = await this.executeTestCommand(cmd, args, resolvedPath, taskId, options);
         // 如果是 Java 项目，尝试解析 Surefire 报告（更可靠）
         if (provider.type === 'java') {
-            const { JavaTestProvider } = await import('./test-providers/java-provider.js');
+            const { JavaTestProvider } = await Promise.resolve().then(() => __importStar(require('./test-providers/java-provider.js')));
             if (provider instanceof JavaTestProvider) {
                 const surefireResult = provider.parseSurefireReports(resolvedPath);
                 if (surefireResult)
