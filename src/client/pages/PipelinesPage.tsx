@@ -386,7 +386,19 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
 
             // 如果不是手动模式，将选中的需求保存到全局状态
             if (!isManual && state.selectedRequirement) {
-                setSelectedRequirement(state.selectedRequirement as Parameters<typeof setSelectedRequirement>[0]);
+                const req = state.selectedRequirement;
+                setSelectedRequirement({
+                    id: req.id,
+                    title: req.title,
+                    status: req.status,
+                    priority: req.priority,
+                    assignee: req.assignee,
+                    updatedAt: req.savedAt,
+                    description: req.description,
+                    acceptanceCriteria: [],
+                    attachments: [],
+                    relatedIssues: [],
+                });
             }
 
             // 跳转到计划页面，展示生成进度

@@ -29,8 +29,6 @@ exports.validateConfig = validateConfig;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const constants_js_1 = require("../utils/constants.js");
-/** 配置文件完整路径 */
-const CONFIG_FILE = path_1.default.join(constants_js_1.APP_DATA_DIR, 'config.json');
 /**
  * 默认配置对象
  * 当配置文件不存在或首次加载时使用此默认值
@@ -297,13 +295,6 @@ class ConfigService {
         this.ensureConfigDir();
         // 以 2 空格缩进的格式化 JSON 写入，便于人工阅读和版本对比
         fs_1.default.writeFileSync(this.configFile, JSON.stringify(config, null, 2), 'utf-8');
-    }
-    /**
-     * 获取配置目录路径
-     * @returns string 配置目录的绝对路径
-     */
-    getConfigDir() {
-        return this.configDir;
     }
     /**
      * 获取配置文件路径

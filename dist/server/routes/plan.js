@@ -137,14 +137,17 @@ async function getRequirementContent(requirementId, reqStore, mcpBridgeService) 
     return { title: detail.title, description: detail.description };
 }
 /**
- * 执行带超时的 bridge 调用，统一处理 onOutput 回调和错误
- * @param plan - 计划数据
- * @param bridgeOptions - bridge 调用参数
- * @param planStore - 文件存储服务实例
- * @param errorPrefix - 错误广播前缀
+ * 执行带超时的 bridge 调用，统一处理 onOutput 回调和错误。
  */
 async function runBridgeWithTimeout(plan, bridgeOptions, planStore, errorPrefix) {
     let accumulatedOutput = bridgeOptions.accumulatedOutput ?? '';
+    const onOutput = (data) => {
+        accumulatedOutput += data;
+        plan.rawOutput = accumulatedOutput;
+        plan.summary = accumulatedOutput.substring(0, 500);
+        planCache.set(plan.id, { ...plan });
+        (0, websocket_js_1.broadcast)({ type: 'plan:progress', data: { taskId: plan.id, content: data } });
+    };
     try {
         const result = await Promise.race([
             bridgeOptions.cliRunner.runBridge({
@@ -156,13 +159,7 @@ async function runBridgeWithTimeout(plan, bridgeOptions, planStore, errorPrefix)
             }, {
                 workspacePath: bridgeOptions.cwd,
                 signal: bridgeOptions.signal,
-                onOutput: (data) => {
-                    accumulatedOutput += data;
-                    plan.rawOutput = accumulatedOutput;
-                    plan.summary = accumulatedOutput.substring(0, 500);
-                    planCache.set(plan.id, { ...plan });
-                    (0, websocket_js_1.broadcast)({ type: 'plan:progress', data: { taskId: plan.id, content: data } });
-                },
+                onOutput,
             }),
             new Promise((_, reject) => setTimeout(() => reject(new Error(`${errorPrefix} timed out after 30 minutes`)), BRIDGE_TIMEOUT_MS)),
         ]);

@@ -146,9 +146,9 @@ export interface PipelineValidationResult {
  */
 export declare class PipelineService {
     /** 配置文件所在目录 */
-    private configDir;
+    private readonly configDir;
     /** 管线数据存储文件的完整路径 */
-    private pipelinesFile;
+    private readonly pipelinesFile;
     /**
      * 构造函数
      * @param configDir - 可选的自定义配置目录路径，默认为 ~/.ai-dev-workbench

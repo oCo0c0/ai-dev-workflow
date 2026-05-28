@@ -34,6 +34,7 @@ import {
     Sun,
     Moon,
     FileSearch,
+    FolderKanban,
 } from 'lucide-react';
 
 /**
@@ -47,12 +48,13 @@ import {
 const navItems = [
     {path: '/', label: 'Requirements', icon: FileText},
     {path: '/workspace', label: 'Workspace', icon: FolderOpen},
+    {path: '/pipelines', label: 'Pipelines', icon: GitBranch},
     {path: '/plan', label: 'Plan', icon: FileCode},
     {path: '/execution', label: 'Execution', icon: Play},
     {path: '/tests', label: 'Tests', icon: TestTube},
-    {path: '/skills', label: 'Skills', icon: Zap},
+    {path: '/projects', label: 'Projects', icon: FolderKanban},
     {path: '/mcp', label: 'MCP', icon: Plug},
-    {path: '/pipelines', label: 'Pipelines', icon: GitBranch},
+    {path: '/skills', label: 'Skills', icon: Zap},
     {path: '/mineru', label: 'MinerU', icon: FileSearch},
 ];
 
@@ -64,6 +66,7 @@ const navItems = [
  */
 const pageTitles: Record<string, string> = {
     '/': 'Requirements',
+    '/projects': 'Project Space',
     '/workspace': 'Workspace',
     '/plan': 'Development Plan',
     '/execution': 'Execution',

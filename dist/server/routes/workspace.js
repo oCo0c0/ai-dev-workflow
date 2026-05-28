@@ -392,7 +392,10 @@ function createWorkspaceRoutes(workspaceService) {
         try {
             const { workspacePath, sourceBranch } = req.body;
             if (!workspacePath || !sourceBranch) {
-                res.status(400).json({ code: 'VALIDATION_ERROR', message: 'workspacePath and sourceBranch are required' });
+                res.status(400).json({
+                    code: 'VALIDATION_ERROR',
+                    message: 'workspacePath and sourceBranch are required'
+                });
                 return;
             }
             res.json(await workspaceService.gitMergeBranch(workspacePath, sourceBranch));
@@ -412,6 +415,27 @@ function createWorkspaceRoutes(workspaceService) {
             }
             const content = await workspaceService.gitConflictDiff(workspacePath, file);
             res.json({ path: file, content });
+        }
+        catch (err) {
+            res.status(500).json({ code: 'GIT_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
+        }
+    });
+    // ─── 远程分支列表 ──────────────────────────────────────────────────────────
+    /**
+     * GET /api/workspace/:id/remote-branches
+     * @description 获取指定工作区的远程分支列表
+     * @param {string} id.param - 已保存工作区的 ID
+     * @returns {string[]} 远程分支名列表
+     */
+    router.get('/:id/remote-branches', async (req, res) => {
+        try {
+            const ws = workspaceService.listSavedWorkspaces().find(w => w.id === req.params.id);
+            if (!ws) {
+                res.status(404).json({ code: 'NOT_FOUND', message: 'Workspace not found' });
+                return;
+            }
+            const branches = await workspaceService.listRemoteBranches(ws.path);
+            res.json(branches);
         }
         catch (err) {
             res.status(500).json({ code: 'GIT_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });

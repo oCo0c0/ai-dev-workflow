@@ -61,6 +61,11 @@ export interface AppConfig {
         /** 默认语言列表 */
         defaultLangList?: string[];
     };
+    /** 多任务调度器配置 */
+    scheduler?: {
+        /** 最大并行任务数（默认 3） */
+        maxConcurrent?: number;
+    };
 }
 /**
  * 配置验证错误接口
@@ -140,11 +145,6 @@ export declare class ConfigService {
      * @throws {Error} 配置验证失败时抛出
      */
     save(config: AppConfig): void;
-    /**
-     * 获取配置目录路径
-     * @returns string 配置目录的绝对路径
-     */
-    getConfigDir(): string;
     /**
      * 获取配置文件路径
      * @returns string 配置文件的绝对路径

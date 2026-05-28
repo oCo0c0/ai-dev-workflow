@@ -194,21 +194,22 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         res.json({ executionId });
         // 异步执行代码
         try {
+            const onOutput = (data) => {
+                execution.logs.push(data);
+                (0, websocket_js_1.broadcast)({
+                    type: 'execution:output',
+                    data: { executionId, stepIndex: execution.currentStep, content: data }
+                });
+            };
             const result = await cliRunnerService.runBridge({
                 prompt: (0, prompt_enrichment_js_1.enrichPrompt)(plan.rawOutput ?? plan.summary ?? '', memoryService, plan.workspacePath),
                 cwd: plan.workspacePath,
                 sessionId: plan.sessionId,
                 maxTurns: 50,
-                skills: executionSkills, // 传递执行阶段的技能配置
+                skills: executionSkills,
             }, {
                 workspacePath: plan.workspacePath,
-                onOutput: (data) => {
-                    execution.logs.push(data);
-                    (0, websocket_js_1.broadcast)({
-                        type: 'execution:output',
-                        data: { executionId, stepIndex: execution.currentStep, content: data }
-                    });
-                },
+                onOutput,
                 signal: abortController.signal,
             });
             // 保存会话ID以便后续多轮对话
@@ -615,6 +616,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
  * @param cliRunnerService - CLI 运行器服务实例，用于 AI 生成测试
  * @param testExecutorService - 测试执行器服务实例，用于运行已有测试
  * @param testPersistStore - 测试持久化存储服务实例，用于保存测试结果
+ * @param sandboxService - 沙箱测试接入
  */
 async function triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService) {
     const pipeline = pipelineService.get(plan.pipelineId);

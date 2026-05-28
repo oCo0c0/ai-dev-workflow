@@ -16,7 +16,9 @@ export interface WSMessage {
     /** 消息类型标识 */
     type: string;
     /** 消息数据负载 */
-    data: unknown;
+    data?: unknown;
+    /** 附加字段（支持任意扩展属性） */
+    [key: string]: unknown;
 }
 /**
  * 初始化 WebSocket 服务

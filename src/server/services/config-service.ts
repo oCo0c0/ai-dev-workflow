@@ -86,10 +86,12 @@ export interface AppConfig {
         /** 默认语言列表 */
         defaultLangList?: string[];
     };
+    /** 多任务调度器配置 */
+    scheduler?: {
+        /** 最大并行任务数（默认 3） */
+        maxConcurrent?: number;
+    };
 }
-
-/** 配置文件完整路径 */
-const CONFIG_FILE = path.join(APP_DATA_DIR, 'config.json');
 
 /**
  * 默认配置对象
@@ -383,14 +385,6 @@ export class ConfigService {
         this.ensureConfigDir();
         // 以 2 空格缩进的格式化 JSON 写入，便于人工阅读和版本对比
         fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2), 'utf-8');
-    }
-
-    /**
-     * 获取配置目录路径
-     * @returns string 配置目录的绝对路径
-     */
-    getConfigDir(): string {
-        return this.configDir;
     }
 
     /**

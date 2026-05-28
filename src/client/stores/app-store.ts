@@ -218,6 +218,53 @@ interface WorkflowPipeline {
     updatedAt: string;
 }
 
+// === 多任务模型 ===
+
+/** 任务日志 */
+interface TaskLog {
+    timestamp: string;
+    phase: 'plan' | 'execution' | 'test' | 'idle';
+    logType: 'info' | 'output' | 'error' | 'warning';
+    content: string;
+}
+
+/** 任务信息 */
+interface TaskInfo {
+    id: string;
+    name: string;
+    projectId: string;
+    requirementId: string;
+    pipelineId: string;
+    branch: string;
+    workspacePath: string;
+    status: 'pending' | 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+    phase: 'plan' | 'execution' | 'test' | 'idle';
+    sessionId?: string;
+    logs: TaskLog[];
+    createdAt: string;
+    updatedAt: string;
+}
+
+/** 项目空间 */
+interface ProjectSpace {
+    id: string;
+    name: string;
+    workspacePath: string;
+    baseBranch: string;
+    defaultPipelineId?: string;
+    taskCount?: number;
+    runningCount?: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+/** 调度器状态 */
+interface SchedulerStatus {
+    maxConcurrent: number;
+    runningCount: number;
+    queueLength: number;
+}
+
 // === 应用状态接口 ===
 
 /**
@@ -319,6 +366,29 @@ interface AppState {
         showSetupModal: boolean;
     };
 
+    // --- 项目空间 & 多任务 ---
+    /** 项目空间相关状态 */
+    projects: {
+        /** 项目空间列表 */
+        list: ProjectSpace[];
+        /** 当前选中的项目空间 */
+        active: ProjectSpace | null;
+        /** 是否正在加载 */
+        loading: boolean;
+    };
+
+    /** 多任务相关状态 */
+    tasks: {
+        /** 当前项目下的任务列表 */
+        list: TaskInfo[];
+        /** 当前查看/操作的任务 ID */
+        activeTaskId: string | null;
+        /** 按任务 ID 索引的日志 Map */
+        logsByTask: Record<string, TaskLog[]>;
+        /** 调度器状态 */
+        scheduler: SchedulerStatus | null;
+    };
+
     // === Action 方法 ===
 
     // 需求管理 actions
@@ -390,6 +460,26 @@ interface AppState {
     setCliProvider: (configured: boolean, active: string) => void;
     /** 显示/隐藏引导弹窗 */
     setShowSetupModal: (show: boolean) => void;
+
+    // 项目空间 actions
+    /** 设置项目空间列表 */
+    setProjects: (list: ProjectSpace[]) => void;
+    /** 设置当前选中的项目空间 */
+    setActiveProject: (project: ProjectSpace | null) => void;
+    /** 设置项目加载状态 */
+    setProjectsLoading: (loading: boolean) => void;
+
+    // 多任务 actions
+    /** 设置任务列表 */
+    setTasks: (list: TaskInfo[]) => void;
+    /** 设置当前活跃任务 ID */
+    setActiveTaskId: (taskId: string | null) => void;
+    /** 追加任务日志 */
+    addTaskLog: (taskId: string, log: TaskLog) => void;
+    /** 更新单个任务状态 */
+    updateTask: (taskId: string, updates: Partial<TaskInfo>) => void;
+    /** 设置调度器状态 */
+    setSchedulerStatus: (status: SchedulerStatus | null) => void;
 }
 
 // === 辅助函数：主题持久化 ===
@@ -457,6 +547,8 @@ export const useAppStore = create<AppState>((set) => {
         ws: {connected: false},
         ui: {theme: initialTheme, sidebarCollapsed: false},
         cliProvider: {configured: false, active: 'claude', showSetupModal: false},
+        projects: {list: [], active: null, loading: false},
+        tasks: {list: [], activeTaskId: null, logsByTask: {}, scheduler: null},
 
         // === 需求管理 Actions ===
         setRequirements: (list) =>
@@ -545,5 +637,38 @@ export const useAppStore = create<AppState>((set) => {
             set((state) => ({cliProvider: {...state.cliProvider, configured, active}})),
         setShowSetupModal: (show) =>
             set((state) => ({cliProvider: {...state.cliProvider, showSetupModal: show}})),
+
+        // === 项目空间 Actions ===
+        setProjects: (list) =>
+            set((state) => ({projects: {...state.projects, list}})),
+        setActiveProject: (active) =>
+            set((state) => ({projects: {...state.projects, active}})),
+        setProjectsLoading: (loading) =>
+            set((state) => ({projects: {...state.projects, loading}})),
+
+        // === 多任务 Actions ===
+        setTasks: (list) =>
+            set((state) => ({tasks: {...state.tasks, list}})),
+        setActiveTaskId: (taskId) =>
+            set((state) => ({tasks: {...state.tasks, activeTaskId: taskId}})),
+        addTaskLog: (taskId, log) =>
+            set((state) => ({
+                tasks: {
+                    ...state.tasks,
+                    logsByTask: {
+                        ...state.tasks.logsByTask,
+                        [taskId]: [...(state.tasks.logsByTask[taskId] || []), log],
+                    },
+                },
+            })),
+        updateTask: (taskId, updates) =>
+            set((state) => ({
+                tasks: {
+                    ...state.tasks,
+                    list: state.tasks.list.map(t => t.id === taskId ? {...t, ...updates} : t),
+                },
+            })),
+        setSchedulerStatus: (status) =>
+            set((state) => ({tasks: {...state.tasks, scheduler: status}})),
     };
 });

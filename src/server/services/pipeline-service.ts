@@ -155,10 +155,7 @@ export interface PipelineValidationResult {
     /** 验证错误列表，为空表示验证通过 */
     errors: PipelineValidationError[];
 }
-
-/** 默认管线存储文件路径 */
-const PIPELINES_FILE = path.join(APP_DATA_DIR, 'pipelines.json');
-
+path.join(APP_DATA_DIR, 'pipelines.json');
 /**
  * 管线服务类
  * @description 提供 CRUD 操作和验证能力，管理所有工作流管线的生命周期。
@@ -166,9 +163,9 @@ const PIPELINES_FILE = path.join(APP_DATA_DIR, 'pipelines.json');
  */
 export class PipelineService {
     /** 配置文件所在目录 */
-    private configDir: string;
+    private readonly configDir: string;
     /** 管线数据存储文件的完整路径 */
-    private pipelinesFile: string;
+    private readonly pipelinesFile: string;
 
     /**
      * 构造函数

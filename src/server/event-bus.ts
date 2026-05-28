@@ -16,7 +16,7 @@ import {EventEmitter} from 'events';
 /**
  * 事件载荷类型
  */
-export type EventPayload = { type: string; data: unknown };
+export type EventPayload = { type: string; data?: unknown; [key: string]: unknown };
 
 /**
  * 服务端事件总线类

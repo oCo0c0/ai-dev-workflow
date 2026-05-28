@@ -15,8 +15,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const constants_js_1 = require("../utils/constants.js");
 const crypto_1 = __importDefault(require("crypto"));
-/** 默认管线存储文件路径 */
-const PIPELINES_FILE = path_1.default.join(constants_js_1.APP_DATA_DIR, 'pipelines.json');
+path_1.default.join(constants_js_1.APP_DATA_DIR, 'pipelines.json');
 /**
  * 管线服务类
  * @description 提供 CRUD 操作和验证能力，管理所有工作流管线的生命周期。

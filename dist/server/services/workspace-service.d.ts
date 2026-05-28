@@ -47,6 +47,10 @@ export interface SavedWorkspace {
     name: string;
     projectType: 'node' | 'python' | 'java' | 'rust' | 'unknown';
     addedAt: string;
+    /** 多任务配置：基础分支（默认 main） */
+    baseBranch?: string;
+    /** 多任务配置：默认流水线 ID */
+    defaultPipelineId?: string;
 }
 /**
  * 目录条目信息
@@ -393,5 +397,65 @@ export declare class WorkspaceService {
         encoding: 'text' | 'binary';
         size: number;
     };
+    /**
+     * 为任务创建独立的 Git 分支。
+     *
+     * 流程：stash 未提交改动 → checkout 基础分支 → 创建新分支
+     *
+     * @param {string} workspacePath - 工作区路径
+     * @param {string} baseBranch - 基础分支名（如 main）
+     * @param {string} taskName - 任务名称（用于生成分支名）
+     * @returns {Promise<string>} 新创建的分支名
+     */
+    /**
+     * 为任务创建分支（在项目目录内操作）
+     *
+     * 1. stash 当前改动
+     * 2. checkout baseBranch
+     * 3. 创建新分支 task/{name}-{id}
+     * 4. 返回分支名（worktreePath 等于 workspacePath）
+     *
+     * @param {string} workspacePath - 原始仓库路径
+     * @param {string} baseBranch - 基础分支名
+     * @param {string} taskName - 任务名称
+     * @returns {Promise<{branch: string, worktreePath: string}>}
+     */
+    createTaskBranch(workspacePath: string, baseBranch: string, taskName: string): Promise<{
+        branch: string;
+        worktreePath: string;
+    }>;
+    /**
+     * 任务完成后 stash 代码（按需求号标记）
+     *
+     * @param {string} workspacePath - 仓库路径
+     * @param {string} requirementId - 需求ID
+     */
+    stashTaskChanges(workspacePath: string, requirementId: string): Promise<void>;
+    /**
+     * 将任务分支合并回基础分支（用于依赖任务链）
+     *
+     * @param {string} workspacePath - 仓库路径
+     * @param {string} branch - 任务分支名
+     * @param {string} baseBranch - 目标基础分支
+     */
+    mergeBranchToBase(workspacePath: string, branch: string, baseBranch: string): Promise<void>;
+    /**
+     * 删除任务分支
+     */
+    removeTaskBranch(workspacePath: string, baseBranch: string, branch: string): Promise<void>;
+    /**
+     * 列出所有任务分支（以 task/ 前缀开头的分支）
+     *
+     * @param {string} workspacePath - 工作区路径
+     * @returns {Promise<GitBranch[]>} 任务分支列表
+     */
+    listTaskBranches(workspacePath: string): Promise<GitBranch[]>;
+    /**
+     * 列出远程分支（去重，去掉 remote 前缀）
+     *
+     * @param {string} workspacePath - 工作区路径
+     * @returns {Promise<string[]>} 远程分支名列表（如 main, develop, feature-x）
+     */
+    listRemoteBranches(workspacePath: string): Promise<string[]>;
 }
 //# sourceMappingURL=workspace-service.d.ts.map

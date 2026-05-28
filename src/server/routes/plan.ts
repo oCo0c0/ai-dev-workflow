@@ -168,11 +168,7 @@ async function getRequirementContent(
 }
 
 /**
- * 执行带超时的 bridge 调用，统一处理 onOutput 回调和错误
- * @param plan - 计划数据
- * @param bridgeOptions - bridge 调用参数
- * @param planStore - 文件存储服务实例
- * @param errorPrefix - 错误广播前缀
+ * 执行带超时的 bridge 调用，统一处理 onOutput 回调和错误。
  */
 async function runBridgeWithTimeout(
     plan: PersistedPlan,
@@ -190,6 +186,14 @@ async function runBridgeWithTimeout(
 ): Promise<void> {
     let accumulatedOutput = bridgeOptions.accumulatedOutput ?? '';
 
+    const onOutput = (data: string) => {
+        accumulatedOutput += data;
+        plan.rawOutput = accumulatedOutput;
+        plan.summary = accumulatedOutput.substring(0, 500);
+        planCache.set(plan.id, {...plan});
+        broadcast({type: 'plan:progress', data: {taskId: plan.id, content: data}});
+    };
+
     try {
         const result = await Promise.race([
             bridgeOptions.cliRunner.runBridge(
@@ -203,13 +207,7 @@ async function runBridgeWithTimeout(
                 {
                     workspacePath: bridgeOptions.cwd,
                     signal: bridgeOptions.signal,
-                    onOutput: (data: string) => {
-                        accumulatedOutput += data;
-                        plan.rawOutput = accumulatedOutput;
-                        plan.summary = accumulatedOutput.substring(0, 500);
-                        planCache.set(plan.id, {...plan});
-                        broadcast({type: 'plan:progress', data: {taskId: plan.id, content: data}});
-                    },
+                    onOutput,
                 }
             ),
             new Promise<never>((_, reject) =>

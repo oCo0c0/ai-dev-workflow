@@ -13,7 +13,8 @@ import express from 'express';
 import cors from 'cors';
 import http from 'http';
 import path from 'path';
-import {setupWebSocket} from './websocket.js';
+import fs from 'fs';
+import {setupWebSocket, broadcast} from './websocket.js';
 import {requestLogger} from './middleware/logger.js';
 import {errorHandler} from './middleware/validation.js';
 
@@ -35,6 +36,8 @@ import {SkillDerivationService} from './services/skill-derivation-service.js';
 import {SandboxService} from './services/sandbox-service.js';
 import {MinerUService} from './services/mineru-service.js';
 import {ConfigService} from './services/config-service.js';
+import {TaskStoreService} from './services/task-store-service.js';
+import {TaskScheduler} from './services/task-scheduler-service.js';
 
 // 路由层
 import {createRequirementsRoutes} from './routes/requirements.js';
@@ -48,6 +51,7 @@ import {createPipelineRoutes} from './routes/pipelines.js';
 import {createSystemRoutes} from './routes/system.js';
 import {createAnalyticsRoutes} from './routes/analytics.js';
 import {createMinerURoutes} from './routes/mineru.js';
+import {createTaskRoutes} from './routes/projects.js';
 
 /**
  * 创建并启动应用服务器
@@ -113,6 +117,50 @@ export async function createServer(port: number): Promise<http.Server> {
     const analyticsService = new AnalyticsService(analyticsStore, memoryService);
     const skillDerivationService = new SkillDerivationService(analyticsService, skillsService, analyticsStore);
 
+    // 多任务调度服务
+    const taskStoreService = new TaskStoreService();
+    const taskScheduler = new TaskScheduler(config.scheduler?.maxConcurrent ?? 3);
+
+    // 注入流水线依赖，让 TaskScheduler 内部编排完整 plan→execution→test
+    taskScheduler.setDependencies({
+        requirementStore,
+        mcpBridgeService,
+        pipelineService,
+        memoryService,
+        workspaceService,
+    });
+
+    // 状态变更时自动持久化到磁盘
+    taskScheduler.onPersist = (task) => {
+        taskStoreService.upsert(task.projectId, {
+            ...task,
+        });
+    };
+
+    // 服务重启：从持久化存储恢复任务状态
+    // running/queued/waiting_*_confirm 的任务标记为 paused（需要用户手动恢复）
+    try {
+        const allTasks = taskStoreService.listAll();
+        for (const task of allTasks) {
+            const needsPause = task.status === 'running' || task.status === 'queued'
+                || task.phase === 'waiting_plan_confirm' || task.phase === 'waiting_execution_confirm';
+            if (needsPause) {
+                task.status = 'paused';
+                task.phase = 'idle';
+                task.updatedAt = new Date().toISOString();
+                taskStoreService.upsert(task.projectId, task);
+                console.log(`[task-scheduler] Recovered task ${task.id} (${task.name}) -> paused`);
+            }
+            // 注册到调度器内存
+            taskScheduler.registerTask({
+                ...task,
+                logs: task.logs || [],
+            });
+        }
+    } catch (err) {
+        console.warn(`[task-scheduler] Failed to recover tasks: ${err instanceof Error ? err.message : err}`);
+    }
+
     // 注册 API 路由
     app.use('/api/requirements', createRequirementsRoutes(mcpBridgeService, requirementStore, mineruService));
     app.use('/api/workspace', createWorkspaceRoutes(workspaceService));
@@ -125,6 +173,7 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/system', createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService));
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));
     app.use('/api/mineru', createMinerURoutes(mineruService));
+    app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService));
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;
@@ -163,6 +212,7 @@ export async function createServer(port: number): Promise<http.Server> {
         server.listen(port, '0.0.0.0', () => {
             // graceful shutdown: 清理 Daytona 沙箱
             const cleanup = async () => {
+                await taskScheduler.dispose();
                 await cliRunnerService.dispose();
                 await sandboxService.cleanup();
                 server.close();

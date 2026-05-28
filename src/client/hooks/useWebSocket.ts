@@ -182,6 +182,12 @@ export function useWebSocket() {
                             addPlanLog(`\n[ERROR] ${message.data.message}`);
                         }
                         break;
+
+                    // 多任务状态变更：分发 custom event 给 ProjectsPage
+                    case 'task:status_change':
+                    case 'task:log':
+                        window.dispatchEvent(new CustomEvent('ws-message', {detail: message}));
+                        break;
                 }
             } catch {
                 // 非标准 JSON 消息，静默忽略（如心跳帧等）

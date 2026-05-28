@@ -314,7 +314,6 @@ export default function PlanPage() {
                 workspacePath,
                 pipelineId: plan?.pipelineId,
                 requirementTitle: reqInfo?.title,
-                requirementNumber: reqInfo?.number,
             });
             // 将新任务ID存入全局状态，触发轮询effect
             setPlanTaskId(newTaskId);

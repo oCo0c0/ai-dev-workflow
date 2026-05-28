@@ -21,6 +21,7 @@ import SkillsPage from './pages/SkillsPage';
 import MCPPage from './pages/MCPPage';
 import PipelinesPage from './pages/PipelinesPage';
 import MinerUPage from './pages/MinerUPage';
+import ProjectsPage from './pages/ProjectsPage';
 import {ProviderSetupModal} from './components/ProviderSetupModal';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
@@ -56,6 +57,7 @@ function App() {
             <Routes>
                 <Route element={<Layout/>}>
                     <Route path="/" element={<RequirementsPage/>}/>
+                    <Route path="/projects" element={<ProjectsPage/>}/>
                     <Route path="/workspace" element={<WorkspacePage/>}/>
                     <Route path="/plan" element={<PlanPage/>}/>
                     <Route path="/execution" element={<ExecutionPage/>}/>

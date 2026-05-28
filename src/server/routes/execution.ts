@@ -112,7 +112,7 @@ export function createExecutionRoutes(
     pipelineService?: PipelineService,
     testExecutorService?: TestExecutorService,
     memoryService?: MemoryService,
-    sandboxService?: SandboxService
+    sandboxService?: SandboxService,
 ): Router {
     const persistStore = new ExecutionStoreService();
     const planFileStore = new PlanStoreService();
@@ -212,23 +212,25 @@ export function createExecutionRoutes(
 
         // 异步执行代码
         try {
+            const onOutput = (data: string) => {
+                execution.logs.push(data);
+                broadcast({
+                    type: 'execution:output',
+                    data: {executionId, stepIndex: execution.currentStep, content: data}
+                });
+            };
+
             const result = await cliRunnerService.runBridge(
                 {
                     prompt: enrichPrompt(plan.rawOutput ?? plan.summary ?? '', memoryService, plan.workspacePath),
                     cwd: plan.workspacePath,
                     sessionId: plan.sessionId,
                     maxTurns: 50,
-                    skills: executionSkills,  // 传递执行阶段的技能配置
+                    skills: executionSkills,
                 },
                 {
                     workspacePath: plan.workspacePath,
-                    onOutput: (data) => {
-                        execution.logs.push(data);
-                        broadcast({
-                            type: 'execution:output',
-                            data: {executionId, stepIndex: execution.currentStep, content: data}
-                        });
-                    },
+                    onOutput,
                     signal: abortController.signal,
                 }
             );

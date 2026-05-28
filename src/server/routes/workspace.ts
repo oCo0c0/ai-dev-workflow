@@ -345,7 +345,7 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     /** POST /api/workspace/git/checkout  body: {workspacePath, branch} */
     router.post('/git/checkout', async (req, res) => {
         try {
-            const {workspacePath, branch} = req.body as {workspacePath: string; branch: string};
+            const {workspacePath, branch} = req.body as { workspacePath: string; branch: string };
             if (!workspacePath || !branch) {
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath and branch are required'});
                 return;
@@ -359,7 +359,7 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     /** POST /api/workspace/git/stash  body: {workspacePath, message?} */
     router.post('/git/stash', async (req, res) => {
         try {
-            const {workspacePath, message} = req.body as {workspacePath: string; message?: string};
+            const {workspacePath, message} = req.body as { workspacePath: string; message?: string };
             if (!workspacePath) {
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath is required'});
                 return;
@@ -373,7 +373,7 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     /** POST /api/workspace/git/stash-pop  body: {workspacePath} */
     router.post('/git/stash-pop', async (req, res) => {
         try {
-            const {workspacePath} = req.body as {workspacePath: string};
+            const {workspacePath} = req.body as { workspacePath: string };
             if (!workspacePath) {
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath is required'});
                 return;
@@ -387,7 +387,7 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     /** POST /api/workspace/git/checkout-force  body: {workspacePath, branch} */
     router.post('/git/checkout-force', async (req, res) => {
         try {
-            const {workspacePath, branch} = req.body as {workspacePath: string; branch: string};
+            const {workspacePath, branch} = req.body as { workspacePath: string; branch: string };
             if (!workspacePath || !branch) {
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath and branch are required'});
                 return;
@@ -401,9 +401,12 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     /** POST /api/workspace/git/merge  body: {workspacePath, sourceBranch} */
     router.post('/git/merge', async (req, res) => {
         try {
-            const {workspacePath, sourceBranch} = req.body as {workspacePath: string; sourceBranch: string};
+            const {workspacePath, sourceBranch} = req.body as { workspacePath: string; sourceBranch: string };
             if (!workspacePath || !sourceBranch) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath and sourceBranch are required'});
+                res.status(400).json({
+                    code: 'VALIDATION_ERROR',
+                    message: 'workspacePath and sourceBranch are required'
+                });
                 return;
             }
             res.json(await workspaceService.gitMergeBranch(workspacePath, sourceBranch));
@@ -423,6 +426,28 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
             }
             const content = await workspaceService.gitConflictDiff(workspacePath, file);
             res.json({path: file, content});
+        } catch (err) {
+            res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    // ─── 远程分支列表 ──────────────────────────────────────────────────────────
+
+    /**
+     * GET /api/workspace/:id/remote-branches
+     * @description 获取指定工作区的远程分支列表
+     * @param {string} id.param - 已保存工作区的 ID
+     * @returns {string[]} 远程分支名列表
+     */
+    router.get('/:id/remote-branches', async (req, res) => {
+        try {
+            const ws = workspaceService.listSavedWorkspaces().find(w => w.id === req.params.id);
+            if (!ws) {
+                res.status(404).json({code: 'NOT_FOUND', message: 'Workspace not found'});
+                return;
+            }
+            const branches = await workspaceService.listRemoteBranches(ws.path);
+            res.json(branches);
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
         }

@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import {spawn} from 'child_process';
 import {APP_DATA_DIR} from '../utils/constants.js';
 import {getErrorMessage} from '../utils/error-utils.js';
@@ -56,6 +57,10 @@ export interface SavedWorkspace {
     name: string;           // 用户自定义的显示名称
     projectType: 'node' | 'python' | 'java' | 'rust' | 'unknown';
     addedAt: string;
+    /** 多任务配置：基础分支（默认 main） */
+    baseBranch?: string;
+    /** 多任务配置：默认流水线 ID */
+    defaultPipelineId?: string;
 }
 
 /**
@@ -986,5 +991,125 @@ export class WorkspaceService {
             // UTF-8 解码失败时返回错误提示（可能是其他编码的二进制文件）
             return {content: '[Cannot read file: encoding error]', encoding: 'binary', size: stat.size};
         }
+    }
+
+    // ==================== 任务分支管理 ====================
+
+    /**
+     * 为任务创建独立的 Git 分支。
+     *
+     * 流程：stash 未提交改动 → checkout 基础分支 → 创建新分支
+     *
+     * @param {string} workspacePath - 工作区路径
+     * @param {string} baseBranch - 基础分支名（如 main）
+     * @param {string} taskName - 任务名称（用于生成分支名）
+     * @returns {Promise<string>} 新创建的分支名
+     */
+    /**
+     * 为任务创建分支（在项目目录内操作）
+     *
+     * 1. stash 当前改动
+     * 2. checkout baseBranch
+     * 3. 创建新分支 task/{name}-{id}
+     * 4. 返回分支名（worktreePath 等于 workspacePath）
+     *
+     * @param {string} workspacePath - 原始仓库路径
+     * @param {string} baseBranch - 基础分支名
+     * @param {string} taskName - 任务名称
+     * @returns {Promise<{branch: string, worktreePath: string}>}
+     */
+    async createTaskBranch(workspacePath: string, baseBranch: string, taskName: string): Promise<{branch: string, worktreePath: string}> {
+        const sanitized = taskName
+            .toLowerCase()
+            .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+            .replace(/^-|-$/g, '')
+            .substring(0, 40);
+        const shortId = crypto.randomBytes(3).toString('hex');
+        const branchName = `task/${sanitized}-${shortId}`;
+
+        const cwd = path.resolve(workspacePath);
+
+        // stash 当前改动（忽略失败）
+        try { await this.execGit(cwd, ['stash', 'push', '-m', `auto-stash before ${branchName}`]); } catch { /* */ }
+
+        // checkout 基础分支
+        await this.execGit(cwd, ['checkout', '--quiet', baseBranch]);
+
+        // 创建新分支
+        await this.execGit(cwd, ['checkout', '-b', branchName]);
+
+        // worktreePath 等于 workspacePath（项目内操作）
+        return {branch: branchName, worktreePath: workspacePath};
+    }
+
+    /**
+     * 任务完成后 stash 代码（按需求号标记）
+     *
+     * @param {string} workspacePath - 仓库路径
+     * @param {string} requirementId - 需求ID
+     */
+    async stashTaskChanges(workspacePath: string, requirementId: string): Promise<void> {
+        const cwd = path.resolve(workspacePath);
+        // 先 add 所有改动
+        try { await this.execGit(cwd, ['add', '-A']); } catch { /* */ }
+        // stash
+        try {
+            await this.execGit(cwd, ['stash', 'push', '-m', `req-${requirementId}`]);
+        } catch { /* 可能没有改动 */ }
+    }
+
+    /**
+     * 将任务分支合并回基础分支（用于依赖任务链）
+     *
+     * @param {string} workspacePath - 仓库路径
+     * @param {string} branch - 任务分支名
+     * @param {string} baseBranch - 目标基础分支
+     */
+    async mergeBranchToBase(workspacePath: string, branch: string, baseBranch: string): Promise<void> {
+        const cwd = path.resolve(workspacePath);
+        await this.execGit(cwd, ['checkout', '--quiet', baseBranch]);
+        try {
+            await this.execGit(cwd, ['merge', '--no-ff', branch, '-m', `Merge task branch ${branch}`]);
+        } catch (err) {
+            try { await this.execGit(cwd, ['merge', '--abort']); } catch { /* */ }
+            throw new Error(`Merge conflict: ${branch} → ${baseBranch}. ${err instanceof Error ? err.message : ''}`);
+        }
+    }
+
+    /**
+     * 删除任务分支
+     */
+    async removeTaskBranch(workspacePath: string, baseBranch: string, branch: string): Promise<void> {
+        const cwd = path.resolve(workspacePath);
+        try { await this.execGit(cwd, ['checkout', '--quiet', baseBranch]); } catch { /* */ }
+        try { await this.execGit(cwd, ['branch', '-D', branch]); } catch { /* */ }
+    }
+
+    /**
+     * 列出所有任务分支（以 task/ 前缀开头的分支）
+     *
+     * @param {string} workspacePath - 工作区路径
+     * @returns {Promise<GitBranch[]>} 任务分支列表
+     */
+    async listTaskBranches(workspacePath: string): Promise<GitBranch[]> {
+        const result = await this.gitBranchList(workspacePath);
+        return result.branches.filter(b => b.name.startsWith('task/'));
+    }
+
+    /**
+     * 列出远程分支（去重，去掉 remote 前缀）
+     *
+     * @param {string} workspacePath - 工作区路径
+     * @returns {Promise<string[]>} 远程分支名列表（如 main, develop, feature-x）
+     */
+    async listRemoteBranches(workspacePath: string): Promise<string[]> {
+        const cwd = path.resolve(workspacePath);
+        // 先 fetch 保证最新
+        try { await this.execGit(cwd, ['fetch', '--quiet']); } catch { /* no remote */ }
+        const output = await this.execGit(cwd, ['branch', '-r', '--format=%(refname:short)']);
+        const seen = new Set<string>();
+        return output.trim().split('\n')
+            .map(line => line.trim().replace(/^[^/]+\//, ''))  // origin/main → main
+            .filter(name => name && !name.startsWith('HEAD') && !seen.has(name) && seen.add(name));
     }
 }
