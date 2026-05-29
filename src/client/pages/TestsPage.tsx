@@ -14,6 +14,7 @@
 
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {useSearchParams} from 'react-router-dom';
+import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
@@ -186,17 +187,17 @@ function statusIcon(status: string) {
     }
 }
 
-function modeLabel(mode: string) {
+function modeLabelKey(mode: string): string {
     switch (mode) {
         case 'pipeline_ai_generate':
         case 'manual_ai_generate':
-            return 'AI Test';
+            return 'tests.modeAiTest';
         case 'pipeline_run_existing':
-            return 'Pipeline';
+            return 'tests.modePipeline';
         case 'manual_ai_generate_e2e':
-            return 'AI E2E';
+            return 'tests.modeAiE2e';
         case 'manual':
-            return 'Manual';
+            return 'tests.modeManual';
         default:
             return mode;
     }
@@ -258,6 +259,7 @@ function logTypeColor(type: string) {
 // ============================================================
 
 export default function TestsPage() {
+    const {t} = useTranslation();
     const [searchParams] = useSearchParams();
     const currentWorkspace = useAppStore((s) => s.workspace.current);
 
@@ -540,10 +542,10 @@ export default function TestsPage() {
             setProjectInfo(projInfo);
             setFrameworks(fwData);
             if (fwData.every((f) => !f.detected)) {
-                setError('No test framework detected in this workspace.');
+                setError(t('tests.noFramework'));
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to detect project');
+            setError(err instanceof Error ? err.message : t('tests.failedDetectProject'));
         } finally {
             setDetecting(false);
         }
@@ -560,7 +562,7 @@ export default function TestsPage() {
             }>(`/workspace/git/status?workspacePath=${encodeURIComponent(effectiveWorkspace)}`);
 
             if (!gitStatus.isGit || !gitStatus.changes?.length) {
-                setError('No changed files detected. The workspace may not be a git repository or has no uncommitted changes.');
+                setError(t('tests.noChangedFiles'));
                 return;
             }
 
@@ -572,13 +574,13 @@ export default function TestsPage() {
 
             if (targets.length === 0) {
                 setError(
-                    `${changedFiles.length} changed files found, but no matching test files exist.\n` +
-                    'The changed source files do not have corresponding test files (e.g. foo.ts → foo.test.ts).\n' +
-                    'Click "Run All" to run the full test suite instead.'
+                    t('tests.changedNoTestsPrefix', {count: changedFiles.length}) + '\n' +
+                    t('tests.changedNoTestsLine2') + '\n' +
+                    t('tests.changedNoTestsLine3')
                 );
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to detect changed targets');
+            setError(err instanceof Error ? err.message : t('tests.failedDetectTargets'));
         } finally {
             setDetectingTargets(false);
         }
@@ -608,7 +610,7 @@ export default function TestsPage() {
             });
             loadHistory();
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to run changed tests');
+            setError(err instanceof Error ? err.message : t('tests.failedRunChanged'));
         } finally {
             setRunning(false);
         }
@@ -662,7 +664,7 @@ export default function TestsPage() {
             });
             loadHistory();
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to run tests');
+            setError(err instanceof Error ? err.message : t('tests.failedRunTests'));
         } finally {
             setRunning(false);
         }
@@ -672,11 +674,11 @@ export default function TestsPage() {
         if (!activeId) return;
         try {
             await apiPost<{ ok: boolean }>(`/tests/${activeId}/cancel`, {});
-            setDetail(prev => prev ? {...prev, status: 'failed' as const, error: 'Cancelled by user'} : null);
+            setDetail(prev => prev ? {...prev, status: 'failed' as const, error: t('tests.cancelledByUser')} : null);
             setRunning(false);
             loadHistory();
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to cancel test');
+            setError(err instanceof Error ? err.message : t('tests.failedCancelTest'));
         }
     };
 
@@ -708,21 +710,21 @@ export default function TestsPage() {
     }> = [
         {
             value: 'run_existing',
-            label: 'Run Existing',
-            desc: 'Run tests already in the project',
+            label: t('tests.modeRunExistingLabel'),
+            desc: t('tests.modeRunExistingDesc'),
             icon: <Play className="h-4 w-4"/>,
         },
         {
             value: 'ai_generate',
-            label: 'AI Writes Tests',
-            desc: 'Claude writes and runs tests automatically',
+            label: t('tests.modeAiGenerateLabel'),
+            desc: t('tests.modeAiGenerateDesc'),
             icon: <Sparkles className="h-4 w-4"/>,
             disabled: !cliAvailable,
         },
         {
             value: 'ai_generate_e2e',
-            label: 'AI E2E Tests',
-            desc: 'Generate Playwright files, then run',
+            label: t('tests.modeAiE2eLabel'),
+            desc: t('tests.modeAiE2eDesc'),
             icon: <Globe className="h-4 w-4"/>,
             disabled: !cliAvailable,
         },
@@ -734,7 +736,7 @@ export default function TestsPage() {
             <div className="w-64 flex flex-col border-r border-border bg-muted/10 shrink-0">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        Test History
+                        {t('tests.historyTitle')}
                     </span>
                     {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
                 </div>
@@ -743,7 +745,7 @@ export default function TestsPage() {
                     {history.length === 0 && !loadingHistory && (
                         <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
                             <TestTube className="h-7 w-7 text-muted-foreground/30"/>
-                            <p className="text-xs text-muted-foreground">No test runs yet</p>
+                            <p className="text-xs text-muted-foreground">{t('tests.noRuns')}</p>
                         </div>
                     )}
 
@@ -762,10 +764,10 @@ export default function TestsPage() {
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1.5">
                                         <Badge variant={modeBadgeVariant(run.mode)} className="text-[10px] px-1.5 py-0">
-                                            {modeLabel(run.mode)}
+                                            {t(modeLabelKey(run.mode))}
                                         </Badge>
                                         {run.environment === 'sandbox' && (
-                                            <span className="text-[10px] px-1.5 py-0 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">sandbox</span>
+                                            <span className="text-[10px] px-1.5 py-0 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{t('tests.sandbox')}</span>
                                         )}
                                         {run.framework && (
                                             <span
@@ -788,11 +790,11 @@ export default function TestsPage() {
                                     )}
                                     {run.status === 'completed' && run.totalTests !== undefined && (
                                         <div className="flex items-center gap-2 mt-1 text-xs">
-                                            <span className="text-emerald-500">{run.passed} pass</span>
+                                            <span className="text-emerald-500">{t('tests.pass', {count: run.passed})}</span>
                                             {(run.failed ?? 0) > 0 &&
-                                                <span className="text-red-500">{run.failed} fail</span>}
+                                                <span className="text-red-500">{t('tests.fail', {count: run.failed})}</span>}
                                             {(run.skipped ?? 0) > 0 &&
-                                                <span className="text-amber-500">{run.skipped} skip</span>}
+                                                <span className="text-amber-500">{t('tests.skip', {count: run.skipped})}</span>}
                                         </div>
                                     )}
                                 </div>
@@ -813,11 +815,11 @@ export default function TestsPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold">Tests</h1>
+                            <h1 className="text-xl font-semibold">{t('pageTitle.tests')}</h1>
                             <p className="mt-0.5 text-sm text-muted-foreground">
-                                {detail?.status === 'running' ? 'Tests are running...' :
-                                    detail ? 'Test results' :
-                                        'Select a test mode and run'}
+                                {detail?.status === 'running' ? t('tests.subtitleRunning') :
+                                    detail ? t('tests.subtitleResults') :
+                                        t('tests.subtitleIdle')}
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -832,7 +834,7 @@ export default function TestsPage() {
                                 ) : (
                                     <Scan className="h-4 w-4 mr-1.5"/>
                                 )}
-                                Detect
+                                {t('tests.detect')}
                             </Button>
                             <Button
                                 size="sm"
@@ -844,7 +846,7 @@ export default function TestsPage() {
                                 ) : (
                                     <Play className="h-4 w-4 mr-1.5"/>
                                 )}
-                                Run
+                                {t('tests.run')}
                             </Button>
                             {detail?.status === 'running' && (
                                 <Button
@@ -853,7 +855,7 @@ export default function TestsPage() {
                                     onClick={cancelTest}
                                 >
                                     <Square className="h-4 w-4 mr-1.5"/>
-                                    Cancel
+                                    {t('common.cancel')}
                                 </Button>
                             )}
                             <Button
@@ -867,7 +869,7 @@ export default function TestsPage() {
                                 ) : (
                                     <GitCompare className="h-4 w-4 mr-1.5"/>
                                 )}
-                                {changedTargets.length > 0 ? `Changed (${changedTargets.length})` : 'Changed Tests'}
+                                {changedTargets.length > 0 ? t('tests.changedTestsCount', {count: changedTargets.length}) : t('tests.changedTests')}
                             </Button>
                             <Button
                                 variant="outline"
@@ -875,11 +877,11 @@ export default function TestsPage() {
                                 onClick={() => setShowExecSelector(!showExecSelector)}
                             >
                                 <Link className="h-4 w-4 mr-1.5"/>
-                                Link Execution
+                                {t('tests.linkExecution')}
                             </Button>
                             {!effectiveWorkspace && (
                                 <span
-                                    className="text-xs text-muted-foreground">Select a workspace or link an execution</span>
+                                    className="text-xs text-muted-foreground">{t('tests.noWorkspace')}</span>
                             )}
                         </div>
                     </div>
@@ -897,7 +899,7 @@ export default function TestsPage() {
                         >
                             <span className="flex items-center gap-1.5">
                                 <TestTube className="h-3.5 w-3.5"/>
-                                Local Tests
+                                {t('tests.localTests')}
                             </span>
                         </button>
                         <button
@@ -911,7 +913,7 @@ export default function TestsPage() {
                         >
                             <span className="flex items-center gap-1.5">
                                 <Globe className="h-3.5 w-3.5"/>
-                                Sandbox Tests
+                                {t('tests.sandboxTests')}
                             </span>
                         </button>
                     </div>
@@ -919,16 +921,16 @@ export default function TestsPage() {
                     {/* 沙箱配置（仅 Sandbox Tab 可见） */}
                     {activeTab === 'sandbox' && (
                         <div className="mt-3 flex items-center gap-3">
-                            <label className="text-xs text-muted-foreground">Sandbox ID:</label>
+                            <label className="text-xs text-muted-foreground">{t('tests.sandboxIdLabel')}</label>
                             <input
                                 type="text"
-                                placeholder="Enter pre-created Sandbox ID"
+                                placeholder={t('tests.sandboxIdPlaceholder')}
                                 value={sandboxIdInput}
                                 onChange={(e) => setSandboxIdInput(e.target.value)}
                                 className="flex-1 max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-xs"
                             />
                             {!sandboxIdInput.trim() && (
-                                <span className="text-xs text-amber-500">Required for sandbox execution</span>
+                                <span className="text-xs text-amber-500">{t('tests.sandboxRequired')}</span>
                             )}
                         </div>
                     )}
@@ -939,7 +941,7 @@ export default function TestsPage() {
                             className="mt-3 flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
                             <Link className="h-4 w-4 text-primary shrink-0"/>
                             <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium">Linked Execution</p>
+                                <p className="text-xs font-medium">{t('tests.linkedExecution')}</p>
                                 <p className="text-xs text-muted-foreground font-mono truncate">
                                     {linkedExecution.workspacePath || linkedExecution.id}
                                 </p>
@@ -947,9 +949,9 @@ export default function TestsPage() {
                             {pipelineInfo?.steps?.testStrategy && (
                                 <Badge variant="secondary" className="text-[10px]">
                                     <Zap className="h-3 w-3 mr-0.5"/>
-                                    {pipelineInfo.steps.testStrategy.mode === 'ai_generate' ? 'AI Generate'
-                                        : pipelineInfo.steps.testStrategy.mode === 'ai_generate_e2e' ? 'AI E2E'
-                                            : 'Run Existing'}
+                                    {pipelineInfo.steps.testStrategy.mode === 'ai_generate' ? t('tests.aiGenerate')
+                                        : pipelineInfo.steps.testStrategy.mode === 'ai_generate_e2e' ? t('tests.aiE2e')
+                                            : t('tests.runExisting')}
                                 </Badge>
                             )}
                             <button
@@ -959,7 +961,7 @@ export default function TestsPage() {
                                 }}
                                 className="text-xs text-muted-foreground hover:text-foreground"
                             >
-                                Unlink
+                                {t('tests.unlink')}
                             </button>
                         </div>
                     )}
@@ -968,12 +970,11 @@ export default function TestsPage() {
                     {showExecSelector && (
                         <div className="mt-3 border border-border rounded-lg overflow-hidden max-h-48 overflow-y-auto">
                             <div className="px-3 py-2 bg-muted/30 border-b border-border">
-                                <p className="text-xs font-medium text-muted-foreground">Select a completed
-                                    execution</p>
+                                <p className="text-xs font-medium text-muted-foreground">{t('tests.selectExecution')}</p>
                             </div>
                             {executionList.length === 0 ? (
                                 <div className="px-3 py-4 text-center">
-                                    <p className="text-xs text-muted-foreground">No completed executions found</p>
+                                    <p className="text-xs text-muted-foreground">{t('tests.noCompletedExecutions')}</p>
                                 </div>
                             ) : (
                                 executionList.map((exec) => (
@@ -1037,7 +1038,7 @@ export default function TestsPage() {
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
                                     {opt.disabled && (
-                                        <p className="text-[10px] text-destructive mt-1">Claude CLI not available</p>
+                                        <p className="text-[10px] text-destructive mt-1">{t('tests.cliNotAvailable')}</p>
                                     )}
                                 </div>
                             ))}
@@ -1050,7 +1051,7 @@ export default function TestsPage() {
                             className="mt-3 flex items-center gap-2 px-3 py-2 rounded-md bg-primary/5 border border-primary/20">
                             <Globe className="h-4 w-4 text-primary shrink-0"/>
                             <span className="text-xs text-muted-foreground">
-                                Sandbox mode: AI writes tests locally, then executes them in the Daytona sandbox. Three phases: Write → Run → Fix.
+                                {t('tests.sandboxModeDesc')}
                             </span>
                         </div>
                     )}
@@ -1066,7 +1067,7 @@ export default function TestsPage() {
                                         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                                     >
                                         <Wrench className="h-3.5 w-3.5"/>
-                                        Skills {selectedSkills.length > 0 && `(${selectedSkills.length} selected)`}
+                                        {selectedSkills.length > 0 ? t('tests.skillsLabel', {count: selectedSkills.length}) : t('tests.skillsNoSelection')}
                                         {showSkillSelector ? <ChevronUp className="h-3 w-3"/> :
                                             <ChevronDown className="h-3 w-3"/>}
                                     </button>
@@ -1099,12 +1100,11 @@ export default function TestsPage() {
 
                             {/* Custom Prompt */}
                             <div>
-                                <label className="block text-xs text-muted-foreground mb-1">Custom Prompt
-                                    (optional)</label>
+                                <label className="block text-xs text-muted-foreground mb-1">{t('tests.customPrompt')}</label>
                                 <textarea
                                     value={customPrompt}
                                     onChange={(e) => setCustomPrompt(e.target.value)}
-                                    placeholder="Leave empty for default prompt..."
+                                    placeholder={t('tests.customPromptPlaceholder')}
                                     rows={2}
                                     className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                                 />
@@ -1114,11 +1114,10 @@ export default function TestsPage() {
                             {selectedMode === 'ai_generate_e2e' && (
                                 <div
                                     className="rounded-md bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-muted-foreground space-y-1">
-                                    <p className="text-blue-500 font-medium">Two-phase E2E testing:</p>
-                                    <p><strong>Phase 1:</strong> Claude generates .spec.ts files and saves to project
+                                    <p className="text-blue-500 font-medium">{t('tests.e2eTwoPhase')}</p>
+                                    <p>{t('tests.e2ePhase1')}
                                     </p>
-                                    <p><strong>Phase 2:</strong> Playwright Provider runs the generated files with
-                                        structured results</p>
+                                    <p>{t('tests.e2ePhase2')}</p>
                                 </div>
                             )}
                         </div>
@@ -1159,8 +1158,8 @@ export default function TestsPage() {
                         <div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
                             <div className="flex items-center gap-2 mb-1.5">
                                 <GitCompare className="h-3.5 w-3.5 text-amber-500"/>
-                                <span className="text-xs font-medium">Changed File Targets</span>
-                                <span className="text-xs text-muted-foreground">({changedTargets.length} tests)</span>
+                                <span className="text-xs font-medium">{t('tests.changedTargetsTitle')}</span>
+                                <span className="text-xs text-muted-foreground">{t('tests.changedTargetsCount', {count: changedTargets.length})}</span>
                             </div>
                             <div className="flex flex-wrap gap-1">
                                 {changedTargets.slice(0, 10).map((t, i) => (
@@ -1170,7 +1169,7 @@ export default function TestsPage() {
                                 ))}
                                 {changedTargets.length > 10 && (
                                     <span className="text-[10px] text-muted-foreground">
-                                        +{changedTargets.length - 10} more
+                                        {t('tests.more', {count: changedTargets.length - 10})}
                                     </span>
                                 )}
                             </div>
@@ -1219,16 +1218,16 @@ export default function TestsPage() {
                         const rawText = detail.rawOutput || '';
                         const hasContent = aiLogs.length > 0 || rawText.length > 0;
                         const isSandbox = detail?.environment === 'sandbox' || !!testPhase;
-                        const phaseLabel = testPhaseLabel || (detail?.currentPhase === 'writing' ? 'AI 编写测试文件'
-                            : detail?.currentPhase === 'sandbox_run' ? '在沙箱中执行测试'
-                                : detail?.currentPhase === 'fixing' ? 'AI 修复失败用例'
-                                    : detail?.currentPhase === 'sandbox_rerun' ? '在沙箱中重新执行测试'
+                        const phaseLabel = testPhaseLabel || (detail?.currentPhase === 'writing' ? t('tests.aiWritingTests')
+                            : detail?.currentPhase === 'sandbox_run' ? t('tests.sandboxRunTests')
+                                : detail?.currentPhase === 'fixing' ? t('tests.aiFixingTests')
+                                    : detail?.currentPhase === 'sandbox_rerun' ? t('tests.sandboxRerunTests')
                                         : null);
                         const phaseOrder: Array<{ key: string; label: string }> = [
-                            {key: 'writing', label: 'Writing'},
-                            {key: 'sandbox_run', label: 'Running'},
-                            {key: 'fixing', label: 'Fixing'},
-                            {key: 'sandbox_rerun', label: 'Re-running'},
+                            {key: 'writing', label: t('tests.phaseWriting')},
+                            {key: 'sandbox_run', label: t('tests.phaseRunning')},
+                            {key: 'fixing', label: t('tests.phaseFixing')},
+                            {key: 'sandbox_rerun', label: t('tests.phaseRerun')},
                         ];
                         const currentPhaseKey = testPhase || detail?.currentPhase || '';
                         return (
@@ -1238,8 +1237,8 @@ export default function TestsPage() {
                                     <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse"/>
                                     <span className="text-xs text-muted-foreground font-mono">
                                         {phaseLabel || (detail.mode === 'manual_ai_generate_e2e'
-                                            ? 'AI E2E Test Generation'
-                                            : 'AI Test Generation')}
+                                            ? t('tests.aiE2eGeneration')
+                                            : t('tests.aiTestGeneration'))}
                                     </span>
                                     {/* 沙箱阶段进度条 */}
                                     {isSandbox && (
@@ -1273,7 +1272,7 @@ export default function TestsPage() {
                                     {!hasContent ? (
                                         <div className="text-gray-500 text-center py-6">
                                             <Loader2 className="h-4 w-4 animate-spin inline-block mr-2"/>
-                                            Waiting for AI output...
+                                            {t('tests.waitingAiOutput')}
                                         </div>
                                     ) : aiLogs.length > 0 ? (
                                         aiLogs.map((entry, i) => {
@@ -1313,7 +1312,7 @@ export default function TestsPage() {
                             <CardContent className="p-4">
                                 <div className="flex items-center gap-3 mb-3">
                                     <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0"/>
-                                    <span className="text-sm font-medium">Tests are running...</span>
+                                    <span className="text-sm font-medium">{t('tests.testsRunning')}</span>
                                 </div>
                                 <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-3">
                                     <div className="h-full bg-primary rounded-full animate-pulse w-2/3"/>
@@ -1322,7 +1321,7 @@ export default function TestsPage() {
                                     <div className="rounded-md bg-gray-950 border border-border overflow-hidden">
                                         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-gray-900/50">
                                             <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
-                                            <span className="text-xs text-muted-foreground font-mono">Output</span>
+                                            <span className="text-xs text-muted-foreground font-mono">{t('tests.outputLabel')}</span>
                                         </div>
                                         <pre className="max-h-64 overflow-y-auto p-3 text-xs text-gray-300 font-mono whitespace-pre-wrap leading-relaxed">
                                             {detail.rawOutput.slice(-3000)}
@@ -1341,7 +1340,7 @@ export default function TestsPage() {
                                 <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0"/>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm text-destructive font-medium">
-                                        {detail.error || 'Test run failed'}
+                                        {detail.error || t('tests.testRunFailed')}
                                     </p>
                                     {detail.rawOutput && (
                                         <pre
@@ -1367,7 +1366,7 @@ export default function TestsPage() {
                     {detail?.phases && detail.phases.length > 0 && (
                         <Card className="mb-4">
                             <CardContent className="p-4">
-                                <h3 className="text-sm font-semibold mb-3">Execution Phases</h3>
+                                <h3 className="text-sm font-semibold mb-3">{t('tests.executionPhases')}</h3>
                                 <div className="space-y-2">
                                     {detail.phases.map((phase, i) => (
                                         <div key={i} className="flex items-center gap-3">
@@ -1412,14 +1411,14 @@ export default function TestsPage() {
                                 <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-gray-900/50">
                                     <div className="flex items-center gap-2">
                                         <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
-                                        <span className="text-xs text-muted-foreground font-mono">Execution Output</span>
+                                        <span className="text-xs text-muted-foreground font-mono">{t('tests.executionOutput')}</span>
                                     </div>
                                     {/* 结果摘要（如果有） */}
                                     {detail.results && (
                                         <div className="flex items-center gap-3 text-xs">
-                                            <span className="text-emerald-500">{detail.results.passed} pass</span>
-                                            {detail.results.failed > 0 && <span className="text-red-500">{detail.results.failed} fail</span>}
-                                            {detail.results.skipped > 0 && <span className="text-amber-500">{detail.results.skipped} skip</span>}
+                                            <span className="text-emerald-500">{t('tests.pass', {count: detail.results.passed})}</span>
+                                            {detail.results.failed > 0 && <span className="text-red-500">{t('tests.fail', {count: detail.results.failed})}</span>}
+                                            {detail.results.skipped > 0 && <span className="text-amber-500">{t('tests.skip', {count: detail.results.skipped})}</span>}
                                             <span className="text-muted-foreground">{(detail.results.duration / 1000).toFixed(1)}s</span>
                                         </div>
                                     )}
@@ -1435,7 +1434,7 @@ export default function TestsPage() {
                     {detail?.results && filteredSuites?.some(s => s.tests.some(t => t.status === 'failed')) && (
                         <Card className="mb-4">
                             <CardContent className="p-4">
-                                <h3 className="text-sm font-semibold mb-3 text-red-500">Failed Tests</h3>
+                                <h3 className="text-sm font-semibold mb-3 text-red-500">{t('tests.failedTests')}</h3>
                                 <div className="space-y-2">
                                     {filteredSuites.filter(s => s.tests.some(t => t.status === 'failed')).map((suite) => (
                                         <div key={suite.name}>
@@ -1465,9 +1464,9 @@ export default function TestsPage() {
                         <Card>
                             <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
                                 <TestTube className="h-10 w-10 text-muted-foreground/30"/>
-                                <p className="text-sm text-muted-foreground">No test results yet</p>
+                                <p className="text-sm text-muted-foreground">{t('tests.noResultsTitle')}</p>
                                 <p className="text-xs text-muted-foreground/60">
-                                    Select a test mode above and click Run to get started
+                                    {t('tests.noResultsSubtitle')}
                                 </p>
                             </CardContent>
                         </Card>

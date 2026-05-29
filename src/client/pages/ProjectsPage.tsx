@@ -7,6 +7,7 @@
  */
 
 import {useState, useEffect, useCallback} from 'react';
+import {useTranslation} from 'react-i18next';
 import {motion, AnimatePresence} from 'framer-motion';
 import {
     FolderKanban, Plus, Play, Pause, Square, ChevronRight, GitBranch,
@@ -79,10 +80,11 @@ function StatusIcon({status}: { status: TaskStatus }) {
 }
 
 function PhaseLabel({phase}: { phase: TaskPhase }) {
+    const {t} = useTranslation();
     const labels: Record<TaskPhase, string> = {
-        plan: 'Plan', waiting_plan_confirm: '等待确认计划',
-        execution: '执行', waiting_execution_confirm: '等待确认执行',
-        test: '测试', idle: '待执行',
+        plan: t('projects.phasePlan'), waiting_plan_confirm: t('projects.phaseWaitingPlanConfirm'),
+        execution: t('projects.phaseExecution'), waiting_execution_confirm: t('projects.phaseWaitingExecConfirm'),
+        test: t('projects.phaseTest'), idle: t('projects.phaseIdle'),
     };
     const colors: Record<TaskPhase, string> = {
         plan: 'bg-purple-500/20 text-purple-300',
@@ -114,6 +116,7 @@ function TaskCard({
     onPause: () => void;
     onAbort: () => void;
 }) {
+    const {t} = useTranslation();
     return (
         <motion.div
             layout
@@ -155,7 +158,7 @@ function TaskCard({
                                 onPause();
                             }}
                             className="p-1 rounded hover:bg-yellow-500/20 text-yellow-400"
-                            title="暂停"
+                            title={t('projects.tooltipPause')}
                         >
                             <Pause className="w-3.5 h-3.5"/>
                         </button>
@@ -165,7 +168,7 @@ function TaskCard({
                                 onAbort();
                             }}
                             className="p-1 rounded hover:bg-red-500/20 text-red-400"
-                            title="终止"
+                            title={t('projects.tooltipAbort')}
                         >
                             <Square className="w-3.5 h-3.5"/>
                         </button>
@@ -195,6 +198,7 @@ function KanbanColumn({
     onAbortTask: (id: string) => void;
     icon: React.ReactNode;
 }) {
+    const {t} = useTranslation();
     return (
         <div className="flex-1 min-w-[200px]">
             <div className="flex items-center gap-2 mb-3 px-1">
@@ -219,7 +223,7 @@ function KanbanColumn({
                 </AnimatePresence>
                 {tasks.length === 0 && (
                     <div className="text-xs text-muted-foreground text-center py-6 opacity-50">
-                        暂无任务
+                        {t('projects.emptyTasks')}
                     </div>
                 )}
             </div>
@@ -246,6 +250,7 @@ function TaskDetailPanel({
     onAbort: () => void;
     onConfirm: () => void;
 }) {
+    const {t} = useTranslation();
     const [replyText, setReplyText] = useState('');
 
     const handleReply = async () => {
@@ -284,7 +289,7 @@ function TaskDetailPanel({
                     <span className="font-mono text-xs">{task.branch}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground">需求:</span>
+                    <span className="text-muted-foreground">{t('projects.labelRequirement')}:</span>
                     <span className="text-xs">{task.requirementId}</span>
                 </div>
                 <div className="flex items-center gap-4">
@@ -300,7 +305,7 @@ function TaskDetailPanel({
                                 isActive ? 'text-primary font-medium' : isDone ? 'text-green-400' : 'text-muted-foreground'
                             }`}>
                                 {isActive ? '●' : isDone ? '✓' : '○'}
-                                {p === 'plan' ? 'Plan' : p === 'execution' ? '执行' : '测试'}
+                                {p === 'plan' ? t('projects.phasePlan') : p === 'execution' ? t('projects.phaseExecution') : t('projects.phaseTest')}
                             </div>
                         );
                     })}
@@ -311,7 +316,7 @@ function TaskDetailPanel({
             <div className="flex-1 overflow-y-auto p-4 bg-black/20">
                 <div className="font-mono text-xs space-y-0.5">
                     {logs.length === 0 && (
-                        <div className="text-muted-foreground">暂无日志</div>
+                        <div className="text-muted-foreground">{t('projects.emptyLogs')}</div>
                     )}
                     {logs.map((log, i) => (
                         <div key={i} className={`${
@@ -336,7 +341,7 @@ function TaskDetailPanel({
                             value={replyText}
                             onChange={(e) => setReplyText(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleReply()}
-                            placeholder="回复 Claude..."
+                            placeholder={t('projects.replyPlaceholder')}
                             className="flex-1 bg-input border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary"
                         />
                         <button
@@ -357,18 +362,18 @@ function TaskDetailPanel({
                             className="flex items-center gap-1 px-4 py-2 rounded bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
                         >
                             <CheckCircle className="w-4 h-4"/>
-                            {task.phase === 'waiting_plan_confirm' ? '确认计划，开始执行' : '确认执行完成'}
+                            {task.phase === 'waiting_plan_confirm' ? t('projects.confirmPlan') : t('projects.confirmExecution')}
                         </button>
                     )}
                     {task.status === 'running' && (
                         <>
                             <button onClick={onPause}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded bg-yellow-500/20 text-yellow-400 text-sm hover:bg-yellow-500/30">
-                                <Pause className="w-3.5 h-3.5"/> 暂停
+                                <Pause className="w-3.5 h-3.5"/> {t('projects.buttonPause')}
                             </button>
                             <button onClick={onAbort}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded bg-red-500/20 text-red-400 text-sm hover:bg-red-500/30">
-                                <Square className="w-3.5 h-3.5"/> 终止
+                                <Square className="w-3.5 h-3.5"/> {t('projects.buttonAbort')}
                             </button>
                         </>
                     )}
@@ -376,18 +381,18 @@ function TaskDetailPanel({
                         <>
                             <button onClick={onResume}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded bg-green-500/20 text-green-400 text-sm hover:bg-green-500/30">
-                                <Play className="w-3.5 h-3.5"/> 恢复
+                                <Play className="w-3.5 h-3.5"/> {t('projects.buttonResume')}
                             </button>
                             <button onClick={onAbort}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded bg-red-500/20 text-red-400 text-sm hover:bg-red-500/30">
-                                <Square className="w-3.5 h-3.5"/> 终止
+                                <Square className="w-3.5 h-3.5"/> {t('projects.buttonAbort')}
                             </button>
                         </>
                     )}
                     {task.status === 'failed' && (
                         <button onClick={onResume}
                                 className="flex items-center gap-1 px-3 py-1.5 rounded bg-blue-500/20 text-blue-400 text-sm hover:bg-blue-500/30">
-                            <RefreshCw className="w-3.5 h-3.5"/> 重试
+                            <RefreshCw className="w-3.5 h-3.5"/> {t('projects.buttonRetry')}
                         </button>
                     )}
                 </div>
@@ -409,6 +414,7 @@ function CreateTaskModal({
     onClose: () => void;
     onCreated: () => void;
 }) {
+    const {t} = useTranslation();
     const [name, setName] = useState('');
     const [requirementId, setRequirementId] = useState('');
     const [pipelineId, setPipelineId] = useState('');
@@ -470,7 +476,7 @@ function CreateTaskModal({
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between p-4 border-b border-border">
-                    <h3 className="font-medium">创建新任务</h3>
+                    <h3 className="font-medium">{t('projects.modalTitle')}</h3>
                     <button onClick={onClose} className="p-1 rounded hover:bg-muted">
                         <X className="w-4 h-4"/>
                     </button>
@@ -478,24 +484,24 @@ function CreateTaskModal({
                 <div className="p-4 space-y-4">
                     {/* 任务名 */}
                     <div>
-                        <label className="text-sm text-muted-foreground mb-1 block">任务名称（可选）</label>
+                        <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelTaskName')}</label>
                         <input
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            placeholder="自动从需求标题生成"
+                            placeholder={t('projects.placeholderTaskName')}
                             className="w-full bg-input border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
                         />
                     </div>
 
                     {/* 选择需求 */}
                     <div>
-                        <label className="text-sm text-muted-foreground mb-1 block">选择需求 *</label>
+                        <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelRequirement')} *</label>
                         <select
                             value={requirementId}
                             onChange={(e) => setRequirementId(e.target.value)}
                             className="w-full bg-input border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
                         >
-                            <option value="">-- 选择需求 --</option>
+                            <option value="">{t('projects.optionSelectRequirement')}</option>
                             {requirements.map(r => (
                                 <option key={r.id} value={r.id}>{r.title}</option>
                             ))}
@@ -504,13 +510,13 @@ function CreateTaskModal({
 
                     {/* 选择流水线 */}
                     <div>
-                        <label className="text-sm text-muted-foreground mb-1 block">流水线配置</label>
+                        <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelPipeline')}</label>
                         <select
                             value={pipelineId}
                             onChange={(e) => setPipelineId(e.target.value)}
                             className="w-full bg-input border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
                         >
-                            <option value="">-- 使用项目默认 --</option>
+                            <option value="">{t('projects.optionDefaultPipeline')}</option>
                             {pipelines.map(p => (
                                 <option key={p.id} value={p.id}>{p.name}</option>
                             ))}
@@ -520,11 +526,11 @@ function CreateTaskModal({
                     {/* 选择基础分支 */}
                     <div>
                         <label className="text-sm text-muted-foreground mb-1 flex items-center gap-1">
-                            <GitBranch className="w-3 h-3"/> 基于分支
+                            <GitBranch className="w-3 h-3"/> {t('projects.labelBaseBranch')}
                         </label>
                         {loadingBranches ? (
                             <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                                <Loader2 className="w-3 h-3 animate-spin"/> 获取远程分支...
+                                <Loader2 className="w-3 h-3 animate-spin"/> {t('projects.loadingBranches')}
                             </div>
                         ) : (
                             <select
@@ -543,7 +549,7 @@ function CreateTaskModal({
                     {/* 前置任务 */}
                     {existingTasks.length > 0 && (
                         <div>
-                            <label className="text-sm text-muted-foreground mb-1 block">前置任务（可选）</label>
+                            <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelDependsOn')}</label>
                             <div className="max-h-32 overflow-y-auto border border-border rounded p-2 space-y-1">
                                 {existingTasks.map(t => (
                                     <label key={t.id}
@@ -565,7 +571,7 @@ function CreateTaskModal({
                             </div>
                             {selectedDeps.length > 0 && (
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    此任务将在所选任务全部完成后自动启动
+                                    {t('projects.hintDependsOn')}
                                 </p>
                             )}
                         </div>
@@ -577,7 +583,7 @@ function CreateTaskModal({
                         className="w-full py-2 rounded bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {loading && <Loader2 className="w-4 h-4 animate-spin"/>}
-                        创建并启动任务
+                        {t('projects.createAndStart')}
                     </button>
                 </div>
             </motion.div>
@@ -588,6 +594,7 @@ function CreateTaskModal({
 // === 主页面 ===
 
 export default function ProjectsPage() {
+    const {t} = useTranslation();
     const [tasks, setTasks] = useState<TaskInfo[]>([]);
     const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
     const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -703,7 +710,7 @@ export default function ProjectsPage() {
             <div className="w-72 border-r border-border flex flex-col">
                 <div className="p-3 border-b border-border">
                     <div className="text-xs text-muted-foreground text-center py-1">
-                        选择工作区查看多任务看板
+                        {t('projects.workspaceHint')}
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">
@@ -731,7 +738,7 @@ export default function ProjectsPage() {
                     ))}
                     {workspaces.length === 0 && (
                         <div className="p-6 text-center text-sm text-muted-foreground">
-                            请先在 Workspace 页面添加工作区
+                            {t('projects.emptyWorkspaces')}
                         </div>
                     )}
                 </div>
@@ -758,13 +765,13 @@ export default function ProjectsPage() {
                             </div>
                             <div className="flex items-center gap-2">
                                 <span className="text-xs text-muted-foreground">
-                                    并行: {runningTasks.length}/{3}
+                                    {t('projects.parallelLabel')} {runningTasks.length}/{3}
                                 </span>
                                 <button
                                     onClick={() => setShowCreateTask(true)}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm"
                                 >
-                                    <Plus className="w-4 h-4"/> 新建任务
+                                    <Plus className="w-4 h-4"/> {t('projects.newTask')}
                                 </button>
                             </div>
                         </div>
@@ -773,7 +780,7 @@ export default function ProjectsPage() {
                         <div className="flex-1 overflow-y-auto p-4">
                             <div className="flex gap-4">
                                 <KanbanColumn
-                                    title="运行中"
+                                    title={t('projects.columnRunning')}
                                     tasks={runningTasks}
                                     activeTaskId={activeTaskId}
                                     onSelectTask={setActiveTaskId}
@@ -782,7 +789,7 @@ export default function ProjectsPage() {
                                     icon={<Loader2 className="w-4 h-4 text-blue-400"/>}
                                 />
                                 <KanbanColumn
-                                    title="排队中"
+                                    title={t('projects.columnQueued')}
                                     tasks={queuedTasks}
                                     activeTaskId={activeTaskId}
                                     onSelectTask={setActiveTaskId}
@@ -792,7 +799,7 @@ export default function ProjectsPage() {
                                 />
                                 {waitingTasks.length > 0 && (
                                     <KanbanColumn
-                                        title="等待依赖"
+                                        title={t('projects.columnWaitingDeps')}
                                         tasks={waitingTasks}
                                         activeTaskId={activeTaskId}
                                         onSelectTask={setActiveTaskId}
@@ -802,7 +809,7 @@ export default function ProjectsPage() {
                                     />
                                 )}
                                 <KanbanColumn
-                                    title="已完成"
+                                    title={t('projects.columnCompleted')}
                                     tasks={completedTasks}
                                     activeTaskId={activeTaskId}
                                     onSelectTask={setActiveTaskId}
@@ -832,7 +839,7 @@ export default function ProjectsPage() {
                     <div className="flex-1 flex items-center justify-center text-muted-foreground">
                         <div className="text-center">
                             <FolderKanban className="w-12 h-12 mx-auto mb-3 opacity-30"/>
-                            <p className="text-sm">选择或创建一个项目空间</p>
+                            <p className="text-sm">{t('projects.emptySelectProject')}</p>
                         </div>
                     </div>
                 )}

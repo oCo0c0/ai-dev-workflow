@@ -10,6 +10,7 @@
 import React, {useEffect} from 'react';
 import ReactDOM from 'react-dom/client';
 import {BrowserRouter, Routes, Route} from 'react-router-dom';
+import './i18n';
 import './index.css';
 import Layout from './components/Layout';
 import RequirementsPage from './pages/RequirementsPage';

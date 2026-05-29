@@ -50,6 +50,7 @@ import {
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
 import {Input} from '../components/ui/input';
+import {useTranslation} from 'react-i18next';
 
 // ============================================================
 // 类型定义
@@ -312,12 +313,14 @@ function DiffView({diff, additions, deletions, filePath}: {
     deletions: number;
     filePath: string
 }) {
+    const {t} = useTranslation();
+
     // 差异为空时显示空状态
     if (!diff) {
         return (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
                 <FilePlus className="h-8 w-8 opacity-20"/>
-                <p className="text-sm">No changes to display</p>
+                <p className="text-sm">{t('workspace.noChangesDisplay')}</p>
             </div>
         );
     }
@@ -330,7 +333,7 @@ function DiffView({diff, additions, deletions, filePath}: {
             <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/30 shrink-0">
                 <GitBranch className="h-4 w-4 text-muted-foreground shrink-0"/>
                 <span className="text-sm font-mono text-foreground truncate flex-1">
-          {filePath || 'All changes'}
+          {filePath || t('workspace.allChanges')}
         </span>
                 <span className="text-xs text-emerald-500 shrink-0">+{additions}</span>
                 <span className="text-xs text-red-500 shrink-0">-{deletions}</span>
@@ -567,6 +570,8 @@ type MiddleTab = 'files' | 'changes';
  * @returns {JSX.Element} 工作区管理页面的 React 组件
  */
 export default function WorkspacePage() {
+    const {t} = useTranslation();
+
     // === 面板尺寸状态 ===
     /** 左侧面板宽度 */
     const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT);
@@ -680,7 +685,7 @@ export default function WorkspacePage() {
      * 通过系统文件选择器让用户选取文件夹，保存到后端后自动选中
      */
     const handleAddWorkspace = async () => {
-        const picked = await pickFolder('Select Workspace Folder');
+        const picked = await pickFolder(t('workspace.selectFolder'));
         if (!picked) return;
         try {
             const saved = await apiPost<SavedWorkspace>('/workspace/saved', {path: picked});
@@ -835,16 +840,16 @@ export default function WorkspacePage() {
                         {/* 标题栏：标题、添加和折叠按钮 */}
                         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Workspaces
+                {t('workspace.title')}
               </span>
                             <div className="flex items-center gap-0.5">
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleAddWorkspace}
-                                        title="Add workspace">
+                                        title={t('workspace.addTitle')}>
                                     <Plus className="h-4 w-4"/>
                                 </Button>
                                 <Button
                                     variant="ghost" size="sm" className="h-6 w-6 p-0"
-                                    onClick={() => setLeftCollapsed(true)} title="Collapse panel"
+                                    onClick={() => setLeftCollapsed(true)} title={t('workspace.collapse')}
                                 >
                                     <PanelLeftClose className="h-4 w-4"/>
                                 </Button>
@@ -857,11 +862,11 @@ export default function WorkspacePage() {
                             {savedWorkspaces.length === 0 && (
                                 <div className="flex flex-col items-center justify-center py-8 px-3 text-center gap-2">
                                     <Folder className="h-7 h-7 text-muted-foreground/30"/>
-                                    <p className="text-xs text-muted-foreground">No workspaces yet</p>
+                                    <p className="text-xs text-muted-foreground">{t('workspace.emptyTitle')}</p>
                                     <Button variant="outline" size="sm" className="text-xs h-7"
                                             onClick={handleAddWorkspace}>
                                         <Plus className="h-3.5 w-3.5 mr-1"/>
-                                        Add Workspace
+                                        {t('workspace.addButton')}
                                     </Button>
                                 </div>
                             )}
@@ -949,7 +954,7 @@ export default function WorkspacePage() {
                 <div className="flex flex-col items-center pt-3 px-1 border-r border-border bg-muted/10 shrink-0">
                     <Button
                         variant="ghost" size="sm" className="h-6 w-6 p-0 mb-1"
-                        onClick={() => setLeftCollapsed(false)} title="Show workspaces"
+                        onClick={() => setLeftCollapsed(false)} title={t('workspace.show')}
                     >
                         <PanelLeftOpen className="h-4 w-4"/>
                     </Button>
@@ -1000,7 +1005,7 @@ export default function WorkspacePage() {
                                         </div>
                                         <Button
                                             variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0"
-                                            onClick={() => setMiddleCollapsed(true)} title="Collapse panel"
+                                            onClick={() => setMiddleCollapsed(true)} title={t('workspace.collapse')}
                                         >
                                             <PanelLeftClose className="h-3.5 w-3.5"/>
                                         </Button>
@@ -1018,7 +1023,7 @@ export default function WorkspacePage() {
                                                 : 'text-muted-foreground hover:text-foreground'
                                         )}
                                     >
-                                        Files
+                                        {t('workspace.filesTab')}
                                     </button>
                                     <button
                                         onClick={() => setMiddleTab('changes')}
@@ -1029,7 +1034,7 @@ export default function WorkspacePage() {
                                                 : 'text-muted-foreground hover:text-foreground'
                                         )}
                                     >
-                                        Changes
+                                        {t('workspace.changesTab')}
                                         {/* 变更数量角标 */}
                                         {gitStatus && gitStatus.changes.length > 0 && (
                                             <span
@@ -1069,18 +1074,18 @@ export default function WorkspacePage() {
                                             <div
                                                 className="flex flex-col items-center justify-center py-8 px-4 gap-2 text-muted-foreground">
                                                 <GitBranch className="h-6 w-6 opacity-30"/>
-                                                <p className="text-xs text-center">Not a git repository</p>
+                                                <p className="text-xs text-center">{t('workspace.notGitRepo')}</p>
                                             </div>
                                         ) : gitStatus.changes.length === 0 ? (
                                             /* 无变更提示 */
                                             <div
                                                 className="flex flex-col items-center justify-center py-8 px-4 gap-2 text-muted-foreground">
                                                 <Check className="h-6 h-6 opacity-30 text-emerald-500"/>
-                                                <p className="text-xs text-center">No changes</p>
+                                                <p className="text-xs text-center">{t('workspace.noChanges')}</p>
                                                 <Button variant="ghost" size="sm" className="text-xs h-6 mt-1"
                                                         onClick={() => loadGitStatus(selectedWs.path)}>
                                                     <RefreshCw className="h-3 w-3 mr-1"/>
-                                                    Refresh
+                                                    {t('common.refresh')}
                                                 </Button>
                                             </div>
                                         ) : (
@@ -1088,11 +1093,11 @@ export default function WorkspacePage() {
                                             <>
                                                 <div className="px-2 py-1 flex items-center justify-between">
                           <span className="text-xs text-muted-foreground">
-                            {gitStatus.changes.length} file{gitStatus.changes.length > 1 ? 's' : ''} changed
+                            {t('workspace.filesChanged', {count: gitStatus.changes.length})}
                           </span>
                                                     <Button variant="ghost" size="sm" className="h-5 w-5 p-0"
                                                             onClick={() => loadGitStatus(selectedWs.path)}
-                                                            title="Refresh">
+                                                            title={t('common.refresh')}>
                                                         <RefreshCw className="h-3 w-3"/>
                                                     </Button>
                                                 </div>
@@ -1151,7 +1156,7 @@ export default function WorkspacePage() {
                             <div
                                 className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground px-4 text-center">
                                 <FolderOpen className="h-8 w-8 opacity-30"/>
-                                <p className="text-xs">Select a workspace to browse files</p>
+                                <p className="text-xs">{t('workspace.selectToBrowse')}</p>
                             </div>
                         )}
                     </div>
@@ -1164,7 +1169,7 @@ export default function WorkspacePage() {
                 <div className="flex flex-col items-center pt-3 px-1 border-r border-border bg-muted/10 shrink-0">
                     <Button
                         variant="ghost" size="sm" className="h-6 w-6 p-0 mb-1"
-                        onClick={() => setMiddleCollapsed(false)} title="Show file tree"
+                        onClick={() => setMiddleCollapsed(false)} title={t('workspace.showFileTree')}
                     >
                         <PanelLeftOpen className="h-4 w-4"/>
                     </Button>
@@ -1178,7 +1183,7 @@ export default function WorkspacePage() {
                     loadingDiff ? (
                         <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                             <Loader2 className="h-8 w-8 animate-spin opacity-20"/>
-                            <p className="text-sm">Loading diff...</p>
+                            <p className="text-sm">{t('workspace.loadingDiff')}</p>
                         </div>
                     ) : gitDiffResult ? (
                         <DiffView
@@ -1190,7 +1195,7 @@ export default function WorkspacePage() {
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                             <FileMinus className="h-10 w-10 opacity-20"/>
-                            <p className="text-sm">No diff available</p>
+                            <p className="text-sm">{t('workspace.noDiff')}</p>
                         </div>
                     )
                 ) : showFilePreview ? (
@@ -1231,8 +1236,8 @@ export default function WorkspacePage() {
                     /* 未选中任何内容时的空状态 */
                     <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                         <Eye className="h-10 w-10 opacity-20"/>
-                        <p className="text-sm">Select a file to preview</p>
-                        <p className="text-xs opacity-60">Click any file in the tree to view its contents</p>
+                        <p className="text-sm">{t('workspace.selectFilePreview')}</p>
+                        <p className="text-xs opacity-60">{t('workspace.selectFilePreviewSub')}</p>
                     </div>
                 )}
             </div>

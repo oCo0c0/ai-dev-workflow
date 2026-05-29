@@ -18,6 +18,7 @@
  * - 右侧：技能内容编辑/预览区域
  */
 import {useState, useEffect, useCallback} from 'react';
+import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {cn} from '../lib/utils';
 import {Button} from '../components/ui/button';
@@ -74,6 +75,7 @@ interface SkillDetail extends Skill {
  * @returns {JSX.Element} 技能管理页面的 React 组件
  */
 export default function SkillsPage() {
+    const {t} = useTranslation();
     // === 列表和选中状态 ===
     /** 所有技能列表 */
     const [skills, setSkills] = useState<Skill[]>([]);
@@ -186,7 +188,7 @@ export default function SkillsPage() {
      * 弹出确认对话框后调用 API 删除，同时清理选中状态
      */
     const deleteSkill = async (name: string) => {
-        if (!confirm(`Delete skill "${name}"?`)) return;
+        if (!confirm(t('skills.deleteConfirm', {name}))) return;
         try {
             await apiDelete(`/skills/${encodeURIComponent(name)}`);
             if (selected?.name === name) setSelected(null);
@@ -225,7 +227,7 @@ export default function SkillsPage() {
                         size="sm"
                     >
                         <Plus className="h-4 w-4 mr-1"/>
-                        New Skill
+                        {t('skills.newSkill')}
                     </Button>
                     {/* 技能列表：支持加载状态、空状态和正常列表 */}
                     <div className="flex-1 overflow-y-auto space-y-1">
@@ -237,7 +239,7 @@ export default function SkillsPage() {
                         {!loading && skills.length === 0 && (
                             <div className="flex flex-col items-center justify-center py-8 gap-2">
                                 <Zap className="h-8 w-8 text-muted-foreground/50"/>
-                                <p className="text-xs text-muted-foreground">No skills yet</p>
+                                <p className="text-xs text-muted-foreground">{t('skills.noSkills')}</p>
                             </div>
                         )}
                         {skills.map((skill) => (
@@ -262,7 +264,7 @@ export default function SkillsPage() {
                                         deleteSkill(skill.name);
                                     }}
                                     className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1"
-                                    title="Delete"
+                                    title={t('common.delete')}
                                 >
                                     <Trash2 className="h-3.5 w-3.5"/>
                                 </button>
@@ -276,32 +278,32 @@ export default function SkillsPage() {
                     {/* 创建新技能表单 */}
                     {creating && (
                         <div className="p-4 flex flex-col h-full">
-                            <h3 className="text-sm font-medium mb-4">Create New Skill</h3>
+                            <h3 className="text-sm font-medium mb-4">{t('skills.createTitle')}</h3>
                             <div className="space-y-3 flex-1 flex flex-col">
                                 <Input
                                     value={newName}
                                     onChange={(e) => setNewName(e.target.value)}
-                                    placeholder="Skill name"
+                                    placeholder={t('skills.namePlaceholder')}
                                 />
                                 <Input
                                     value={newDescription}
                                     onChange={(e) => setNewDescription(e.target.value)}
-                                    placeholder="Description"
+                                    placeholder={t('skills.descPlaceholder')}
                                 />
                                 {/* Markdown 内容编辑区域，自适应填充剩余空间 */}
                                 <textarea
                                     value={newContent}
                                     onChange={(e) => setNewContent(e.target.value)}
-                                    placeholder="Skill content (markdown)"
+                                    placeholder={t('skills.contentPlaceholder')}
                                     className="flex-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                                 />
                                 <div className="flex gap-2">
                                     <Button onClick={createSkill} size="sm">
                                         <Save className="h-4 w-4 mr-1"/>
-                                        Create
+                                        {t('common.create')}
                                     </Button>
                                     <Button variant="outline" size="sm" onClick={() => setCreating(false)}>
-                                        Cancel
+                                        {t('common.cancel')}
                                     </Button>
                                 </div>
                             </div>
@@ -323,7 +325,7 @@ export default function SkillsPage() {
                                             {/* 编辑模式：保存和取消 */}
                                             <Button size="sm" onClick={saveEdit}>
                                                 <Save className="h-4 w-4 mr-1"/>
-                                                Save
+                                                {t('common.save')}
                                             </Button>
                                             <Button
                                                 variant="outline"
@@ -334,14 +336,14 @@ export default function SkillsPage() {
                                                 }}
                                             >
                                                 <X className="h-4 w-4 mr-1"/>
-                                                Cancel
+                                                {t('common.cancel')}
                                             </Button>
                                         </>
                                     ) : (
                                         /* 查看模式：进入编辑 */
                                         <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                                             <Pencil className="h-4 w-4 mr-1"/>
-                                            Edit
+                                            {t('common.edit')}
                                         </Button>
                                     )}
                                 </div>
@@ -370,7 +372,7 @@ export default function SkillsPage() {
                     {!selected && !creating && (
                         <div className="flex-1 flex flex-col items-center justify-center gap-3">
                             <FileCode className="h-10 w-10 text-muted-foreground/30"/>
-                            <p className="text-sm text-muted-foreground">Select a skill or create a new one</p>
+                            <p className="text-sm text-muted-foreground">{t('skills.emptyState')}</p>
                         </div>
                     )}
                 </Card>

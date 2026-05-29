@@ -14,6 +14,7 @@
  */
 
 import {useState, useEffect, useCallback} from 'react';
+import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {cn} from '../lib/utils';
 import {Button} from '../components/ui/button';
@@ -69,6 +70,7 @@ interface MCPServerConfig {
  * <Route path="/mcp" element={<MCPPage />} />
  */
 export default function MCPPage() {
+    const {t} = useTranslation();
     // 服务器列表和加载状态
     const [servers, setServers] = useState<MCPServerConfig[]>([]);
     const [loading, setLoading] = useState(false);
@@ -202,7 +204,7 @@ export default function MCPPage() {
      * @param name - 要删除的服务器名称
      */
     const handleDelete = async (name: string) => {
-        if (!confirm(`Delete server "${name}"?`)) return; // 弹出确认对话框
+        if (!confirm(t('mcp.deleteConfirm', {name}))) return; // 弹出确认对话框
         try {
             await apiDelete(`/mcp-servers/${encodeURIComponent(name)}`);
             // 如果删除的是当前正在编辑的服务器，则关闭编辑表单
@@ -278,7 +280,7 @@ export default function MCPPage() {
                     <div className="flex gap-2 mb-3">
                         <Button onClick={startCreate} className="flex-1" size="sm">
                             <Plus className="h-4 w-4 mr-1"/>
-                            Add Server
+                            {t('mcp.addServer')}
                         </Button>
                         <Button
                             variant="outline"
@@ -305,7 +307,7 @@ export default function MCPPage() {
                         {!loading && servers.length === 0 && (
                             <div className="flex flex-col items-center justify-center py-8 gap-2">
                                 <Server className="h-8 w-8 text-muted-foreground/50"/>
-                                <p className="text-xs text-muted-foreground">No servers configured</p>
+                                <p className="text-xs text-muted-foreground">{t('mcp.noServers')}</p>
                             </div>
                         )}
                         {/* 渲染每个服务器配置卡片 */}
@@ -327,7 +329,7 @@ export default function MCPPage() {
                                         {/* 启用/禁用状态徽章 */}
                                         <Badge variant={server.enabled ? 'success' : 'secondary'}
                                                className="text-[10px]">
-                                            {server.enabled ? 'ON' : 'OFF'}
+                                            {server.enabled ? t('mcp.on') : t('mcp.off')}
                                         </Badge>
                                     </div>
                                     {/* 显示启动命令和参数 */}
@@ -351,7 +353,7 @@ export default function MCPPage() {
                                             ) : (
                                                 <Wifi className="h-3 w-3 mr-1"/>
                                             )}
-                                            Test
+                                            {t('mcp.test')}
                                         </Button>
                                         <Button
                                             variant="outline"
@@ -363,7 +365,7 @@ export default function MCPPage() {
                                             }}
                                         >
                                             <Trash2 className="h-3 w-3 mr-1"/>
-                                            Delete
+                                            {t('common.delete')}
                                         </Button>
                                     </div>
                                 </CardContent>
@@ -378,13 +380,13 @@ export default function MCPPage() {
                         <div className="p-4">
                             {/* 表单标题：根据模式显示不同的标题 */}
                             <h3 className="text-sm font-medium mb-4">
-                                {creating ? 'Add New Server' : `Edit: ${editing?.name}`}
+                                {creating ? t('mcp.addTitle') : t('mcp.editTitle', {name: editing?.name})}
                             </h3>
                             <div className="space-y-4">
                                 {/* 服务器名称（编辑模式下不可修改） */}
                                 <div>
                                     <label
-                                        className="block text-xs font-medium text-muted-foreground mb-1.5">Name</label>
+                                        className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.name')}</label>
                                     <Input
                                         value={formName}
                                         onChange={(e) => setFormName(e.target.value)}
@@ -394,7 +396,7 @@ export default function MCPPage() {
                                 {/* 传输类型选择：stdio 或 sse */}
                                 <div>
                                     <label
-                                        className="block text-xs font-medium text-muted-foreground mb-1.5">Type</label>
+                                        className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.type')}</label>
                                     <select
                                         value={formType}
                                         onChange={(e) => setFormType(e.target.value)}
@@ -407,31 +409,29 @@ export default function MCPPage() {
                                 {/* 启动命令 */}
                                 <div>
                                     <label
-                                        className="block text-xs font-medium text-muted-foreground mb-1.5">Command</label>
+                                        className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.command')}</label>
                                     <Input
                                         value={formCommand}
                                         onChange={(e) => setFormCommand(e.target.value)}
-                                        placeholder="e.g., npx -y @ones/mcp-server"
+                                        placeholder={t('mcp.commandPlaceholder')}
                                     />
                                 </div>
                                 {/* 命令参数（空格分隔） */}
                                 <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Arguments
-                                        (space-separated)</label>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.arguments')}</label>
                                     <Input
                                         value={formArgs}
                                         onChange={(e) => setFormArgs(e.target.value)}
-                                        placeholder="e.g., --port 3000"
+                                        placeholder={t('mcp.argumentsPlaceholder')}
                                     />
                                 </div>
                                 {/* 环境变量（每行一个 KEY=VALUE） */}
                                 <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Environment
-                                        Variables (KEY=VALUE per line)</label>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.envVars')}</label>
                                     <textarea
                                         value={formEnv}
                                         onChange={(e) => setFormEnv(e.target.value)}
-                                        placeholder={"API_KEY=xxx\nBASE_URL=https://..."}
+                                        placeholder={t('mcp.envVarsPlaceholder')}
                                         rows={4}
                                         className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                                     />
@@ -445,17 +445,17 @@ export default function MCPPage() {
                                         className="rounded border-input"
                                         id="enabled-check"
                                     />
-                                    <label htmlFor="enabled-check" className="text-sm">Enabled</label>
+                                    <label htmlFor="enabled-check" className="text-sm">{t('mcp.enabled')}</label>
                                 </div>
                                 {/* 表单操作按钮：保存和取消 */}
                                 <div className="flex gap-2 pt-2">
                                     <Button onClick={handleSave} size="sm">
                                         <Save className="h-4 w-4 mr-1"/>
-                                        {creating ? 'Create' : 'Save'}
+                                        {creating ? t('common.create') : t('common.save')}
                                     </Button>
                                     <Button variant="outline" size="sm" onClick={cancelForm}>
                                         <X className="h-4 w-4 mr-1"/>
-                                        Cancel
+                                        {t('common.cancel')}
                                     </Button>
                                 </div>
                             </div>
@@ -468,7 +468,7 @@ export default function MCPPage() {
                     <Card className="flex-1 flex items-center justify-center">
                         <div className="flex flex-col items-center gap-3">
                             <Plug className="h-10 w-10 text-muted-foreground/30"/>
-                            <p className="text-sm text-muted-foreground">Select a server to edit or add a new one</p>
+                            <p className="text-sm text-muted-foreground">{t('mcp.emptyState')}</p>
                         </div>
                     </Card>
                 )}

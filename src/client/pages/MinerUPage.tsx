@@ -5,6 +5,7 @@
  */
 
 import {useState, useEffect, useCallback, useRef} from 'react';
+import {useTranslation} from 'react-i18next';
 import {cn} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '../components/ui/card';
@@ -59,25 +60,25 @@ interface TaskInfo {
 const API_BASE = '/api';
 const STORAGE_KEY = 'mineru-saved-results';
 
-const BACKEND_OPTIONS: { value: Backend; label: string; desc: string }[] = [
-    {value: 'hybrid-auto-engine', label: 'Hybrid (推荐)', desc: '高精度，支持多语言'},
-    {value: 'pipeline', label: 'Pipeline', desc: '通用，无幻觉'},
-    {value: 'vlm-auto-engine', label: 'VLM', desc: '高精度，仅中英文'},
-    {value: 'hybrid-http-client', label: 'Hybrid Remote', desc: '远程算力'},
-    {value: 'vlm-http-client', label: 'VLM Remote', desc: '远程算力，仅中英文'},
+const BACKEND_OPTIONS: { value: Backend; labelKey: string; descKey: string }[] = [
+    {value: 'hybrid-auto-engine', labelKey: 'mineru.backendHybrid', descKey: 'mineru.backendHybridDesc'},
+    {value: 'pipeline', labelKey: 'mineru.backendPipeline', descKey: 'mineru.backendPipelineDesc'},
+    {value: 'vlm-auto-engine', labelKey: 'mineru.backendVlm', descKey: 'mineru.backendVlmDesc'},
+    {value: 'hybrid-http-client', labelKey: 'mineru.backendHybridRemote', descKey: 'mineru.backendHybridRemoteDesc'},
+    {value: 'vlm-http-client', labelKey: 'mineru.backendVlmRemote', descKey: 'mineru.backendVlmRemoteDesc'},
 ];
 
-const LANG_OPTIONS = [
-    {value: 'ch', label: '中文/英文/繁体'},
-    {value: 'en', label: 'English'},
-    {value: 'korean', label: '한국어/English'},
-    {value: 'japan', label: '日本語/English'},
-    {value: 'chinese_cht', label: '繁體中文/English'},
-    {value: 'latin', label: 'Latin (法语/德语/西班牙等)'},
-    {value: 'arabic', label: 'العربية/English'},
-    {value: 'east_slavic', label: 'Русский/English'},
-    {value: 'cyrillic', label: 'Cyrillic (俄/白/乌/塞等)'},
-    {value: 'devanagari', label: 'हिन्दी/English'},
+const LANG_OPTIONS: { value: string; labelKey: string }[] = [
+    {value: 'ch', labelKey: 'mineru.langChinese'},
+    {value: 'en', labelKey: 'mineru.langEnglish'},
+    {value: 'korean', labelKey: 'mineru.langKorean'},
+    {value: 'japan', labelKey: 'mineru.langJapanese'},
+    {value: 'chinese_cht', labelKey: 'mineru.langTraditionalChinese'},
+    {value: 'latin', labelKey: 'mineru.langLatin'},
+    {value: 'arabic', labelKey: 'mineru.langArabic'},
+    {value: 'east_slavic', labelKey: 'mineru.langEastSlavic'},
+    {value: 'cyrillic', labelKey: 'mineru.langCyrillic'},
+    {value: 'devanagari', labelKey: 'mineru.langDevanagari'},
 ];
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.pptx', '.xlsx'];
@@ -101,6 +102,8 @@ function saveSavedResults(results: SavedResult[]): void {
 // ========== 页面组件 ==========
 
 export default function MinerUPage() {
+    const {t} = useTranslation();
+
     // 文件状态
     const [files, setFiles] = useState<File[]>([]);
     const [isDragging, setIsDragging] = useState(false);
@@ -145,10 +148,10 @@ export default function MinerUPage() {
 
     const validateFile = useCallback((file: File): string | null => {
         const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-        if (!ACCEPTED_EXTENSIONS.includes(ext)) return `不支持的文件类型: ${ext}`;
-        if (file.size > MAX_FILE_SIZE) return `文件过大: ${(file.size / 1024 / 1024).toFixed(1)}MB (最大 100MB)`;
+        if (!ACCEPTED_EXTENSIONS.includes(ext)) return t('mineru.errorUnsupportedFile', {ext});
+        if (file.size > MAX_FILE_SIZE) return t('mineru.errorFileTooLarge', {size: (file.size / 1024 / 1024).toFixed(1)});
         return null;
-    }, []);
+    }, [t]);
 
     /** 新文件替换旧文件（单文件模式） */
     const addFiles = useCallback((newFiles: FileList | File[]) => {
@@ -208,7 +211,7 @@ export default function MinerUPage() {
         setParseResult(null);
         setViewingSaved(null);
         setPhase('uploading');
-        setStatusText('正在上传文件...');
+        setStatusText(t('mineru.statusUploading'));
         setElapsed(0);
 
         timerRef.current = setInterval(() => setElapsed(prev => prev + 1), 1000);
@@ -227,21 +230,21 @@ export default function MinerUPage() {
             for (const lang of langList) formData.append('langList', lang);
 
             setPhase('submitting');
-            setStatusText('正在提交解析任务...');
+            setStatusText(t('mineru.statusSubmitting'));
 
             const submitRes = await fetch(`${API_BASE}/mineru/tasks`, {method: 'POST', body: formData});
             if (!submitRes.ok) {
-                const errData = await submitRes.json().catch(() => ({message: '提交失败'}));
-                throw new Error(errData.message || '提交任务失败');
+                const errData = await submitRes.json().catch(() => ({message: t('mineru.errorSubmitFailed')}));
+                throw new Error(errData.message || t('mineru.errorSubmitTaskFailed'));
             }
 
             const submitData = await submitRes.json();
             const taskId = submitData.tasks?.[0]?.task_id;
-            if (!taskId) throw new Error(submitData.tasks?.[0]?.error || '未获取到任务 ID');
+            if (!taskId) throw new Error(submitData.tasks?.[0]?.error || t('mineru.errorNoTaskId'));
 
             setCurrentTask({taskId, fileName: files[0].name});
             setPhase('queued');
-            setStatusText(`任务已提交: ${taskId.slice(0, 8)}...`);
+            setStatusText(t('mineru.statusQueued', {taskId: taskId.slice(0, 8)}));
 
             pollRef.current = setInterval(async () => {
                 try {
@@ -252,7 +255,7 @@ export default function MinerUPage() {
                     if (st === 'completed' || st === 'done' || st === 'success' || st === 'finished') {
                         if (pollRef.current) clearInterval(pollRef.current);
                         setPhase('downloading');
-                        setStatusText('正在获取解析结果...');
+                        setStatusText(t('mineru.statusDownloading'));
 
                         try {
                             const resultRes = await fetch(`${API_BASE}/mineru/tasks/${taskId}/result`);
@@ -260,7 +263,7 @@ export default function MinerUPage() {
                             if (timerRef.current) clearInterval(timerRef.current);
                             setParseResult(resultData);
                             setPhase('completed');
-                            setStatusText('解析完成');
+                            setStatusText(t('mineru.statusCompleted'));
                         } catch {
                             if (timerRef.current) clearInterval(timerRef.current);
                             setParseResult({
@@ -269,19 +272,19 @@ export default function MinerUPage() {
                                 raw: statusData
                             });
                             setPhase('completed');
-                            setStatusText('解析完成');
+                            setStatusText(t('mineru.statusCompleted'));
                         }
                     } else if (st === 'failed' || st === 'error') {
                         if (pollRef.current) clearInterval(pollRef.current);
                         if (timerRef.current) clearInterval(timerRef.current);
                         setPhase('failed');
-                        setStatusText(statusData.message || statusData.error || '解析失败');
+                        setStatusText(statusData.message || statusData.error || t('mineru.statusFailedGeneric'));
                     } else if (st === 'processing' || st === 'running') {
                         setPhase('processing');
-                        setStatusText(`正在解析中... (${elapsed}s)`);
+                        setStatusText(t('mineru.statusParsing', {seconds: elapsed}));
                     } else {
                         setPhase('queued');
-                        setStatusText(`排队中... (${elapsed}s)`);
+                        setStatusText(t('mineru.statusQueuing', {seconds: elapsed}));
                     }
                 } catch (err) {
                     console.error('Poll error:', err);
@@ -290,9 +293,9 @@ export default function MinerUPage() {
         } catch (err) {
             if (timerRef.current) clearInterval(timerRef.current);
             setPhase('failed');
-            setStatusText(err instanceof Error ? err.message : '未知错误');
+            setStatusText(err instanceof Error ? err.message : t('mineru.errorUnknown'));
         }
-    }, [files, backend, langList, formulaEnable, tableEnable, imageAnalysis, elapsed]);
+    }, [files, backend, langList, formulaEnable, tableEnable, imageAnalysis, elapsed, t]);
 
     // ========== 结果持久化 ==========
 
@@ -359,7 +362,7 @@ export default function MinerUPage() {
                         <CardHeader className="pb-3">
                             <CardTitle className="text-sm flex items-center gap-2">
                                 <Upload className="h-4 w-4"/>
-                                文件上传
+                                {t('mineru.fileUpload')}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
@@ -388,10 +391,10 @@ export default function MinerUPage() {
                                 />
                                 <FileSearch className="h-8 w-8 mx-auto mb-2 text-muted-foreground"/>
                                 <p className="text-sm text-muted-foreground">
-                                    拖拽文件到此处，或点击选择
+                                    {t('mineru.dragDropHint')}
                                 </p>
                                 <p className="text-xs text-muted-foreground/60 mt-1">
-                                    支持 PDF、图片、DOCX、PPTX、XLSX
+                                    {t('mineru.supportedFormats')}
                                 </p>
                             </div>
 
@@ -413,7 +416,7 @@ export default function MinerUPage() {
                                             clearFile();
                                         }}
                                         className="text-muted-foreground hover:text-destructive shrink-0"
-                                        title="移除文件"
+                                        title={t('mineru.removeFile')}
                                     >
                                         <XCircle className="h-3.5 w-3.5"/>
                                     </button>
@@ -431,17 +434,17 @@ export default function MinerUPage() {
                             >
                                 <CardTitle className="text-sm flex items-center gap-2">
                                     <Settings2 className="h-4 w-4"/>
-                                    解析配置
+                                    {t('mineru.parseConfig')}
                                 </CardTitle>
                                 <span className="text-xs text-muted-foreground">
-                                    {showOptions ? '收起' : '展开'}
+                                    {showOptions ? t('mineru.collapse') : t('mineru.expand')}
                                 </span>
                             </div>
                         </CardHeader>
                         {showOptions && (
                             <CardContent className="space-y-3">
                                 <div>
-                                    <label className="text-xs text-muted-foreground mb-1 block">解析后端</label>
+                                    <label className="text-xs text-muted-foreground mb-1 block">{t('mineru.backend')}</label>
                                     <div className="space-y-1">
                                         {BACKEND_OPTIONS.map(opt => (
                                             <label
@@ -461,30 +464,30 @@ export default function MinerUPage() {
                                                     onChange={() => setBackend(opt.value)}
                                                     className="sr-only"
                                                 />
-                                                <span className="font-medium">{opt.label}</span>
-                                                <span className="text-muted-foreground">{opt.desc}</span>
+                                                <span className="font-medium">{t(opt.labelKey)}</span>
+                                                <span className="text-muted-foreground">{t(opt.descKey)}</span>
                                             </label>
                                         ))}
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="text-xs text-muted-foreground mb-1 block">OCR 语言</label>
+                                    <label className="text-xs text-muted-foreground mb-1 block">{t('mineru.ocrLanguage')}</label>
                                     <select
                                         value={langList[0]}
                                         onChange={(e) => setLangList([e.target.value])}
                                         className="w-full bg-card border border-border rounded-lg px-3 py-1.5 text-sm"
                                     >
                                         {LANG_OPTIONS.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
                                         ))}
                                     </select>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <ToggleOption label="公式识别" checked={formulaEnable} onChange={setFormulaEnable}/>
-                                    <ToggleOption label="表格识别" checked={tableEnable} onChange={setTableEnable}/>
-                                    <ToggleOption label="图片分析" checked={imageAnalysis} onChange={setimageAnalysis}/>
+                                    <ToggleOption label={t('mineru.toggleFormula')} checked={formulaEnable} onChange={setFormulaEnable}/>
+                                    <ToggleOption label={t('mineru.toggleTable')} checked={tableEnable} onChange={setTableEnable}/>
+                                    <ToggleOption label={t('mineru.toggleImageAnalysis')} checked={imageAnalysis} onChange={setimageAnalysis}/>
                                 </div>
                             </CardContent>
                         )}
@@ -498,13 +501,13 @@ export default function MinerUPage() {
                             className="flex-1"
                         >
                             {isParsing ? (
-                                <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>解析中...</>
+                                <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>{t('mineru.parsing')}</>
                             ) : (
-                                <><FileSearch className="h-4 w-4 mr-2"/>开始解析</>
+                                <><FileSearch className="h-4 w-4 mr-2"/>{t('mineru.parse')}</>
                             )}
                         </Button>
                         {phase === 'completed' && parseResult?.markdown && !viewingSaved && (
-                            <Button variant="outline" onClick={saveResult} title="保存结果">
+                            <Button variant="outline" onClick={saveResult} title={t('mineru.saveResult')}>
                                 <Save className="h-4 w-4"/>
                             </Button>
                         )}
@@ -537,7 +540,7 @@ export default function MinerUPage() {
                         <div
                             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-emerald-500/10 text-emerald-400">
                             <CheckCircle2 className="h-4 w-4 shrink-0"/>
-                            <span className="flex-1">解析完成 — {currentTask.fileName}</span>
+                            <span className="flex-1">{t('mineru.statusCompletedWithFile', {fileName: currentTask.fileName})}</span>
                         </div>
                     )}
 
@@ -551,10 +554,10 @@ export default function MinerUPage() {
                                 >
                                     <CardTitle className="text-sm flex items-center gap-2">
                                         <History className="h-4 w-4"/>
-                                        已保存记录 ({savedResults.length})
+                                        {t('mineru.savedRecords', {count: savedResults.length})}
                                     </CardTitle>
                                     <span className="text-xs text-muted-foreground">
-                                        {showHistory ? '收起' : '展开'}
+                                        {showHistory ? t('mineru.collapse') : t('mineru.expand')}
                                     </span>
                                 </div>
                             </CardHeader>
@@ -584,7 +587,7 @@ export default function MinerUPage() {
                                                     deleteSavedResult(result.id);
                                                 }}
                                                 className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                title="删除"
+                                                title={t('mineru.deleteSaved')}
                                             >
                                                 <Trash2 className="h-3 w-3"/>
                                             </button>
@@ -614,7 +617,7 @@ export default function MinerUPage() {
                                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mr-2"
                                 >
                                     <ChevronLeft className="h-3.5 w-3.5"/>
-                                    返回
+                                    {t('common.back')}
                                 </button>
                             )}
                             <button
@@ -626,7 +629,7 @@ export default function MinerUPage() {
                                 )}
                                 onClick={() => setActiveTab('rendered')}
                             >
-                                Markdown 渲染
+                                {t('mineru.renderedTab')}
                             </button>
                             <button
                                 className={cn(
@@ -637,7 +640,7 @@ export default function MinerUPage() {
                                 )}
                                 onClick={() => setActiveTab('raw')}
                             >
-                                原始 Markdown
+                                {t('mineru.rawTab')}
                             </button>
                             <div className="flex-1"/>
                             {viewingSaved && (
@@ -647,7 +650,7 @@ export default function MinerUPage() {
                             )}
                             <Button variant="ghost" size="sm" onClick={copyMarkdown} className="text-xs">
                                 {copied ? <Check className="h-3.5 w-3.5 mr-1"/> : <Copy className="h-3.5 w-3.5 mr-1"/>}
-                                {copied ? '已复制' : '复制'}
+                                {copied ? t('common.copied') : t('common.copy')}
                             </Button>
                         </div>
 
@@ -655,7 +658,7 @@ export default function MinerUPage() {
                         <div className="flex-1 overflow-y-auto p-5">
                             {parseResult?.error ? (
                                 <div className="bg-red-500/10 text-red-400 rounded-lg p-4 text-sm">
-                                    <p className="font-medium mb-1">解析失败</p>
+                                    <p className="font-medium mb-1">{t('mineru.parseErrorTitle')}</p>
                                     <p className="text-red-300">{parseResult.error}</p>
                                 </div>
                             ) : activeTab === 'rendered' ? (
@@ -670,7 +673,7 @@ export default function MinerUPage() {
                             {parseResult?.images && parseResult.images.length > 0 && (
                                 <div className="mt-6">
                                     <h3 className="text-sm font-medium mb-3 text-muted-foreground">
-                                        提取的图片 ({parseResult.images.length})
+                                        {t('mineru.extractedImages', {count: parseResult.images.length})}
                                     </h3>
                                     <div className="grid grid-cols-2 gap-3">
                                         {parseResult.images.map((img, i) => (
@@ -691,9 +694,9 @@ export default function MinerUPage() {
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center text-muted-foreground">
                             <FileSearch className="h-12 w-12 mx-auto mb-3 opacity-30"/>
-                            <p className="text-sm">上传文件并开始解析</p>
+                            <p className="text-sm">{t('mineru.emptyTitle')}</p>
                             <p className="text-xs mt-1 opacity-60">
-                                支持 PDF、图片、Office 文档，解析结果将展示在此处
+                                {t('mineru.emptySubtitle')}
                             </p>
                         </div>
                     </div>

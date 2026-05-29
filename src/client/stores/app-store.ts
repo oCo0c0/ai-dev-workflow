@@ -353,6 +353,8 @@ interface AppState {
         theme: 'dark' | 'light';
         /** 侧边栏是否折叠 */
         sidebarCollapsed: boolean;
+        /** 语言偏好 */
+        locale: 'zh' | 'en';
     };
 
     // --- CLI Provider ---
@@ -454,6 +456,8 @@ interface AppState {
     setSidebarCollapsed: (collapsed: boolean) => void;
     /** 直接设置主题 */
     setTheme: (theme: 'dark' | 'light') => void;
+    /** 设置语言偏好 */
+    setLocale: (locale: 'zh' | 'en') => void;
 
     // CLI Provider actions
     /** 设置 CLI Provider 配置状态 */
@@ -545,7 +549,7 @@ export const useAppStore = create<AppState>((set) => {
         tests: {results: null, running: false, phase: null, phaseLabel: null},
         pipelines: {list: [], active: null},
         ws: {connected: false},
-        ui: {theme: initialTheme, sidebarCollapsed: false},
+        ui: {theme: initialTheme, sidebarCollapsed: false, locale: (localStorage.getItem('locale') as 'zh' | 'en') || 'zh'},
         cliProvider: {configured: false, active: 'claude', showSetupModal: false},
         projects: {list: [], active: null, loading: false},
         tasks: {list: [], activeTaskId: null, logsByTask: {}, scheduler: null},
@@ -630,6 +634,10 @@ export const useAppStore = create<AppState>((set) => {
         setTheme: (theme) => {
             applyTheme(theme);
             return set((state) => ({ui: {...state.ui, theme}}));
+        },
+        setLocale: (locale) => {
+            localStorage.setItem('locale', locale);
+            return set((state) => ({ui: {...state.ui, locale}}));
         },
 
         // === CLI Provider Actions ===

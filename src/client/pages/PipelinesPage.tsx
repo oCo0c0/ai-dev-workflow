@@ -13,6 +13,7 @@
  */
 import {useState, useEffect, useCallback} from 'react';
 import {useNavigate} from 'react-router-dom';
+import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiPut, apiDelete, pickFolder} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
@@ -236,6 +237,7 @@ interface ExecutionWizardProps {
  * @param props.savedWorkspaces - 可用工作空间列表
  */
 function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardProps) {
+    const {t} = useTranslation();
     const navigate = useNavigate();
     // 从全局状态获取更新方法，用于设置选中的需求和计划状态
     const setSelectedRequirement = useAppStore((s) => s.setSelectedRequirement);
@@ -317,7 +319,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
         } catch (err) {
             update({
                 fetching: false,
-                fetchError: err instanceof Error ? err.message : 'Failed to fetch requirement',
+                fetchError: err instanceof Error ? err.message : t('pipelines.failedFetchReq'),
             });
         }
     };
@@ -326,7 +328,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
      * 打开文件夹选择器，让用户选择工作空间目录
      */
     const handleBrowse = async () => {
-        const path = await pickFolder('Select Workspace Folder');
+        const path = await pickFolder(t('pipelines.selectFolder'));
         if (path) {
             update({workspacePath: path});
         }
@@ -406,13 +408,13 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
         } catch (err) {
             update({
                 starting: false,
-                startError: err instanceof Error ? err.message : 'Failed to start pipeline',
+                startError: err instanceof Error ? err.message : t('pipelines.failedStartPipeline'),
             });
         }
     };
 
     // 向导步骤标签定义
-    const stepLabels = ['Select Requirement', 'Confirm Workspace', 'Review & Start'];
+    const stepLabels = t('pipelines.wizardSteps').split(', ');
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -425,7 +427,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                 {/* 模态框头部：显示流水线名称和关闭按钮 */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                     <div>
-                        <h2 className="text-sm font-semibold">Run Pipeline</h2>
+                        <h2 className="text-sm font-semibold">{t('pipelines.wizardTitle')}</h2>
                         <p className="text-xs text-muted-foreground mt-0.5">{pipeline.name}</p>
                     </div>
                     <button
@@ -483,12 +485,12 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                             {isManual ? (
                                 <div>
                                     <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        Requirement Text
+                                        {t('pipelines.wizardReqText')}
                                     </label>
                                     <textarea
                                         value={state.manualRequirementText}
                                         onChange={(e) => update({manualRequirementText: e.target.value})}
-                                        placeholder="Paste or type the requirement description here..."
+                                        placeholder={t('pipelines.wizardReqTextPlaceholder')}
                                         rows={8}
                                         className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                                     />
@@ -498,7 +500,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                     {/* 通过ID/编号从需求管理系统获取需求 */}
                                     <div>
                                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                            Fetch by ID / Number
+                                            {t('pipelines.wizardFetchById')}
                                         </label>
                                         <div className="flex gap-2">
                                             <div className="relative flex-1">
@@ -508,7 +510,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                                     value={state.fetchId}
                                                     onChange={(e) => update({fetchId: e.target.value})}
                                                     onKeyDown={(e) => e.key === 'Enter' && handleFetchRequirement()}
-                                                    placeholder="e.g. #302 or HRL2p8rTX4mQ9xMv"
+                                                    placeholder={t('pipelines.wizardFetchPlaceholder')}
                                                     className="pl-9"
                                                 />
                                             </div>
@@ -539,14 +541,14 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                                 onChange={(e) => update({parseDocuments: e.target.checked})}
                                                 className="rounded border-input"
                                             />
-                                            Parse document attachments (PDF/DOCX/PPTX/XLSX)
+                                            {t('pipelines.wizardParseDocs')}
                                         </label>
                                     </div>
 
                                     {/* 已保存的需求列表，支持单选 */}
                                     <div>
                                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                            Saved Requirements
+                                            {t('pipelines.wizardSavedReq')}
                                         </label>
                                         {state.loadingSaved ? (
                                             <div className="flex justify-center py-6">
@@ -556,9 +558,8 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                             <div
                                                 className="flex flex-col items-center justify-center py-6 gap-2 rounded-lg border border-dashed border-border">
                                                 <FileText className="h-7 w-7 text-muted-foreground/30"/>
-                                                <p className="text-xs text-muted-foreground">No saved requirements</p>
-                                                <p className="text-xs text-muted-foreground/60">Fetch one using the
-                                                    field above</p>
+                                                <p className="text-xs text-muted-foreground">{t('pipelines.wizardNoSaved')}</p>
+                                                <p className="text-xs text-muted-foreground/60">{t('pipelines.wizardNoSavedHint')}</p>
                                             </div>
                                         ) : (
                                             <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
@@ -627,7 +628,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                     <div className="flex items-center gap-2 mb-1">
                                         <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0"/>
                                         <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                      Workspace bound to pipeline
+                      {t('pipelines.workspaceBound')}
                     </span>
                                     </div>
                                     <p className="text-xs font-mono text-muted-foreground break-all">{boundPath}</p>
@@ -636,21 +637,21 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                 /* 未绑定时，显示工作空间下拉选择器 */
                                 <div>
                                     <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        Select Workspace
+                                        {t('pipelines.selectWorkspace')}
                                     </label>
                                     <select
                                         value={state.workspacePath}
                                         onChange={(e) => update({workspacePath: e.target.value})}
                                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                     >
-                                        <option value="">-- Select a workspace --</option>
+                                        <option value="">{t('pipelines.selectWorkspaceOption')}</option>
                                         {savedWorkspaces.map((ws) => (
                                             <option key={ws.id} value={ws.path}>{ws.name}</option>
                                         ))}
                                     </select>
                                     {savedWorkspaces.length === 0 && (
                                         <p className="text-xs text-muted-foreground mt-1">
-                                            No saved workspaces. Go to Workspace page to add one first.
+                                            {t('pipelines.noWorkspacesHint')}
                                         </p>
                                     )}
                                 </div>
@@ -665,7 +666,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                             <div className="rounded-lg border border-border bg-muted/20 divide-y divide-border">
                                 {/* 需求摘要 */}
                                 <div className="px-4 py-3">
-                                    <p className="text-xs font-medium text-muted-foreground mb-1">Requirement</p>
+                                    <p className="text-xs font-medium text-muted-foreground mb-1">{t('pipelines.reviewRequirement')}</p>
                                     {isManual ? (
                                         <p className="text-sm text-foreground line-clamp-3 whitespace-pre-wrap">
                                             {state.manualRequirementText}
@@ -679,7 +680,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
 
                                 {/* 工作空间摘要 */}
                                 <div className="px-4 py-3">
-                                    <p className="text-xs font-medium text-muted-foreground mb-1">Workspace</p>
+                                    <p className="text-xs font-medium text-muted-foreground mb-1">{t('pipelines.reviewWorkspace')}</p>
                                     <div className="flex items-center gap-2">
                                         <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0"/>
                                         <span className="text-sm font-mono break-all">{state.workspacePath}</span>
@@ -688,7 +689,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
 
                                 {/* 流水线摘要 */}
                                 <div className="px-4 py-3">
-                                    <p className="text-xs font-medium text-muted-foreground mb-1">Pipeline</p>
+                                    <p className="text-xs font-medium text-muted-foreground mb-1">{t('pipelines.reviewPipeline')}</p>
                                     <p className="text-sm font-medium">{pipeline.name}</p>
                                     {pipeline.description && (
                                         <p className="text-xs text-muted-foreground mt-0.5">{pipeline.description}</p>
@@ -719,12 +720,12 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                         {state.step === 1 ? (
                             <>
                                 <X className="h-4 w-4 mr-1"/>
-                                Cancel
+                                {t('common.cancel')}
                             </>
                         ) : (
                             <>
                                 <ChevronLeft className="h-4 w-4 mr-1"/>
-                                Back
+                                {t('common.back')}
                             </>
                         )}
                     </Button>
@@ -736,7 +737,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                             onClick={handleNext}
                             disabled={state.step === 1 ? !canProceedStep1 : !canProceedStep2}
                         >
-                            Next
+                            {t('pipelines.wizardNext')}
                             <ChevronRight className="h-4 w-4 ml-1"/>
                         </Button>
                     ) : (
@@ -744,12 +745,12 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                             {state.starting ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
-                                    Starting...
+                                    {t('pipelines.wizardStarting')}
                                 </>
                             ) : (
                                 <>
                                     <Play className="h-4 w-4 mr-1.5"/>
-                                    Start Pipeline
+                                    {t('pipelines.wizardStart')}
                                 </>
                             )}
                         </Button>
@@ -819,6 +820,7 @@ const defaultSteps: PipelineStepConfig = {
  * 组件还包含依赖检测功能（getMissingDeps），在列表中标记引用了不存在的MCP服务器的流水线。
  */
 export default function PipelinesPage() {
+    const {t} = useTranslation();
     // ─── 列表和选择状态 ───
     const [pipelines, setPipelines] = useState<Pipeline[]>([]);       // 流水线列表数据
     const [selected, setSelected] = useState<Pipeline | null>(null);  // 当前选中的流水线（用于编辑）
@@ -859,7 +861,7 @@ export default function PipelinesPage() {
             const data = await apiGet<Pipeline[]>('/pipelines');
             setPipelines(data);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to fetch pipelines';
+            const msg = err instanceof Error ? err.message : t('pipelines.failedFetch');
             setError(msg);
         } finally {
             setLoading(false);
@@ -947,7 +949,7 @@ export default function PipelinesPage() {
             cancelForm();
             fetchPipelines();
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to save pipeline';
+            const msg = err instanceof Error ? err.message : t('pipelines.failedSave');
             setError(msg);
         }
     };
@@ -958,7 +960,7 @@ export default function PipelinesPage() {
      * 如果删除的是当前选中的流水线则清空选择状态
      */
     const handleDelete = async (id: string) => {
-        if (!confirm('Delete this pipeline?')) return;
+        if (!confirm(t('pipelines.deleteConfirm'))) return;
         try {
             await apiDelete(`/pipelines/${id}`);
             // 如果删除的是当前正在编辑的流水线，清空编辑状态
@@ -968,7 +970,7 @@ export default function PipelinesPage() {
             }
             fetchPipelines();
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to delete pipeline';
+            const msg = err instanceof Error ? err.message : t('pipelines.failedDelete');
             setError(msg);
         }
     };
@@ -982,7 +984,7 @@ export default function PipelinesPage() {
             await apiPost(`/pipelines/${id}/set-default`);
             fetchPipelines();
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to set default';
+            const msg = err instanceof Error ? err.message : t('pipelines.failedSetDefault');
             setError(msg);
         }
     };
@@ -1031,13 +1033,13 @@ export default function PipelinesPage() {
                     <div className="flex gap-2 mb-3">
                         <Button onClick={startCreate} className="flex-1" size="sm">
                             <Plus className="h-4 w-4 mr-1"/>
-                            New Pipeline
+                            {t('pipelines.newPipeline')}
                         </Button>
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={fetchDependencies}
-                            title="Reload MCP servers and skills"
+                            title={t('pipelines.reloadDeps')}
                         >
                             <RefreshCw className="h-4 w-4"/>
                         </Button>
@@ -1053,7 +1055,7 @@ export default function PipelinesPage() {
                         {!loading && pipelines.length === 0 && (
                             <div className="flex flex-col items-center justify-center py-8 gap-2">
                                 <Workflow className="h-8 w-8 text-muted-foreground/50"/>
-                                <p className="text-xs text-muted-foreground">No pipelines yet</p>
+                                <p className="text-xs text-muted-foreground">{t('pipelines.noPipelines')}</p>
                             </div>
                         )}
                         {/* 流水线卡片列表 */}
@@ -1077,7 +1079,7 @@ export default function PipelinesPage() {
                                             {pipeline.isDefault && (
                                                 <Badge variant="default" className="text-[10px]">
                                                     <Star className="h-3 w-3 mr-0.5"/>
-                                                    Default
+                                                    {t('pipelines.defaultBadge')}
                                                 </Badge>
                                             )}
                                         </div>
@@ -1087,7 +1089,7 @@ export default function PipelinesPage() {
                                             <div className="flex items-center gap-1 mt-1.5">
                                                 <AlertTriangle className="h-3 w-3 text-amber-500"/>
                                                 <span
-                                                    className="text-xs text-amber-500">Missing: {missing.join(', ')}</span>
+                                                    className="text-xs text-amber-500">{t('pipelines.missing', {deps: missing.join(', ')})}</span>
                                             </div>
                                         )}
                                         {/* 操作按钮组：运行、设为默认、删除 */}
@@ -1102,7 +1104,7 @@ export default function PipelinesPage() {
                                                 }}
                                             >
                                                 <Play className="h-3 w-3 mr-1"/>
-                                                Run
+                                                {t('pipelines.run')}
                                             </Button>
                                             {/* 仅非默认流水线才显示"设为默认"按钮 */}
                                             {!pipeline.isDefault && (
@@ -1116,7 +1118,7 @@ export default function PipelinesPage() {
                                                     }}
                                                 >
                                                     <Star className="h-3 w-3 mr-1"/>
-                                                    Set Default
+                                                    {t('pipelines.setDefault')}
                                                 </Button>
                                             )}
                                             <Button
@@ -1129,7 +1131,7 @@ export default function PipelinesPage() {
                                                 }}
                                             >
                                                 <Trash2 className="h-3 w-3 mr-1"/>
-                                                Delete
+                                                {t('common.delete')}
                                             </Button>
                                         </div>
                                     </CardContent>
@@ -1144,26 +1146,26 @@ export default function PipelinesPage() {
                     <Card className="flex-1 overflow-y-auto">
                         <div className="p-4">
                             <h3 className="text-sm font-medium mb-4">
-                                {creating ? 'Create Pipeline' : `Edit: ${selected?.name}`}
+                                {creating ? t('pipelines.createTitle') : t('pipelines.editTitle', {name: selected?.name})}
                             </h3>
                             <div className="space-y-4">
                                 {/* 基本信息：名称 */}
                                 <div>
                                     <label
-                                        className="block text-xs font-medium text-muted-foreground mb-1.5">Name</label>
+                                        className="block text-xs font-medium text-muted-foreground mb-1.5">{t('pipelines.name')}</label>
                                     <Input value={formName} onChange={(e) => setFormName(e.target.value)}/>
                                 </div>
                                 {/* 基本信息：描述 */}
                                 <div>
                                     <label
-                                        className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
+                                        className="block text-xs font-medium text-muted-foreground mb-1.5">{t('pipelines.description')}</label>
                                     <Input value={formDescription}
                                            onChange={(e) => setFormDescription(e.target.value)}/>
                                 </div>
 
                                 {/* ─── 需求来源配置 ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">Requirement Source</h4>
+                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.requirementSource')}</h4>
                                     {/* 需求来源类型选择：ONES/Jira/GitLab/手动 */}
                                     <select
                                         value={formSteps.requirementSource.type}
@@ -1181,8 +1183,7 @@ export default function PipelinesPage() {
                                     {/* 非手动模式下，显示MCP服务器选择下拉框 */}
                                     {formSteps.requirementSource.type !== 'manual' && (
                                         <div className="mt-2">
-                                            <label className="block text-xs text-muted-foreground mb-1">MCP
-                                                Server</label>
+                                            <label className="block text-xs text-muted-foreground mb-1">{t('pipelines.mcpServer')}</label>
                                             <select
                                                 value={formSteps.requirementSource.mcpServerName || ''}
                                                 onChange={(e) => setFormSteps({
@@ -1194,7 +1195,7 @@ export default function PipelinesPage() {
                                                 })}
                                                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                             >
-                                                <option value="">-- Select --</option>
+                                                <option value="">{t('pipelines.selectPlaceholder')}</option>
                                                 {mcpServers.map((s) => (
                                                     <option key={s.name} value={s.name}>{s.name}</option>
                                                 ))}
@@ -1205,7 +1206,7 @@ export default function PipelinesPage() {
 
                                 {/* ─── 工作空间绑定配置 ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">Workspace</h4>
+                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.workspaceTitle')}</h4>
                                     <select
                                         value={formSteps.workspace.boundPath || ''}
                                         onChange={(e) => setFormSteps({
@@ -1214,29 +1215,28 @@ export default function PipelinesPage() {
                                         })}
                                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                     >
-                                        <option value="">-- Not bound (select at runtime) --</option>
+                                        <option value="">{t('pipelines.workspaceNotBound')}</option>
                                         {savedWorkspaces.map((ws) => (
                                             <option key={ws.id} value={ws.path}>{ws.name} ({ws.path})</option>
                                         ))}
                                     </select>
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        Select a saved workspace, or leave empty to choose at runtime
+                                        {t('pipelines.workspaceHint')}
                                     </p>
                                 </div>
 
                                 {/* ─── 各阶段技能配置 ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-3">Skills per Phase</h4>
+                                    <h4 className="text-xs font-medium mb-3">{t('pipelines.skillsPerPhase')}</h4>
                                     <p className="text-xs text-muted-foreground mb-3">
-                                        Configure which skills Claude uses in each phase. Skills contain instructions
-                                        that guide Claude's behavior.
+                                        {t('pipelines.skillsDescription')}
                                     </p>
 
                                     {/* 为每个阶段（规划/执行/测试）渲染独立的技能选择器 */}
                                     {(['plan', 'execution', 'test'] as const).map((phase) => {
                                         const phaseKey = `${phase}Skills` as 'planSkills' | 'executionSkills' | 'testSkills';
                                         const phaseConfig = formSteps[phaseKey] ?? {mode: 'all', selectedSkills: []};
-                                        const phaseLabel = phase === 'plan' ? 'Plan Generation' : phase === 'execution' ? 'Code Execution' : 'Testing';
+                                        const phaseLabel = phase === 'plan' ? t('pipelines.planGeneration') : phase === 'execution' ? t('pipelines.codeExecution') : t('pipelines.testing');
                                         return (
                                             <div key={phase} className="mb-4 rounded-md border border-border p-3">
                                                 <p className="text-xs font-medium text-muted-foreground mb-2">{phaseLabel}</p>
@@ -1249,16 +1249,15 @@ export default function PipelinesPage() {
                                                     })}
                                                     className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring mb-2"
                                                 >
-                                                    <option value="all">All Skills</option>
-                                                    <option value="selected">Selected Skills</option>
-                                                    <option value="none">No Skills</option>
+                                                    <option value="all">{t('pipelines.allSkills')}</option>
+                                                    <option value="selected">{t('pipelines.selectedSkills')}</option>
+                                                    <option value="none">{t('pipelines.noSkills')}</option>
                                                 </select>
                                                 {/* "已选"模式下显示技能复选框列表 */}
                                                 {phaseConfig.mode === 'selected' && (
                                                     <div className="space-y-1 max-h-28 overflow-y-auto">
                                                         {skills.length === 0 && (
-                                                            <p className="text-xs text-muted-foreground">No skills
-                                                                available. Add skills in the Skills page.</p>
+                                                            <p className="text-xs text-muted-foreground">{t('pipelines.noSkillsAvailable')}</p>
                                                         )}
                                                         {skills.map((skill) => (
                                                             <label key={skill.name}
@@ -1293,7 +1292,7 @@ export default function PipelinesPage() {
 
                                 {/* ─── MCP工具集配置 ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">MCP Tools</h4>
+                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.mcpTools')}</h4>
                                     <select
                                         value={formSteps.mcpToolSet.mode}
                                         onChange={(e) => setFormSteps({
@@ -1302,8 +1301,8 @@ export default function PipelinesPage() {
                                         })}
                                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                     >
-                                        <option value="all">All Servers</option>
-                                        <option value="selected">Selected Servers</option>
+                                        <option value="all">{t('pipelines.allServers')}</option>
+                                        <option value="selected">{t('pipelines.selectedServers')}</option>
                                     </select>
                                     {/* "已选"模式下显示MCP服务器复选框列表 */}
                                     {formSteps.mcpToolSet.mode === 'selected' && (
@@ -1337,9 +1336,9 @@ export default function PipelinesPage() {
 
                                 {/* ─── 文档解析配置（MinerU 额外文件） ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">Extra Documents (MinerU)</h4>
+                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.extraDocuments')}</h4>
                                     <p className="text-xs text-muted-foreground mb-3">
-                                        Additional files to parse as context for plan generation (relative to workspace).
+                                        {t('pipelines.extraDocumentsDesc')}
                                     </p>
                                     <div>
                                         {(formSteps.documentParsing?.extraPaths ?? []).map((p, i) => (
@@ -1354,7 +1353,7 @@ export default function PipelinesPage() {
                                                             documentParsing: {extraPaths: paths},
                                                         });
                                                     }}
-                                                    placeholder="docs/api-spec.pdf"
+                                                    placeholder={t('pipelines.extraDocPlaceholder')}
                                                     className="text-xs h-8"
                                                 />
                                                 <button
@@ -1383,32 +1382,32 @@ export default function PipelinesPage() {
                                             })}
                                         >
                                             <Plus className="h-3 w-3 mr-1"/>
-                                            Add Path
+                                            {t('pipelines.addPath')}
                                         </Button>
                                     </div>
                                 </div>
 
                                 {/* ─── 测试策略配置 ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">Test Strategy</h4>
+                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.testStrategy')}</h4>
 
                                     {/* 测试模式选择：AI自动生成 vs 运行已有测试 vs AI E2E */}
                                     <div className="grid grid-cols-3 gap-2 mb-3">
                                         {[
                                             {
                                                 value: 'ai_generate',
-                                                label: '🤖 AI Writes Tests',
-                                                desc: 'Claude writes and runs tests automatically'
+                                                label: t('pipelines.aiWritesTests'),
+                                                desc: t('pipelines.aiWritesTestsDesc')
                                             },
                                             {
                                                 value: 'run_existing',
-                                                label: '▶ Run Existing',
-                                                desc: 'Run tests already in the project'
+                                                label: t('pipelines.runExisting'),
+                                                desc: t('pipelines.runExistingDesc')
                                             },
                                             {
                                                 value: 'ai_generate_e2e',
-                                                label: '🌐 AI E2E Tests',
-                                                desc: 'Generate Playwright files, then run structurally'
+                                                label: t('pipelines.aiE2eTests'),
+                                                desc: t('pipelines.aiE2eTestsDesc')
                                             },
                                         ].map((opt) => (
                                             <div
@@ -1436,23 +1435,22 @@ export default function PipelinesPage() {
                                     {formSteps.testStrategy.mode === 'ai_generate' && (
                                         <div
                                             className="rounded-md bg-muted/30 border border-border p-3 text-xs text-muted-foreground space-y-1">
-                                            <p>Claude will automatically:</p>
-                                            <p>• Analyze the code written during execution</p>
-                                            <p>• Write appropriate unit/integration tests</p>
-                                            <p>• Execute the tests and report results</p>
-                                            <p className="text-primary mt-2">Configure test-related skills above to
-                                                guide Claude's testing approach.</p>
+                                            <p>{t('pipelines.aiAutoDesc')}</p>
+                                            <p>• {t('pipelines.aiAutoLine1')}</p>
+                                            <p>• {t('pipelines.aiAutoLine2')}</p>
+                                            <p>• {t('pipelines.aiAutoLine3')}</p>
+                                            <p className="text-primary mt-2">{t('pipelines.aiAutoHint')}</p>
                                         </div>
                                     )}
 
                                     {formSteps.testStrategy.mode === 'ai_generate_e2e' && (
                                         <div
                                             className="rounded-md bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-muted-foreground space-y-1">
-                                            <p className="text-blue-500 font-medium">Two-phase E2E testing:</p>
-                                            <p><strong>Phase 1:</strong> Claude uses Playwright MCP to explore UI, generates <code>.spec.ts</code> files and saves to project</p>
-                                            <p><strong>Phase 2:</strong> Playwright Provider runs the generated files → structured results (pass/fail/skip)</p>
-                                            <p className="mt-2">Generated test files become project assets — reusable, version-controlled, CI-ready.</p>
-                                            <p className="text-primary mt-1">Ensure Playwright MCP server is configured in MCP Tools section.</p>
+                                            <p className="text-blue-500 font-medium">{t('pipelines.e2eTwoPhase')}</p>
+                                            <p>{t('pipelines.e2ePhase1')}</p>
+                                            <p>{t('pipelines.e2ePhase2')}</p>
+                                            <p className="mt-2">{t('pipelines.e2eHint1')}</p>
+                                            <p className="text-primary mt-1">{t('pipelines.e2eHint2')}</p>
                                         </div>
                                     )}
 
@@ -1461,7 +1459,7 @@ export default function PipelinesPage() {
                                         <div className="space-y-2">
                                             <div>
                                                 <label
-                                                    className="block text-xs text-muted-foreground mb-1">Framework</label>
+                                                    className="block text-xs text-muted-foreground mb-1">{t('pipelines.framework')}</label>
                                                 <select
                                                     value={formSteps.testStrategy.framework || ''}
                                                     onChange={(e) => setFormSteps({
@@ -1473,7 +1471,7 @@ export default function PipelinesPage() {
                                                     })}
                                                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                                 >
-                                                    <option value="">-- Auto detect --</option>
+                                                    <option value="">{t('pipelines.autoDetect')}</option>
                                                     <optgroup label="Java">
                                                         <option value="junit">JUnit (Maven: mvn test)</option>
                                                         <option value="junit-gradle">JUnit (Gradle: ./gradlew test)
@@ -1497,8 +1495,8 @@ export default function PipelinesPage() {
                                             {/* 测试命令输入框：根据选择的框架自动填充默认命令 */}
                                             <div>
                                                 <label className="block text-xs text-muted-foreground mb-1">
-                                                    Test Command
-                                                    <span className="ml-1 text-muted-foreground/60">(auto-filled, can override)</span>
+                                                    {t('pipelines.testCommand')}
+                                                    <span className="ml-1 text-muted-foreground/60">{t('pipelines.testCommandHint')}</span>
                                                 </label>
                                                 <Input
                                                     value={formSteps.testStrategy.command || getDefaultCommand(formSteps.testStrategy.framework || '')}
@@ -1509,7 +1507,7 @@ export default function PipelinesPage() {
                                                             command: e.target.value
                                                         },
                                                     })}
-                                                    placeholder="e.g. mvn test, npm test, pytest"
+                                                    placeholder={t('pipelines.testCommandPlaceholder')}
                                                 />
                                             </div>
                                         </div>
@@ -1529,7 +1527,7 @@ export default function PipelinesPage() {
                                             })}
                                             className="rounded border-input"
                                         />
-                                        Auto-run tests after execution completes
+                                        {t('pipelines.autoRun')}
                                     </label>
 
                                     {/* 仅运行变更文件相关测试开关 */}
@@ -1547,14 +1545,14 @@ export default function PipelinesPage() {
                                                 })}
                                                 className="rounded border-input"
                                             />
-                                            Only run tests for changed files (git diff)
+                                            {t('pipelines.changedFilesOnly')}
                                         </label>
                                     )}
 
                                     {/* 测试执行环境选择 */}
                                     <div className="mt-3 space-y-2">
                                         <label className="text-xs font-medium text-muted-foreground">
-                                            Test Execution Environment
+                                            {t('pipelines.testEnv')}
                                         </label>
                                         <div className="flex gap-3">
                                             <label className="flex items-center gap-1.5 text-sm">
@@ -1571,7 +1569,7 @@ export default function PipelinesPage() {
                                                         },
                                                     })}
                                                 />
-                                                Local
+                                                {t('pipelines.localEnv')}
                                             </label>
                                             <label className="flex items-center gap-1.5 text-sm">
                                                 <input
@@ -1586,7 +1584,7 @@ export default function PipelinesPage() {
                                                         },
                                                     })}
                                                 />
-                                                Sandbox (Daytona)
+                                                {t('pipelines.sandboxEnv')}
                                             </label>
                                         </div>
 
@@ -1594,7 +1592,7 @@ export default function PipelinesPage() {
                                         {formSteps.testStrategy.environment === 'sandbox' && (
                                             <input
                                                 type="text"
-                                                placeholder="Pre-created Sandbox ID"
+                                                placeholder={t('pipelines.sandboxIdPlaceholder')}
                                                 value={formSteps.testStrategy.sandboxId || ''}
                                                 onChange={(e) => setFormSteps({
                                                     ...formSteps,
@@ -1613,11 +1611,11 @@ export default function PipelinesPage() {
                                 <div className="flex gap-2 pt-4 border-t border-border">
                                     <Button onClick={handleSave} size="sm">
                                         <Save className="h-4 w-4 mr-1"/>
-                                        {creating ? 'Create' : 'Save'}
+                                        {creating ? t('common.create') : t('common.save')}
                                     </Button>
                                     <Button variant="outline" size="sm" onClick={cancelForm}>
                                         <X className="h-4 w-4 mr-1"/>
-                                        Cancel
+                                        {t('common.cancel')}
                                     </Button>
                                 </div>
                             </div>
@@ -1630,8 +1628,7 @@ export default function PipelinesPage() {
                     <Card className="flex-1 flex items-center justify-center">
                         <div className="flex flex-col items-center gap-3">
                             <GitBranch className="h-10 w-10 text-muted-foreground/30"/>
-                            <p className="text-sm text-muted-foreground">Select a pipeline to edit or create a new
-                                one</p>
+                            <p className="text-sm text-muted-foreground">{t('pipelines.selectEmpty')}</p>
                         </div>
                     </Card>
                 )}

@@ -13,6 +13,7 @@
 
 import {useEffect, useRef, useState, useCallback} from 'react';
 import {useNavigate} from 'react-router-dom';
+import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
@@ -123,6 +124,7 @@ function statusIcon(status: string) {
  */
 export default function ExecutionPage() {
     const navigate = useNavigate();
+    const {t} = useTranslation();
 
     // 从全局状态管理（Zustand store）中获取和设置执行相关的状态
     // 这些状态用于与计划页面触发的实时执行保持同步
@@ -341,7 +343,7 @@ export default function ExecutionPage() {
         e.stopPropagation(); // 阻止点击事件冒泡到父级元素（避免触发选中该执行记录）
         try {
             const res = await fetch(`/api/execution/${id}`, {method: 'DELETE'});
-            if (!res.ok) throw new Error('Delete failed');
+            if (!res.ok) throw new Error(t('execution.deleteFailed'));
             // 从历史列表中移除已删除的记录
             setHistory(prev => prev.filter(e => e.id !== id));
             // 如果删除的是当前选中的记录，则清空详情和选中状态
@@ -373,7 +375,7 @@ export default function ExecutionPage() {
                 timestamp: new Date().toISOString(),
                 stepIndex: 0,
                 type: 'error',
-                content: `Reply failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                content: t('execution.replyFailed', {error: err instanceof Error ? err.message : 'Unknown error'}),
             });
         } finally {
             setReplying(false);
@@ -392,12 +394,12 @@ export default function ExecutionPage() {
 
     // 执行状态对应的显示配置（标签文本、颜色类名）
     const statusConfig = {
-        idle: {label: 'Idle', color: 'text-muted-foreground', bg: 'bg-muted'},
-        running: {label: 'Running', color: 'text-blue-500', bg: 'bg-blue-500/10'},
-        paused: {label: 'Paused', color: 'text-yellow-500', bg: 'bg-yellow-500/10'},
-        completed: {label: 'Completed', color: 'text-emerald-500', bg: 'bg-emerald-500/10'},
-        failed: {label: 'Failed', color: 'text-destructive', bg: 'bg-destructive/10'},
-        aborted: {label: 'Aborted', color: 'text-muted-foreground', bg: 'bg-muted'},
+        idle: {label: t('execution.statusIdle'), color: 'text-muted-foreground', bg: 'bg-muted'},
+        running: {label: t('execution.statusRunning'), color: 'text-blue-500', bg: 'bg-blue-500/10'},
+        paused: {label: t('execution.statusPaused'), color: 'text-yellow-500', bg: 'bg-yellow-500/10'},
+        completed: {label: t('execution.statusCompleted'), color: 'text-emerald-500', bg: 'bg-emerald-500/10'},
+        failed: {label: t('execution.statusFailed'), color: 'text-destructive', bg: 'bg-destructive/10'},
+        aborted: {label: t('execution.statusAborted'), color: 'text-muted-foreground', bg: 'bg-muted'},
     };
 
     const cfg = statusConfig[execStatus] ?? statusConfig.idle;
@@ -426,7 +428,7 @@ export default function ExecutionPage() {
             <div className="w-64 flex flex-col border-r border-border bg-muted/10 shrink-0">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Execution History
+            {t('execution.historyTitle')}
           </span>
                     {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
                 </div>
@@ -436,7 +438,7 @@ export default function ExecutionPage() {
                     {history.length === 0 && !loadingHistory && (
                         <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
                             <Terminal className="h-7 w-7 text-muted-foreground/30"/>
-                            <p className="text-xs text-muted-foreground">No executions yet</p>
+                            <p className="text-xs text-muted-foreground">{t('execution.noExecutions')}</p>
                         </div>
                     )}
 
@@ -494,12 +496,12 @@ export default function ExecutionPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold">Execution</h1>
+                            <h1 className="text-xl font-semibold">{t('pageTitle.execution')}</h1>
                             <p className="mt-0.5 text-sm text-muted-foreground">
-                                {isRunning ? 'Execution is in progress...' :
-                                    isDone ? `Execution ${execStatus}` :
-                                        activeId ? 'Monitor real-time progress' :
-                                            'Select an execution from history or start from Plan page'}
+                                {isRunning ? t('execution.subtitleRunning') :
+                                    isDone ? t('execution.subtitleDone', {status: execStatus}) :
+                                        activeId ? t('execution.subtitleActive') :
+                                            t('execution.subtitleIdle')}
                             </p>
                         </div>
 
@@ -523,9 +525,9 @@ export default function ExecutionPage() {
                         <Card>
                             <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
                                 <Terminal className="h-10 w-10 text-muted-foreground/30"/>
-                                <p className="text-sm text-muted-foreground">No execution selected</p>
+                                <p className="text-sm text-muted-foreground">{t('execution.noSelectionTitle')}</p>
                                 <p className="text-xs text-muted-foreground/60">
-                                    Go to Plan page, confirm a plan to start execution, or select from history
+                                    {t('execution.noSelectionSubtitle')}
                                 </p>
                             </CardContent>
                         </Card>
@@ -537,7 +539,7 @@ export default function ExecutionPage() {
                             <CardContent className="p-4">
                                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium">
-                    Step {detail.currentStep} / {detail.totalSteps || '?'}
+                    {t('execution.stepProgress', {current: detail.currentStep, total: detail.totalSteps || '?'})}
                   </span>
                                     {detail.totalSteps > 0 && (
                                         <span className="text-sm text-muted-foreground">
@@ -572,7 +574,7 @@ export default function ExecutionPage() {
                                 disabled={!isRunning} // 仅运行中可暂停
                             >
                                 <Pause className="h-4 w-4 mr-1.5"/>
-                                Pause
+                                {t('execution.pause')}
                             </Button>
                             <Button
                                 variant="outline"
@@ -581,7 +583,7 @@ export default function ExecutionPage() {
                                 disabled={!isPaused && !isFailed} // 仅暂停或失败时可重试
                             >
                                 <RotateCcw className="h-4 w-4 mr-1.5"/>
-                                Retry
+                                {t('execution.retry')}
                             </Button>
                             <Button
                                 variant="outline"
@@ -590,7 +592,7 @@ export default function ExecutionPage() {
                                 disabled={!isPaused && !isFailed} // 仅暂停或失败时可跳过
                             >
                                 <SkipForward className="h-4 w-4 mr-1.5"/>
-                                Skip
+                                {t('execution.skip')}
                             </Button>
                             <Button
                                 variant="outline"
@@ -600,7 +602,7 @@ export default function ExecutionPage() {
                                 className="text-destructive hover:text-destructive"
                             >
                                 <Square className="h-4 w-4 mr-1.5"/>
-                                Abort
+                                {t('execution.abort')}
                             </Button>
                             {/* 执行完成后显示重新执行按钮 */}
                             {isDone && detail?.planId && (
@@ -611,7 +613,7 @@ export default function ExecutionPage() {
                                     className="ml-1"
                                 >
                                     <Play className="h-4 w-4 mr-1.5"/>
-                                    Re-execute
+                                    {t('execution.reExecute')}
                                 </Button>
                             )}
                             <Button
@@ -621,7 +623,7 @@ export default function ExecutionPage() {
                                 className="ml-auto text-muted-foreground"
                             >
                                 <Trash2 className="h-4 w-4 mr-1.5"/>
-                                Clear
+                                {t('execution.clear')}
                             </Button>
                         </div>
                     )}
@@ -632,9 +634,9 @@ export default function ExecutionPage() {
                             <CardContent className="p-3">
                                 <div className="flex items-center gap-2 mb-2">
                                     <MessageSquare className="h-4 w-4 text-primary"/>
-                                    <span className="text-sm font-semibold">Reply to Claude</span>
+                                    <span className="text-sm font-semibold">{t('execution.replyTitle')}</span>
                                     <span className="text-xs text-muted-foreground">
-                    If Claude asks questions during execution, answer here
+                    {t('execution.replySubtitle')}
                   </span>
                                 </div>
                                 <div className="flex gap-2">
@@ -649,7 +651,7 @@ export default function ExecutionPage() {
                               handleReply();
                           }
                       }}
-                      placeholder="Type your reply... (Ctrl+Enter to send)"
+                      placeholder={t('execution.replyPlaceholder')}
                       rows={2}
                       disabled={isRunning} // Claude 运行时禁用回复输入
                       className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
@@ -670,13 +672,13 @@ export default function ExecutionPage() {
                                 {/* 无会话时显示提示信息 */}
                                 {!detail?.sessionId && !isRunning && (
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        No active session available for reply. Use Retry to restart execution.
+                                        {t('execution.noSessionHint')}
                                     </p>
                                 )}
                                 {/* Claude 运行时显示提示信息 */}
                                 {isRunning && (
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        Claude is working... reply will be available when it pauses or asks a question
+                                        {t('execution.claudeRunningHint')}
                                     </p>
                                 )}
                             </CardContent>
@@ -690,12 +692,12 @@ export default function ExecutionPage() {
                             {/* 终端标题栏 */}
                             <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
                                 <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
-                                <span className="text-xs text-muted-foreground font-mono">Output</span>
+                                <span className="text-xs text-muted-foreground font-mono">{t('execution.output')}</span>
                                 {/* 实时运行指示器 */}
                                 {isRunning && (
                                     <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
-                    Live
+                    {t('execution.live')}
                   </span>
                                 )}
                             </div>
@@ -703,7 +705,7 @@ export default function ExecutionPage() {
                             <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
                                 {displayLogs.length === 0 ? (
                                     <div className="text-gray-500 text-center py-8">
-                                        {activeId ? 'Waiting for output...' : 'No output yet'}
+                                        {activeId ? t('execution.waitingOutput') : t('execution.noOutput')}
                                     </div>
                                 ) : (
                                     displayLogs.map((entry, i) => {
@@ -756,26 +758,26 @@ export default function ExecutionPage() {
                                         <AlertCircle className="h-4 w-4 text-muted-foreground"/>
                                     )}
                                     <h3 className="text-sm font-semibold">
-                                        Execution {isCompleted ? 'Completed' : isFailed ? 'Failed' : 'Aborted'}
+                                        {isCompleted ? t('execution.summaryCompleted') : isFailed ? t('execution.summaryFailed') : t('execution.summaryAborted')}
                                     </h3>
                                 </div>
                                 {/* 执行统计信息：步骤数、开始时间、完成时间 */}
                                 <div className="grid grid-cols-3 gap-4 text-sm">
                                     <div>
-                                        <p className="text-xs text-muted-foreground">Steps</p>
+                                        <p className="text-xs text-muted-foreground">{t('execution.steps')}</p>
                                         <p className="font-medium">
                                             {detail.currentStep} / {detail.totalSteps}
                                         </p>
                                     </div>
                                     <div>
-                                        <p className="text-xs text-muted-foreground">Started</p>
+                                        <p className="text-xs text-muted-foreground">{t('execution.started')}</p>
                                         <p className="font-medium text-xs">
                                             {new Date(detail.startedAt).toLocaleTimeString()}
                                         </p>
                                     </div>
                                     {detail.completedAt && (
                                         <div>
-                                            <p className="text-xs text-muted-foreground">Completed</p>
+                                            <p className="text-xs text-muted-foreground">{t('execution.completed')}</p>
                                             <p className="font-medium text-xs">
                                                 {new Date(detail.completedAt).toLocaleTimeString()}
                                             </p>
@@ -791,7 +793,7 @@ export default function ExecutionPage() {
                                             onClick={() => navigate(`/tests?executionId=${detail.id}`)}
                                         >
                                             <TestTube className="h-4 w-4 mr-1.5"/>
-                                            Run Tests
+                                            {t('execution.runTests')}
                                         </Button>
                                     </div>
                                 )}

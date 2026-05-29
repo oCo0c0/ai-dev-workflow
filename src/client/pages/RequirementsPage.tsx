@@ -12,6 +12,7 @@
  * 已保存的需求可在 Pipeline 运行时使用，实现需求驱动的开发流程。
  */
 import {useState, useEffect, useCallback} from 'react';
+import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
@@ -93,6 +94,7 @@ interface StoredRequirement extends Requirement {
  * @returns {JSX.Element} 需求管理页面的 React 组件
  */
 export default function RequirementsPage() {
+    const {t} = useTranslation();
     // === 已保存需求相关状态 ===
     /** 已保存到本地的需求列表 */
     const [saved, setSaved] = useState<StoredRequirement[]>([]);
@@ -328,9 +330,9 @@ export default function RequirementsPage() {
             <div className="border-b border-border px-6 py-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-xl font-semibold">Requirements</h1>
+                        <h1 className="text-xl font-semibold">{t('pageTitle.requirements')}</h1>
                         <p className="mt-0.5 text-sm text-muted-foreground">
-                            Fetch requirements from ONES and save them for use in pipelines
+                            {t('requirements.subtitle')}
                         </p>
                     </div>
                     {/* 切换 MCP 搜索面板的按钮 */}
@@ -340,7 +342,7 @@ export default function RequirementsPage() {
                         onClick={() => setShowSearch(!showSearch)}
                     >
                         <Search className="h-4 w-4 mr-1.5"/>
-                        Search MCP
+                        {t('requirements.searchMcp')}
                     </Button>
                 </div>
 
@@ -352,7 +354,7 @@ export default function RequirementsPage() {
                             value={fetchId}
                             onChange={(e) => setFetchId(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleFetch()}
-                            placeholder="Enter requirement ID or #number (e.g. #125975) and press Enter..."
+                            placeholder={t('requirements.fetchPlaceholder')}
                             className="pl-9"
                         />
                     </div>
@@ -360,7 +362,7 @@ export default function RequirementsPage() {
                     <Button onClick={handleFetch} disabled={fetching || !fetchId.trim()}>
                         {fetching ? <Loader2 className="h-4 w-4 animate-spin"/> :
                             <Download className="h-4 w-4 mr-1.5"/>}
-                        {fetching ? 'Fetching...' : 'Fetch & Save'}
+                        {fetching ? t('requirements.fetching') : t('requirements.fetch')}
                     </Button>
                 </div>
 
@@ -372,7 +374,7 @@ export default function RequirementsPage() {
                         onChange={(e) => setParseDocuments(e.target.checked)}
                         className="rounded border-input"
                     />
-                    Parse document attachments (PDF/DOCX/PPTX/XLSX)
+                    {t('requirements.parseDocuments')}
                 </label>
 
                 {/* 获取失败的错误提示 */}
@@ -391,7 +393,7 @@ export default function RequirementsPage() {
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                                placeholder="Search requirements in ONES..."
+                                placeholder={t('requirements.searchPlaceholder')}
                                 className="flex-1"
                             />
                             <Button onClick={handleSearch} disabled={searching} size="sm">
@@ -425,7 +427,7 @@ export default function RequirementsPage() {
                                             onClick={() => handleSaveFromSearch(r)}
                                         >
                                             <Plus className="h-3 w-3 mr-1"/>
-                                            Save
+                                            {t('common.save')}
                                         </Button>
                                     </div>
                                 ))}
@@ -441,7 +443,7 @@ export default function RequirementsPage() {
                 <div className="w-80 flex flex-col border-r border-border">
                     <div className="px-4 py-2 border-b border-border bg-muted/20">
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            Saved Requirements ({saved.length})
+                            {t('requirements.savedLabel', {count: saved.length})}
                         </p>
                     </div>
                     <div className="flex-1 overflow-y-auto">
@@ -455,9 +457,9 @@ export default function RequirementsPage() {
                         {!loadingSaved && saved.length === 0 && (
                             <div className="flex flex-col items-center justify-center py-12 px-4 text-center gap-2">
                                 <FileText className="h-8 w-8 text-muted-foreground/30"/>
-                                <p className="text-sm text-muted-foreground">No saved requirements</p>
+                                <p className="text-sm text-muted-foreground">{t('requirements.emptyTitle')}</p>
                                 <p className="text-xs text-muted-foreground/60">
-                                    Enter a requirement ID above to fetch and save it
+                                    {t('requirements.emptySubtitle')}
                                 </p>
                             </div>
                         )}
@@ -524,7 +526,7 @@ export default function RequirementsPage() {
                                         <button
                                             onClick={startEdit}
                                             className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                                            title="Edit"
+                                            title={t('common.edit')}
                                         >
                                             <Pencil className="h-4 w-4"/>
                                         </button>
@@ -544,10 +546,10 @@ export default function RequirementsPage() {
                                     <Button size="sm" onClick={saveEdit} disabled={saving}>
                                         {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> :
                                             <Save className="h-4 w-4 mr-1.5"/>}
-                                        {saving ? 'Saving...' : 'Save'}
+                                        {saving ? t('requirements.saving') : t('common.save')}
                                     </Button>
                                     <Button size="sm" variant="outline" onClick={cancelEdit} disabled={saving}>
-                                        Cancel
+                                        {t('common.cancel')}
                                     </Button>
                                 </div>
                             )}
@@ -563,10 +565,10 @@ export default function RequirementsPage() {
                 </span>
                                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <User className="h-3 w-3"/>
-                                    {selected.assignee || 'Unassigned'}
+                                    {selected.assignee || t('requirements.unassigned')}
                 </span>
                                 <span className="text-xs text-muted-foreground">
-                  Source: <code className="bg-muted px-1 rounded">{selected.source}</code>
+                  {t('requirements.source')} <code className="bg-muted px-1 rounded">{selected.source}</code>
                 </span>
                             </div>
 
@@ -577,7 +579,7 @@ export default function RequirementsPage() {
                                         value={editDescription}
                                         onChange={(e) => setEditDescription(e.target.value)}
                                         className="w-full min-h-[400px] p-3 rounded-lg border border-border bg-background text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
-                                        placeholder="Enter requirement description (Markdown supported)..."
+                                        placeholder={t('requirements.descriptionPlaceholder')}
                                     />
                                 </div>
                             ) : (
@@ -591,7 +593,7 @@ export default function RequirementsPage() {
                             {/* 验收标准列表 */}
                             {selected.acceptanceCriteria.length > 0 && (
                                 <div className="mt-5">
-                                    <h4 className="text-sm font-medium mb-2">Acceptance Criteria</h4>
+                                    <h4 className="text-sm font-medium mb-2">{t('requirements.acceptanceCriteria')}</h4>
                                     <ul className="space-y-2">
                                         {selected.acceptanceCriteria.map((ac, i) => (
                                             <li key={i}
@@ -607,7 +609,7 @@ export default function RequirementsPage() {
                             {/* 关联缺陷/问题列表 */}
                             {selected.relatedIssues.length > 0 && (
                                 <div className="mt-5">
-                                    <h4 className="text-sm font-medium mb-2">Related Issues</h4>
+                                    <h4 className="text-sm font-medium mb-2">{t('requirements.relatedIssues')}</h4>
                                     <ul className="space-y-1.5">
                                         {selected.relatedIssues.map(issue => (
                                             <li key={issue.id}
@@ -628,8 +630,8 @@ export default function RequirementsPage() {
                         /* 未选中需求时的空状态提示 */
                         <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                             <FileText className="h-12 w-12 opacity-20"/>
-                            <p className="text-sm">Select a requirement to view details</p>
-                            <p className="text-xs opacity-60">Selected requirements can be used in Pipeline runs</p>
+                            <p className="text-sm">{t('requirements.noSelectionTitle')}</p>
+                            <p className="text-xs opacity-60">{t('requirements.noSelectionSubtitle')}</p>
                         </div>
                     )}
                 </div>

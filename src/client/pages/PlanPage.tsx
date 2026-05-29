@@ -18,6 +18,7 @@
  */
 import {useState, useEffect, useRef, useCallback} from 'react';
 import {useNavigate} from 'react-router-dom';
+import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
@@ -110,6 +111,7 @@ interface StoredPlan extends PlanSummary {
  */
 export default function PlanPage() {
     const navigate = useNavigate();
+    const {t} = useTranslation();
 
     // ─── 从全局状态（Zustand store）获取数据和更新方法 ───
     const taskId = useAppStore((s) => s.plan.taskId);                         // 当前计划任务ID（从流水线执行或localStorage恢复）
@@ -320,7 +322,7 @@ export default function PlanPage() {
             setActivePlanId(newTaskId);
             setPlanStatus('generating');
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to generate plan');
+            setError(err instanceof Error ? err.message : t('plan.failedGenerate'));
             setGenerating(false);
         }
     };
@@ -340,7 +342,7 @@ export default function PlanPage() {
             setEditing(false);
             loadHistory(); // 保存后刷新历史列表
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to save plan');
+            setError(err instanceof Error ? err.message : t('plan.failedSave'));
         }
     };
 
@@ -411,7 +413,7 @@ export default function PlanPage() {
                     } else if (result.status === 'failed') {
                         // Claude回复处理失败
                         setPlan(result);
-                        setError(result.error || 'Reply failed');
+                        setError(result.error || t('plan.replyFailed'));
                         setGenerating(false);
                         setPlanStatus('idle');
                         if (pollRef.current) clearInterval(pollRef.current);
@@ -427,7 +429,7 @@ export default function PlanPage() {
             pollRef.current = setInterval(poll, 2000);
 
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to send reply');
+            setError(err instanceof Error ? err.message : t('plan.failedSendReply'));
             setGenerating(false);
         } finally {
             setReplying(false);
@@ -453,7 +455,7 @@ export default function PlanPage() {
             setExecutionId(result.executionId);
             navigate('/execution');
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to start execution');
+            setError(err instanceof Error ? err.message : t('plan.failedStartExecution'));
             setExecuting(false);
         }
     };
@@ -492,7 +494,7 @@ export default function PlanPage() {
                 {/* 列表头部：标题和加载指示器 */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Plan History
+            {t('plan.historyTitle')}
           </span>
                     {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
                 </div>
@@ -503,7 +505,7 @@ export default function PlanPage() {
                     {planHistory.length === 0 && !loadingHistory && (
                         <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
                             <FileText className="h-7 w-7 text-muted-foreground/30"/>
-                            <p className="text-xs text-muted-foreground">No plans yet</p>
+                            <p className="text-xs text-muted-foreground">{t('plan.noPlans')}</p>
                         </div>
                     )}
 
@@ -559,12 +561,12 @@ export default function PlanPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold">Development Plan</h1>
+                            <h1 className="text-xl font-semibold">{t('pageTitle.plan')}</h1>
                             {/* 根据当前状态显示不同的描述文本 */}
                             <p className="mt-0.5 text-sm text-muted-foreground">
-                                {generating ? 'Claude is generating a plan...' :
-                                    plan ? 'Review and confirm the plan before execution' :
-                                        'Select a plan from history or generate a new one'}
+                                {generating ? t('plan.generating') :
+                                    plan ? t('plan.ready') :
+                                        t('plan.idle')}
                             </p>
                         </div>
 
@@ -574,7 +576,7 @@ export default function PlanPage() {
                             {!plan && !generating && (
                                 <Button onClick={() => generatePlan()} disabled={!canGenerate}>
                                     <Sparkles className="h-4 w-4 mr-2"/>
-                                    Generate Plan
+                                    {t('plan.generate')}
                                 </Button>
                             )}
 
@@ -589,12 +591,12 @@ export default function PlanPage() {
                                             await apiPost(`/plan/${activePlanId}/regenerate`, {});
                                             setPlanStatus('generating');
                                         } catch (err) {
-                                            setError(err instanceof Error ? err.message : 'Failed to regenerate');
+                                            setError(err instanceof Error ? err.message : t('plan.failedRegenerate'));
                                             setGenerating(false);
                                         }
                                     }}>
                                         <RefreshCw className="h-4 w-4 mr-1.5"/>
-                                        Regenerate
+                                        {t('plan.regenerate')}
                                     </Button>
                                     {(plan.rawOutput || plan.summary) && (
                                         <Button
@@ -608,7 +610,7 @@ export default function PlanPage() {
                                             ) : (
                                                 <RotateCcw className="h-4 w-4 mr-1.5"/>
                                             )}
-                                            {executing ? 'Starting...' : 'Retry Execute'}
+                                            {executing ? t('plan.starting') : t('plan.retryExecute')}
                                         </Button>
                                     )}
                                 </>
@@ -625,12 +627,12 @@ export default function PlanPage() {
                                                 await apiPost(`/plan/${activePlanId}/resume`, {});
                                                 setGenerating(true);
                                             } catch (err) {
-                                                setError(err instanceof Error ? err.message : 'Failed to resume');
+                                                setError(err instanceof Error ? err.message : t('plan.failedResume'));
                                             }
                                         }}
                                     >
                                         <Play className="h-4 w-4 mr-1.5"/>
-                                        Resume
+                                        {t('plan.resume')}
                                     </Button>
                                     <Button
                                         variant="outline"
@@ -644,7 +646,7 @@ export default function PlanPage() {
                                         }}
                                     >
                                         <Ban className="h-4 w-4 mr-1.5"/>
-                                        Cancel
+                                        {t('common.cancel')}
                                     </Button>
                                 </>
                             )}
@@ -657,11 +659,11 @@ export default function PlanPage() {
                                         setEditedSummary(plan.rawOutput || plan.summary || '');
                                     }}>
                                         <Pencil className="h-4 w-4 mr-1.5"/>
-                                        Edit
+                                        {t('common.edit')}
                                     </Button>
                                     <Button variant="outline" size="sm" onClick={() => generatePlan()} disabled={!canGenerate}>
                                         <RefreshCw className="h-4 w-4 mr-1.5"/>
-                                        New Plan
+                                        {t('plan.newPlan')}
                                     </Button>
                                     <Button
                                         size="sm"
@@ -674,7 +676,7 @@ export default function PlanPage() {
                                         ) : (
                                             <Play className="h-4 w-4 mr-1.5"/>
                                         )}
-                                        {executing ? 'Starting...' : 'Confirm & Execute'}
+                                        {executing ? t('plan.starting') : t('plan.confirmExecute')}
                                     </Button>
                                 </>
                             )}
@@ -684,11 +686,11 @@ export default function PlanPage() {
                                 <>
                                     <Button size="sm" onClick={savePlan}>
                                         <Save className="h-4 w-4 mr-1.5"/>
-                                        Save
+                                        {t('common.save')}
                                     </Button>
                                     <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
                                         <X className="h-4 w-4 mr-1.5"/>
-                                        Cancel
+                                        {t('common.cancel')}
                                     </Button>
                                 </>
                             )}
@@ -705,13 +707,13 @@ export default function PlanPage() {
                                 <FileText className="h-10 w-10 text-muted-foreground/30"/>
                                 <p className="text-sm text-muted-foreground">
                                     {planHistory.length > 0
-                                        ? 'Select a plan from the history, or generate a new one'
-                                        : 'No plans yet. Run a Pipeline or click Generate Plan to start.'}
+                                        ? t('plan.emptyWithHistory')
+                                        : t('plan.emptyNoHistory')}
                                 </p>
                                 {/* 未选择需求时显示提示 */}
                                 {!canGenerate && !selectedRequirement && (
                                     <p className="text-xs text-muted-foreground/60">
-                                        Select a requirement first (go to Requirements page)
+                                        {t('plan.selectRequirementHint')}
                                     </p>
                                 )}
                             </CardContent>
@@ -726,7 +728,7 @@ export default function PlanPage() {
                                 <div className="flex items-center gap-3 mb-3">
                                     <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0"/>
                                     <span
-                                        className="text-sm font-medium">Claude is analyzing and generating a plan...</span>
+                                        className="text-sm font-medium">{t('plan.generatingTitle')}</span>
                                 </div>
                                 {/* 进度条（脉冲动画模拟进度） */}
                                 <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-3">
@@ -741,7 +743,7 @@ export default function PlanPage() {
                                             className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-gray-900/50">
                                             <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
                                             <span
-                                                className="text-xs text-muted-foreground font-mono">Claude output</span>
+                                                className="text-xs text-muted-foreground font-mono">{t('plan.claudeOutput')}</span>
                                         </div>
                                         {/* 日志内容区域（等宽字体，自动滚动到底部） */}
                                         <div
@@ -759,17 +761,17 @@ export default function PlanPage() {
                                     <div className="space-y-2">
                                         {planLogs.length === 0 ? (
                                             <p className="text-xs text-muted-foreground">
-                                                Waiting for Claude to start... This may take 30–60 seconds.
+                                                {t('plan.waitingStart')}
                                             </p>
                                         ) : (
                                             <p className="text-xs text-muted-foreground">
-                                                Claude is generating...
+                                                {t('plan.claudeGenerating')}
                                                 ({Math.floor(generatingElapsed / 60)}m {generatingElapsed % 60}s)
                                             </p>
                                         )}
                                         {generatingElapsed > 120 && planLogs.length === 0 && (
                                             <p className="text-xs text-amber-500">
-                                                Taking longer than expected. The process may be stuck.
+                                                {t('plan.takingLonger')}
                                             </p>
                                         )}
                                         <div className="flex items-center gap-2">
@@ -784,12 +786,12 @@ export default function PlanPage() {
                                                         setGenerating(false);
                                                         setPlanStatus('paused');
                                                     } catch (err) {
-                                                        setError(err instanceof Error ? err.message : 'Failed to pause');
+                                                        setError(err instanceof Error ? err.message : t('plan.failedPause'));
                                                     }
                                                 }}
                                             >
                                                 <Pause className="h-3 w-3 mr-1"/>
-                                                Pause
+                                                {t('plan.pause')}
                                             </Button>
                                             <Button
                                                 variant="outline"
@@ -801,14 +803,14 @@ export default function PlanPage() {
                                                         await apiPost(`/plan/${activePlanId}/abort`, {});
                                                         setGenerating(false);
                                                         setPlanStatus('idle');
-                                                        setError('Plan generation cancelled');
+                                                        setError(t('plan.generationCancelled'));
                                                     } catch (err) {
-                                                        setError(err instanceof Error ? err.message : 'Failed to abort');
+                                                        setError(err instanceof Error ? err.message : t('plan.failedAbort'));
                                                     }
                                                 }}
                                             >
                                                 <XCircle className="h-3 w-3 mr-1"/>
-                                                Cancel
+                                                {t('common.cancel')}
                                             </Button>
                                         </div>
                                     </div>
@@ -821,7 +823,7 @@ export default function PlanPage() {
                                             className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
                                             <Pause className="h-3.5 w-3.5 text-amber-500"/>
                                             <span className="text-xs text-amber-500 font-medium">
-                                                Generation paused. Click Resume to continue.
+                                                {t('plan.generationPaused')}
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -837,12 +839,12 @@ export default function PlanPage() {
                                                         setGeneratingElapsed(0);
                                                         setPlanStatus('generating');
                                                     } catch (err) {
-                                                        setError(err instanceof Error ? err.message : 'Failed to resume');
+                                                        setError(err instanceof Error ? err.message : t('plan.failedResume'));
                                                     }
                                                 }}
                                             >
                                                 <Play className="h-3 w-3 mr-1"/>
-                                                Resume
+                                                {t('plan.resume')}
                                             </Button>
                                             <Button
                                                 variant="outline"
@@ -853,14 +855,14 @@ export default function PlanPage() {
                                                     try {
                                                         await apiPost(`/plan/${activePlanId}/abort`, {});
                                                         setPlanStatus('idle');
-                                                        setError('Plan generation cancelled');
+                                                        setError(t('plan.generationCancelled'));
                                                     } catch (err) {
-                                                        setError(err instanceof Error ? err.message : 'Failed to abort');
+                                                        setError(err instanceof Error ? err.message : t('plan.failedAbort'));
                                                     }
                                                 }}
                                             >
                                                 <XCircle className="h-3 w-3 mr-1"/>
-                                                Cancel
+                                                {t('common.cancel')}
                                             </Button>
                                         </div>
                                     </div>
@@ -875,7 +877,7 @@ export default function PlanPage() {
                             className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
                             <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0"/>
                             <div>
-                                <p className="text-sm font-medium text-destructive">Error</p>
+                                <p className="text-sm font-medium text-destructive">{t('plan.error')}</p>
                                 <p className="text-sm text-muted-foreground mt-1">{error || plan?.error}</p>
                             </div>
                         </div>
@@ -888,17 +890,17 @@ export default function PlanPage() {
                             <Card>
                                 <CardContent className="p-4">
                                     <div className="flex items-center gap-2 text-sm">
-                                        <span className="text-muted-foreground">Requirement:</span>
+                                        <span className="text-muted-foreground">{t('plan.requirement')}</span>
                                         <span className="font-medium">
                       {plan.requirementNumber ? `${plan.requirementNumber} ` : ''}{plan.requirementTitle || plan.requirementId}
                     </span>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm mt-1">
-                                        <span className="text-muted-foreground">Workspace:</span>
+                                        <span className="text-muted-foreground">{t('plan.workspace')}</span>
                                         <span className="font-mono text-xs">{plan.workspacePath}</span>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm mt-1">
-                                        <span className="text-muted-foreground">Created:</span>
+                                        <span className="text-muted-foreground">{t('plan.created')}</span>
                                         <span className="text-xs text-muted-foreground">
                       {new Date(plan.createdAt).toLocaleString()}
                     </span>
@@ -913,7 +915,7 @@ export default function PlanPage() {
                                         <div className="flex items-center gap-2 mb-2">
                                             <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0"/>
                                             <span
-                                                className="text-sm font-medium text-primary">Claude is continuing...</span>
+                                                className="text-sm font-medium text-primary">{t('plan.claudeContinuing')}</span>
                                         </div>
                                         <div className="rounded-md bg-gray-950 border border-border overflow-hidden">
                                             <div
@@ -931,7 +933,7 @@ export default function PlanPage() {
                             {/* 计划输出内容卡片：编辑模式显示textarea，查看模式显示格式化文本 */}
                             <Card>
                                 <CardContent className="p-4">
-                                    <h3 className="text-sm font-semibold mb-3">Generated Plan</h3>
+                                    <h3 className="text-sm font-semibold mb-3">{t('plan.generatedPlan')}</h3>
                                     {editing ? (
                                         /* 编辑模式：可编辑的文本区域 */
                                         <textarea
@@ -943,7 +945,7 @@ export default function PlanPage() {
                                         /* 查看模式：格式化的Markdown预渲染文本 */
                                         <pre
                                             className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto">
-                      {plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : 'No plan content available.')}
+                      {plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
                     </pre>
                                     )}
                                 </CardContent>
@@ -955,9 +957,9 @@ export default function PlanPage() {
                                     <CardContent className="p-4">
                                         <div className="flex items-center gap-2 mb-3">
                                             <MessageSquare className="h-4 w-4 text-primary"/>
-                                            <h3 className="text-sm font-semibold">Reply to Claude</h3>
+                                            <h3 className="text-sm font-semibold">{t('plan.replyTitle')}</h3>
                                             <span className="text-xs text-muted-foreground">
-                        Answer Claude's questions or provide more context
+                        {t('plan.replySubtitle')}
                       </span>
                                         </div>
                                         <div className="flex gap-2">
@@ -972,7 +974,7 @@ export default function PlanPage() {
                                                         handleReply();
                                                     }
                                                 }}
-                                                placeholder="Type your reply... (Ctrl+Enter to send)"
+                                                placeholder={t('plan.replyPlaceholder')}
                                                 rows={3}
                                                 disabled={generating}
                                                 className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
@@ -994,7 +996,7 @@ export default function PlanPage() {
                                         {/* 生成中时显示等待提示 */}
                                         {generating && (
                                             <p className="text-xs text-muted-foreground mt-2">
-                                                Waiting for Claude to finish...
+                                                {t('plan.waitingFinish')}
                                             </p>
                                         )}
                                     </CardContent>
