@@ -6,6 +6,8 @@
 
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {useTranslation} from 'react-i18next';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {cn} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '../components/ui/card';
@@ -103,6 +105,7 @@ function saveSavedResults(results: SavedResult[]): void {
 
 export default function MinerUPage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('mineru');
 
     // 文件状态
     const [files, setFiles] = useState<File[]>([]);
@@ -371,6 +374,7 @@ export default function MinerUPage() {
                                 onDragLeave={handleDragLeave}
                                 onDrop={handleDrop}
                                 onClick={() => fileInputRef.current?.click()}
+                                data-tour="mineru-upload"
                                 className={cn(
                                     'border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors',
                                     isDragging
@@ -444,7 +448,8 @@ export default function MinerUPage() {
                         {showOptions && (
                             <CardContent className="space-y-3">
                                 <div>
-                                    <label className="text-xs text-muted-foreground mb-1 block">{t('mineru.backend')}</label>
+                                    <label
+                                        className="text-xs text-muted-foreground mb-1 block">{t('mineru.backend')}</label>
                                     <div className="space-y-1">
                                         {BACKEND_OPTIONS.map(opt => (
                                             <label
@@ -472,7 +477,8 @@ export default function MinerUPage() {
                                 </div>
 
                                 <div>
-                                    <label className="text-xs text-muted-foreground mb-1 block">{t('mineru.ocrLanguage')}</label>
+                                    <label
+                                        className="text-xs text-muted-foreground mb-1 block">{t('mineru.ocrLanguage')}</label>
                                     <select
                                         value={langList[0]}
                                         onChange={(e) => setLangList([e.target.value])}
@@ -485,9 +491,12 @@ export default function MinerUPage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <ToggleOption label={t('mineru.toggleFormula')} checked={formulaEnable} onChange={setFormulaEnable}/>
-                                    <ToggleOption label={t('mineru.toggleTable')} checked={tableEnable} onChange={setTableEnable}/>
-                                    <ToggleOption label={t('mineru.toggleImageAnalysis')} checked={imageAnalysis} onChange={setimageAnalysis}/>
+                                    <ToggleOption label={t('mineru.toggleFormula')} checked={formulaEnable}
+                                                  onChange={setFormulaEnable}/>
+                                    <ToggleOption label={t('mineru.toggleTable')} checked={tableEnable}
+                                                  onChange={setTableEnable}/>
+                                    <ToggleOption label={t('mineru.toggleImageAnalysis')} checked={imageAnalysis}
+                                                  onChange={setimageAnalysis}/>
                                 </div>
                             </CardContent>
                         )}
@@ -499,6 +508,7 @@ export default function MinerUPage() {
                             onClick={startParse}
                             disabled={files.length === 0 || isParsing}
                             className="flex-1"
+                            data-tour="mineru-parse-btn"
                         >
                             {isParsing ? (
                                 <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>{t('mineru.parsing')}</>
@@ -540,7 +550,8 @@ export default function MinerUPage() {
                         <div
                             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-emerald-500/10 text-emerald-400">
                             <CheckCircle2 className="h-4 w-4 shrink-0"/>
-                            <span className="flex-1">{t('mineru.statusCompletedWithFile', {fileName: currentTask.fileName})}</span>
+                            <span
+                                className="flex-1">{t('mineru.statusCompletedWithFile', {fileName: currentTask.fileName})}</span>
                         </div>
                     )}
 
@@ -601,7 +612,7 @@ export default function MinerUPage() {
             </div>
 
             {/* ===== 右侧面板：结果展示 ===== */}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 flex flex-col overflow-hidden" data-tour="mineru-results">
                 {(displayMarkdown || parseResult?.error) ? (
                     <>
                         {/* 结果标签页 */}
@@ -702,6 +713,19 @@ export default function MinerUPage() {
                     </div>
                 )}
             </div>
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

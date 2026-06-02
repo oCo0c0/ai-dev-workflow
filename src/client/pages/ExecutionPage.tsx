@@ -37,6 +37,8 @@ import {
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 
 // === 类型定义 ===
 
@@ -128,6 +130,7 @@ export default function ExecutionPage() {
 
     // 从全局状态管理（Zustand store）中获取和设置执行相关的状态
     // 这些状态用于与计划页面触发的实时执行保持同步
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('execution');
     const storeExecutionId = useAppStore((s) => s.execution.executionId);
     const storeStatus = useAppStore((s) => s.execution.status);
     const storeLogs = useAppStore((s) => s.execution.logs);
@@ -566,7 +569,7 @@ export default function ExecutionPage() {
 
                     {/* 控制按钮栏：暂停、重试、跳过、中止、重新执行、清除 */}
                     {activeId && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2" data-tour="exec-controls">
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -630,7 +633,7 @@ export default function ExecutionPage() {
 
                     {/* 回复输入区域：向 Claude 发送交互消息 */}
                     {activeId && (
-                        <Card className="border-primary/20 bg-primary/5">
+                        <Card className="border-primary/20 bg-primary/5" data-tour="exec-reply">
                             <CardContent className="p-3">
                                 <div className="flex items-center gap-2 mb-2">
                                     <MessageSquare className="h-4 w-4 text-primary"/>
@@ -688,6 +691,7 @@ export default function ExecutionPage() {
                     {/* 日志输出终端：显示执行过程的实时日志 */}
                     {activeId && (
                         <div
+                            data-tour="exec-output"
                             className="flex-1 min-h-0 rounded-lg border border-border bg-gray-950 dark:bg-gray-950 overflow-hidden flex flex-col">
                             {/* 终端标题栏 */}
                             <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
@@ -697,7 +701,7 @@ export default function ExecutionPage() {
                                 {isRunning && (
                                     <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
-                    {t('execution.live')}
+                                        {t('execution.live')}
                   </span>
                                 )}
                             </div>
@@ -802,6 +806,19 @@ export default function ExecutionPage() {
                     )}
                 </div>
             </div>
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

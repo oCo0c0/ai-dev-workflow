@@ -14,6 +14,8 @@
 import {useState, useEffect, useCallback} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {apiGet, apiPost, apiPut, apiDelete, pickFolder} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
@@ -534,7 +536,8 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                             </p>
                                         )}
                                         {/* 文档解析开关 */}
-                                        <label className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5 cursor-pointer">
+                                        <label
+                                            className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5 cursor-pointer">
                                             <input
                                                 type="checkbox"
                                                 checked={state.parseDocuments}
@@ -821,6 +824,7 @@ const defaultSteps: PipelineStepConfig = {
  */
 export default function PipelinesPage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('pipelines');
     // ─── 列表和选择状态 ───
     const [pipelines, setPipelines] = useState<Pipeline[]>([]);       // 流水线列表数据
     const [selected, setSelected] = useState<Pipeline | null>(null);  // 当前选中的流水线（用于编辑）
@@ -1016,6 +1020,7 @@ export default function PipelinesPage() {
         return [...new Set(missing)];
     };
 
+    // @ts-ignore
     return (
         <div className="p-6 h-full flex flex-col">
             {/* 全局错误提示条 */}
@@ -1031,7 +1036,7 @@ export default function PipelinesPage() {
                 <div className="w-72 flex flex-col flex-shrink-0">
                     {/* 新建流水线按钮 + 刷新依赖数据 */}
                     <div className="flex gap-2 mb-3">
-                        <Button onClick={startCreate} className="flex-1" size="sm">
+                        <Button onClick={startCreate} className="flex-1" size="sm" data-tour="pipe-new-btn">
                             <Plus className="h-4 w-4 mr-1"/>
                             {t('pipelines.newPipeline')}
                         </Button>
@@ -1044,7 +1049,7 @@ export default function PipelinesPage() {
                             <RefreshCw className="h-4 w-4"/>
                         </Button>
                     </div>
-                    <div className="flex-1 overflow-y-auto space-y-2">
+                    <div className="flex-1 overflow-y-auto space-y-2" data-tour="pipe-list">
                         {/* 加载中状态 */}
                         {loading && (
                             <div className="flex items-center justify-center py-8">
@@ -1143,7 +1148,7 @@ export default function PipelinesPage() {
 
                 {/* ─── 右侧：创建/编辑表单 ─── */}
                 {(creating || editing) && (
-                    <Card className="flex-1 overflow-y-auto">
+                    <Card className="flex-1 overflow-y-auto" data-tour="pipe-editor">
                         <div className="p-4">
                             <h3 className="text-sm font-medium mb-4">
                                 {creating ? t('pipelines.createTitle') : t('pipelines.editTitle', {name: selected?.name})}
@@ -1183,7 +1188,8 @@ export default function PipelinesPage() {
                                     {/* 非手动模式下，显示MCP服务器选择下拉框 */}
                                     {formSteps.requirementSource.type !== 'manual' && (
                                         <div className="mt-2">
-                                            <label className="block text-xs text-muted-foreground mb-1">{t('pipelines.mcpServer')}</label>
+                                            <label
+                                                className="block text-xs text-muted-foreground mb-1">{t('pipelines.mcpServer')}</label>
                                             <select
                                                 value={formSteps.requirementSource.mcpServerName || ''}
                                                 onChange={(e) => setFormSteps({
@@ -1496,7 +1502,8 @@ export default function PipelinesPage() {
                                             <div>
                                                 <label className="block text-xs text-muted-foreground mb-1">
                                                     {t('pipelines.testCommand')}
-                                                    <span className="ml-1 text-muted-foreground/60">{t('pipelines.testCommandHint')}</span>
+                                                    <span
+                                                        className="ml-1 text-muted-foreground/60">{t('pipelines.testCommandHint')}</span>
                                                 </label>
                                                 <Input
                                                     value={formSteps.testStrategy.command || getDefaultCommand(formSteps.testStrategy.framework || '')}
@@ -1642,6 +1649,19 @@ export default function PipelinesPage() {
                     savedWorkspaces={savedWorkspaces}
                 />
             )}
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

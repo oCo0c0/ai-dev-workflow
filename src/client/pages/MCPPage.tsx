@@ -15,6 +15,8 @@
 
 import {useState, useEffect, useCallback} from 'react';
 import {useTranslation} from 'react-i18next';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {cn} from '../lib/utils';
 import {Button} from '../components/ui/button';
@@ -71,6 +73,7 @@ interface MCPServerConfig {
  */
 export default function MCPPage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('mcp');
     // 服务器列表和加载状态
     const [servers, setServers] = useState<MCPServerConfig[]>([]);
     const [loading, setLoading] = useState(false);
@@ -278,7 +281,7 @@ export default function MCPPage() {
                 {/* 左侧面板：MCP 服务器列表 */}
                 <div className="w-80 flex flex-col flex-shrink-0">
                     <div className="flex gap-2 mb-3">
-                        <Button onClick={startCreate} className="flex-1" size="sm">
+                        <Button onClick={startCreate} className="flex-1" size="sm" data-tour="mcp-add-btn">
                             <Plus className="h-4 w-4 mr-1"/>
                             {t('mcp.addServer')}
                         </Button>
@@ -296,7 +299,7 @@ export default function MCPPage() {
                             )}
                         </Button>
                     </div>
-                    <div className="flex-1 overflow-y-auto space-y-2">
+                    <div className="flex-1 overflow-y-auto space-y-2" data-tour="mcp-server-list">
                         {/* 加载中状态 */}
                         {loading && (
                             <div className="flex items-center justify-center py-8">
@@ -418,7 +421,8 @@ export default function MCPPage() {
                                 </div>
                                 {/* 命令参数（空格分隔） */}
                                 <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.arguments')}</label>
+                                    <label
+                                        className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.arguments')}</label>
                                     <Input
                                         value={formArgs}
                                         onChange={(e) => setFormArgs(e.target.value)}
@@ -427,7 +431,8 @@ export default function MCPPage() {
                                 </div>
                                 {/* 环境变量（每行一个 KEY=VALUE） */}
                                 <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.envVars')}</label>
+                                    <label
+                                        className="block text-xs font-medium text-muted-foreground mb-1.5">{t('mcp.envVars')}</label>
                                     <textarea
                                         value={formEnv}
                                         onChange={(e) => setFormEnv(e.target.value)}
@@ -473,6 +478,19 @@ export default function MCPPage() {
                     </Card>
                 )}
             </div>
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

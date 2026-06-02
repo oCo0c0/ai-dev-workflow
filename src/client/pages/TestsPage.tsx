@@ -21,6 +21,8 @@ import {cn, formatRelativeTime} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {Badge} from '../components/ui/badge';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {
     Play,
     CheckCircle2,
@@ -260,6 +262,7 @@ function logTypeColor(type: string) {
 
 export default function TestsPage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('tests');
     const [searchParams] = useSearchParams();
     const currentWorkspace = useAppStore((s) => s.workspace.current);
 
@@ -750,62 +753,65 @@ export default function TestsPage() {
                     )}
 
                     {history.map((run) => (
-                            <div
-                                key={run.id}
-                                onClick={() => loadDetail(run.id)}
-                                className={cn(
-                                    'group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors',
-                                    activeId === run.id
-                                        ? 'bg-primary/5 border-l-2 border-l-primary'
-                                        : 'hover:bg-accent/50'
-                                )}
-                            >
-                                <div className="mt-0.5 shrink-0">{statusIcon(run.status)}</div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5">
-                                        <Badge variant={modeBadgeVariant(run.mode)} className="text-[10px] px-1.5 py-0">
-                                            {t(modeLabelKey(run.mode))}
-                                        </Badge>
-                                        {run.environment === 'sandbox' && (
-                                            <span className="text-[10px] px-1.5 py-0 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{t('tests.sandbox')}</span>
-                                        )}
-                                        {run.framework && (
-                                            <span
-                                                className="text-xs text-muted-foreground truncate">{run.framework}</span>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                        <Clock className="h-3 w-3 text-muted-foreground/50"/>
-                                        <span className="text-xs text-muted-foreground/60">
-                                        {formatRelativeTime(run.startedAt)}
-                                    </span>
-                                    </div>
-                                    {run.workspacePath && (
-                                        <div className="flex items-center gap-1 mt-0.5">
-                                            <FolderOpen className="h-3 w-3 text-muted-foreground/40"/>
-                                            <span className="text-xs text-muted-foreground/40 truncate font-mono">
-                                            {run.workspacePath.split(/[/\\]/).pop()}
-                                        </span>
-                                        </div>
+                        <div
+                            key={run.id}
+                            onClick={() => loadDetail(run.id)}
+                            className={cn(
+                                'group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors',
+                                activeId === run.id
+                                    ? 'bg-primary/5 border-l-2 border-l-primary'
+                                    : 'hover:bg-accent/50'
+                            )}
+                        >
+                            <div className="mt-0.5 shrink-0">{statusIcon(run.status)}</div>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                    <Badge variant={modeBadgeVariant(run.mode)} className="text-[10px] px-1.5 py-0">
+                                        {t(modeLabelKey(run.mode))}
+                                    </Badge>
+                                    {run.environment === 'sandbox' && (
+                                        <span
+                                            className="text-[10px] px-1.5 py-0 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{t('tests.sandbox')}</span>
                                     )}
-                                    {run.status === 'completed' && run.totalTests !== undefined && (
-                                        <div className="flex items-center gap-2 mt-1 text-xs">
-                                            <span className="text-emerald-500">{t('tests.pass', {count: run.passed})}</span>
-                                            {(run.failed ?? 0) > 0 &&
-                                                <span className="text-red-500">{t('tests.fail', {count: run.failed})}</span>}
-                                            {(run.skipped ?? 0) > 0 &&
-                                                <span className="text-amber-500">{t('tests.skip', {count: run.skipped})}</span>}
-                                        </div>
+                                    {run.framework && (
+                                        <span
+                                            className="text-xs text-muted-foreground truncate">{run.framework}</span>
                                     )}
                                 </div>
-                                <button
-                                    onClick={(e) => handleDelete(run.id, e)}
-                                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
-                                >
-                                    <Trash2 className="h-3.5 w-3.5"/>
-                                </button>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    <Clock className="h-3 w-3 text-muted-foreground/50"/>
+                                    <span className="text-xs text-muted-foreground/60">
+                                        {formatRelativeTime(run.startedAt)}
+                                    </span>
+                                </div>
+                                {run.workspacePath && (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                        <FolderOpen className="h-3 w-3 text-muted-foreground/40"/>
+                                        <span className="text-xs text-muted-foreground/40 truncate font-mono">
+                                            {run.workspacePath.split(/[/\\]/).pop()}
+                                        </span>
+                                    </div>
+                                )}
+                                {run.status === 'completed' && run.totalTests !== undefined && (
+                                    <div className="flex items-center gap-2 mt-1 text-xs">
+                                        <span className="text-emerald-500">{t('tests.pass', {count: run.passed})}</span>
+                                        {(run.failed ?? 0) > 0 &&
+                                            <span
+                                                className="text-red-500">{t('tests.fail', {count: run.failed})}</span>}
+                                        {(run.skipped ?? 0) > 0 &&
+                                            <span
+                                                className="text-amber-500">{t('tests.skip', {count: run.skipped})}</span>}
+                                    </div>
+                                )}
                             </div>
-                        ))}
+                            <button
+                                onClick={(e) => handleDelete(run.id, e)}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
+                            >
+                                <Trash2 className="h-3.5 w-3.5"/>
+                            </button>
+                        </div>
+                    ))}
                 </div>
             </div>
 
@@ -828,6 +834,7 @@ export default function TestsPage() {
                                 size="sm"
                                 onClick={detectProject}
                                 disabled={!effectiveWorkspace || detecting}
+                                data-tour="test-detect-btn"
                             >
                                 {detecting ? (
                                     <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
@@ -840,6 +847,7 @@ export default function TestsPage() {
                                 size="sm"
                                 onClick={() => runTests()}
                                 disabled={!effectiveWorkspace || running || (activeTab === 'sandbox' && !sandboxIdInput.trim())}
+                                data-tour="test-run-btn"
                             >
                                 {running ? (
                                     <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
@@ -1019,7 +1027,7 @@ export default function TestsPage() {
 
                     {/* === 模式选择器（三列卡片，沙箱 Tab 下隐藏） === */}
                     {activeTab === 'local' && (
-                        <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="mt-3 grid grid-cols-3 gap-2" data-tour="test-mode-selector">
                             {modeOptions.map((opt) => (
                                 <div
                                     key={opt.value}
@@ -1100,7 +1108,8 @@ export default function TestsPage() {
 
                             {/* Custom Prompt */}
                             <div>
-                                <label className="block text-xs text-muted-foreground mb-1">{t('tests.customPrompt')}</label>
+                                <label
+                                    className="block text-xs text-muted-foreground mb-1">{t('tests.customPrompt')}</label>
                                 <textarea
                                     value={customPrompt}
                                     onChange={(e) => setCustomPrompt(e.target.value)}
@@ -1159,7 +1168,8 @@ export default function TestsPage() {
                             <div className="flex items-center gap-2 mb-1.5">
                                 <GitCompare className="h-3.5 w-3.5 text-amber-500"/>
                                 <span className="text-xs font-medium">{t('tests.changedTargetsTitle')}</span>
-                                <span className="text-xs text-muted-foreground">{t('tests.changedTargetsCount', {count: changedTargets.length})}</span>
+                                <span
+                                    className="text-xs text-muted-foreground">{t('tests.changedTargetsCount', {count: changedTargets.length})}</span>
                             </div>
                             <div className="flex flex-wrap gap-1">
                                 {changedTargets.slice(0, 10).map((t, i) => (
@@ -1319,11 +1329,14 @@ export default function TestsPage() {
                                 </div>
                                 {detail.rawOutput && (
                                     <div className="rounded-md bg-gray-950 border border-border overflow-hidden">
-                                        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-gray-900/50">
+                                        <div
+                                            className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-gray-900/50">
                                             <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
-                                            <span className="text-xs text-muted-foreground font-mono">{t('tests.outputLabel')}</span>
+                                            <span
+                                                className="text-xs text-muted-foreground font-mono">{t('tests.outputLabel')}</span>
                                         </div>
-                                        <pre className="max-h-64 overflow-y-auto p-3 text-xs text-gray-300 font-mono whitespace-pre-wrap leading-relaxed">
+                                        <pre
+                                            className="max-h-64 overflow-y-auto p-3 text-xs text-gray-300 font-mono whitespace-pre-wrap leading-relaxed">
                                             {detail.rawOutput.slice(-3000)}
                                         </pre>
                                     </div>
@@ -1373,13 +1386,13 @@ export default function TestsPage() {
                                             <div className={cn(
                                                 'h-6 w-6 rounded-full flex items-center justify-center shrink-0 text-[10px]',
                                                 phase.status === 'completed' ? 'bg-emerald-500/20 text-emerald-500' :
-                                                phase.status === 'failed' ? 'bg-red-500/20 text-red-500' :
-                                                phase.status === 'running' ? 'bg-primary/20 text-primary animate-pulse' :
-                                                'bg-muted text-muted-foreground'
+                                                    phase.status === 'failed' ? 'bg-red-500/20 text-red-500' :
+                                                        phase.status === 'running' ? 'bg-primary/20 text-primary animate-pulse' :
+                                                            'bg-muted text-muted-foreground'
                                             )}>
                                                 {phase.status === 'completed' ? '✓' :
-                                                 phase.status === 'failed' ? '✗' :
-                                                 phase.status === 'running' ? '...' : '–'}
+                                                    phase.status === 'failed' ? '✗' :
+                                                        phase.status === 'running' ? '...' : '–'}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-xs font-medium">{phase.label}</p>
@@ -1391,9 +1404,9 @@ export default function TestsPage() {
                                             <span className={cn(
                                                 'text-[10px] px-1.5 py-0.5 rounded',
                                                 phase.status === 'completed' ? 'bg-emerald-500/10 text-emerald-600' :
-                                                phase.status === 'failed' ? 'bg-red-500/10 text-red-600' :
-                                                phase.status === 'running' ? 'bg-primary/10 text-primary' :
-                                                'bg-muted text-muted-foreground'
+                                                    phase.status === 'failed' ? 'bg-red-500/10 text-red-600' :
+                                                        phase.status === 'running' ? 'bg-primary/10 text-primary' :
+                                                            'bg-muted text-muted-foreground'
                                             )}>
                                                 {phase.status}
                                             </span>
@@ -1408,22 +1421,29 @@ export default function TestsPage() {
                     {detail?.rawOutput && (
                         <Card className="mb-4">
                             <CardContent className="p-0 overflow-hidden">
-                                <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-gray-900/50">
+                                <div
+                                    className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-gray-900/50">
                                     <div className="flex items-center gap-2">
                                         <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
-                                        <span className="text-xs text-muted-foreground font-mono">{t('tests.executionOutput')}</span>
+                                        <span
+                                            className="text-xs text-muted-foreground font-mono">{t('tests.executionOutput')}</span>
                                     </div>
                                     {/* 结果摘要（如果有） */}
                                     {detail.results && (
                                         <div className="flex items-center gap-3 text-xs">
-                                            <span className="text-emerald-500">{t('tests.pass', {count: detail.results.passed})}</span>
-                                            {detail.results.failed > 0 && <span className="text-red-500">{t('tests.fail', {count: detail.results.failed})}</span>}
-                                            {detail.results.skipped > 0 && <span className="text-amber-500">{t('tests.skip', {count: detail.results.skipped})}</span>}
-                                            <span className="text-muted-foreground">{(detail.results.duration / 1000).toFixed(1)}s</span>
+                                            <span
+                                                className="text-emerald-500">{t('tests.pass', {count: detail.results.passed})}</span>
+                                            {detail.results.failed > 0 && <span
+                                                className="text-red-500">{t('tests.fail', {count: detail.results.failed})}</span>}
+                                            {detail.results.skipped > 0 && <span
+                                                className="text-amber-500">{t('tests.skip', {count: detail.results.skipped})}</span>}
+                                            <span
+                                                className="text-muted-foreground">{(detail.results.duration / 1000).toFixed(1)}s</span>
                                         </div>
                                     )}
                                 </div>
-                                <div className="bg-gray-950 max-h-[500px] overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
+                                <div
+                                    className="bg-gray-950 max-h-[500px] overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
                                     {detail.rawOutput}
                                 </div>
                             </CardContent>
@@ -1446,7 +1466,8 @@ export default function TestsPage() {
                                                         <span className="text-sm">{test.name}</span>
                                                     </div>
                                                     {test.error && (
-                                                        <pre className="mt-1 ml-5 text-xs text-red-400 bg-red-500/5 border border-red-500/10 rounded-md p-2 overflow-x-auto font-mono whitespace-pre-wrap">
+                                                        <pre
+                                                            className="mt-1 ml-5 text-xs text-red-400 bg-red-500/5 border border-red-500/10 rounded-md p-2 overflow-x-auto font-mono whitespace-pre-wrap">
                                                             {test.error}
                                                         </pre>
                                                     )}
@@ -1473,6 +1494,19 @@ export default function TestsPage() {
                     )}
                 </div>
             </div>
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

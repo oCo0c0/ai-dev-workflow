@@ -18,6 +18,8 @@
  * - 右栏：文件预览 / Diff 视图
  */
 import {useState, useEffect, useCallback, useRef} from 'react';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {apiGet, apiPost, apiPut, apiDelete, pickFolder} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
@@ -571,6 +573,7 @@ type MiddleTab = 'files' | 'changes';
  */
 export default function WorkspacePage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('workspace');
 
     // === 面板尺寸状态 ===
     /** 左侧面板宽度 */
@@ -616,7 +619,10 @@ export default function WorkspacePage() {
     /** 当前选中的变更文件路径 */
     const [selectedChange, setSelectedChange] = useState<string | null>(null);
     /** 冲突解决弹窗状态 */
-    const [conflictModal, setConflictModal] = useState<{ open: boolean; conflicts: string[] }>({open: false, conflicts: []});
+    const [conflictModal, setConflictModal] = useState<{ open: boolean; conflicts: string[] }>({
+        open: false,
+        conflicts: []
+    });
     /** 是否正在加载 Git 状态 */
     const [loadingGit, setLoadingGit] = useState(false);
     /** 是否正在加载 Diff */
@@ -844,7 +850,7 @@ export default function WorkspacePage() {
               </span>
                             <div className="flex items-center gap-0.5">
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleAddWorkspace}
-                                        title={t('workspace.addTitle')}>
+                                        title={t('workspace.addTitle')} data-tour="ws-add-btn">
                                     <Plus className="h-4 w-4"/>
                                 </Button>
                                 <Button
@@ -857,7 +863,7 @@ export default function WorkspacePage() {
                         </div>
 
                         {/* 工作区列表 */}
-                        <div className="flex-1 overflow-y-auto py-1">
+                        <div className="flex-1 overflow-y-auto py-1" data-tour="ws-list">
                             {/* 空状态：引导用户添加工作区 */}
                             {savedWorkspaces.length === 0 && (
                                 <div className="flex flex-col items-center justify-center py-8 px-3 text-center gap-2">
@@ -990,7 +996,8 @@ export default function WorkspacePage() {
                                                 ) : (
                                                     <>
                                                         <GitBranch className="h-3 w-3 text-muted-foreground/50"/>
-                                                        <span className="text-xs text-muted-foreground/50 truncate font-mono">
+                                                        <span
+                                                            className="text-xs text-muted-foreground/50 truncate font-mono">
                                                             {selectedWs.projectType}
                                                         </span>
                                                     </>
@@ -1016,6 +1023,7 @@ export default function WorkspacePage() {
                                 <div className="flex border-b border-border shrink-0">
                                     <button
                                         onClick={() => setMiddleTab('files')}
+                                        data-tour="ws-files-tab"
                                         className={cn(
                                             'flex-1 px-3 py-1.5 text-xs font-medium transition-colors',
                                             middleTab === 'files'
@@ -1027,6 +1035,7 @@ export default function WorkspacePage() {
                                     </button>
                                     <button
                                         onClick={() => setMiddleTab('changes')}
+                                        data-tour="ws-changes-tab"
                                         className={cn(
                                             'flex-1 px-3 py-1.5 text-xs font-medium transition-colors relative',
                                             middleTab === 'changes'
@@ -1134,14 +1143,16 @@ export default function WorkspacePage() {
                                                                     {fileName}
                                                                 </span>
                                                                 {dirPath && (
-                                                                    <span className="text-xs text-muted-foreground/50 truncate block font-mono leading-tight">
+                                                                    <span
+                                                                        className="text-xs text-muted-foreground/50 truncate block font-mono leading-tight">
                                                                         {dirPath}
                                                                     </span>
                                                                 )}
                                                             </div>
                                                             {/* 已暂存标识 */}
                                                             {change.staged && (
-                                                                <span className="text-xs text-emerald-500 shrink-0">S</span>
+                                                                <span
+                                                                    className="text-xs text-emerald-500 shrink-0">S</span>
                                                             )}
                                                         </div>
                                                     );
@@ -1249,6 +1260,19 @@ export default function WorkspacePage() {
                 onResolved={() => {
                     if (selectedWs) loadGitStatus(selectedWs.path);
                     setConflictModal({open: false, conflicts: []});
+                }}
+            />
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
                 }}
             />
         </div>

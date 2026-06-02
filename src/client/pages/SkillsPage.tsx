@@ -19,6 +19,8 @@
  */
 import {useState, useEffect, useCallback} from 'react';
 import {useTranslation} from 'react-i18next';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {cn} from '../lib/utils';
 import {Button} from '../components/ui/button';
@@ -76,6 +78,7 @@ interface SkillDetail extends Skill {
  */
 export default function SkillsPage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('skills');
     // === 列表和选中状态 ===
     /** 所有技能列表 */
     const [skills, setSkills] = useState<Skill[]>([]);
@@ -225,12 +228,13 @@ export default function SkillsPage() {
                         }}
                         className="w-full mb-3"
                         size="sm"
+                        data-tour="skill-new-btn"
                     >
                         <Plus className="h-4 w-4 mr-1"/>
                         {t('skills.newSkill')}
                     </Button>
                     {/* 技能列表：支持加载状态、空状态和正常列表 */}
-                    <div className="flex-1 overflow-y-auto space-y-1">
+                    <div className="flex-1 overflow-y-auto space-y-1" data-tour="skill-list">
                         {loading && (
                             <div className="flex items-center justify-center py-8">
                                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground"/>
@@ -377,6 +381,19 @@ export default function SkillsPage() {
                     )}
                 </Card>
             </div>
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

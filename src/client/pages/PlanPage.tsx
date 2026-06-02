@@ -19,6 +19,8 @@
 import {useState, useEffect, useRef, useCallback} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
@@ -112,6 +114,7 @@ interface StoredPlan extends PlanSummary {
 export default function PlanPage() {
     const navigate = useNavigate();
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('plan');
 
     // ─── 从全局状态（Zustand store）获取数据和更新方法 ───
     const taskId = useAppStore((s) => s.plan.taskId);                         // 当前计划任务ID（从流水线执行或localStorage恢复）
@@ -574,7 +577,8 @@ export default function PlanPage() {
                         <div className="flex items-center gap-2">
                             {/* 无计划且未生成时：显示"生成计划"按钮 */}
                             {!plan && !generating && (
-                                <Button onClick={() => generatePlan()} disabled={!canGenerate}>
+                                <Button onClick={() => generatePlan()} disabled={!canGenerate}
+                                        data-tour="plan-generate-btn">
                                     <Sparkles className="h-4 w-4 mr-2"/>
                                     {t('plan.generate')}
                                 </Button>
@@ -661,7 +665,8 @@ export default function PlanPage() {
                                         <Pencil className="h-4 w-4 mr-1.5"/>
                                         {t('common.edit')}
                                     </Button>
-                                    <Button variant="outline" size="sm" onClick={() => generatePlan()} disabled={!canGenerate}>
+                                    <Button variant="outline" size="sm" onClick={() => generatePlan()}
+                                            disabled={!canGenerate}>
                                         <RefreshCw className="h-4 w-4 mr-1.5"/>
                                         {t('plan.newPlan')}
                                     </Button>
@@ -670,6 +675,7 @@ export default function PlanPage() {
                                         className="bg-emerald-600 hover:bg-emerald-700 text-white"
                                         onClick={handleConfirmAndExecute}
                                         disabled={executing}
+                                        data-tour="plan-confirm-btn"
                                     >
                                         {executing ? (
                                             <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
@@ -944,7 +950,8 @@ export default function PlanPage() {
                                     ) : (
                                         /* 查看模式：格式化的Markdown预渲染文本 */
                                         <pre
-                                            className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto">
+                                            className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto"
+                                            data-tour="plan-content">
                       {plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
                     </pre>
                                     )}
@@ -953,7 +960,7 @@ export default function PlanPage() {
 
                             {/* 回复输入区域：与Claude对话交互 */}
                             {!editing && (
-                                <Card className="border-primary/20 bg-primary/5">
+                                <Card className="border-primary/20 bg-primary/5" data-tour="plan-reply-area">
                                     <CardContent className="p-4">
                                         <div className="flex items-center gap-2 mb-3">
                                             <MessageSquare className="h-4 w-4 text-primary"/>
@@ -1006,6 +1013,19 @@ export default function PlanPage() {
                     )}
                 </div>
             </div>
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

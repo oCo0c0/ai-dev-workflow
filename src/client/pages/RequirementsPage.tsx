@@ -13,6 +13,8 @@
  */
 import {useState, useEffect, useCallback} from 'react';
 import {useTranslation} from 'react-i18next';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 import {apiGet, apiPost, apiPut, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
@@ -95,6 +97,7 @@ interface StoredRequirement extends Requirement {
  */
 export default function RequirementsPage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('requirements');
     // === 已保存需求相关状态 ===
     /** 已保存到本地的需求列表 */
     const [saved, setSaved] = useState<StoredRequirement[]>([]);
@@ -340,6 +343,7 @@ export default function RequirementsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => setShowSearch(!showSearch)}
+                        data-tour="req-search-btn"
                     >
                         <Search className="h-4 w-4 mr-1.5"/>
                         {t('requirements.searchMcp')}
@@ -347,7 +351,7 @@ export default function RequirementsPage() {
                 </div>
 
                 {/* 通过 ID 获取需求的输入区域 */}
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 flex gap-2" data-tour="req-fetch-input">
                     <div className="relative flex-1">
                         <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
                         <Input
@@ -417,7 +421,8 @@ export default function RequirementsPage() {
                                 {searchResults.map(r => (
                                     <div key={r.id}
                                          className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent text-sm">
-                                        <span className="flex-1 truncate">{r.number ? `${r.number} ` : ''}{r.title}</span>
+                                        <span
+                                            className="flex-1 truncate">{r.number ? `${r.number} ` : ''}{r.title}</span>
                                         <span
                                             className={cn('text-xs px-1.5 py-0.5 rounded', statusColor(r.status))}>{r.status}</span>
                                         <Button
@@ -440,7 +445,7 @@ export default function RequirementsPage() {
             {/* === 主内容区域：左右分栏布局 === */}
             <div className="flex flex-1 min-h-0">
                 {/* 左侧：已保存需求列表 */}
-                <div className="w-80 flex flex-col border-r border-border">
+                <div className="w-80 flex flex-col border-r border-border" data-tour="req-saved-list">
                     <div className="px-4 py-2 border-b border-border bg-muted/20">
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                             {t('requirements.savedLabel', {count: saved.length})}
@@ -636,6 +641,19 @@ export default function RequirementsPage() {
                     )}
                 </div>
             </div>
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }

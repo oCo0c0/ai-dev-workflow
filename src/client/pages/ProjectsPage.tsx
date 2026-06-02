@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import {useAppStore} from '../stores/app-store';
 import {apiGet, apiPost, apiDelete} from '../api';
+import {Joyride} from 'react-joyride';
+import {useGuide} from '../guides/useGuide';
 
 // === 类型（与 app-store 对齐） ===
 
@@ -484,7 +486,8 @@ function CreateTaskModal({
                 <div className="p-4 space-y-4">
                     {/* 任务名 */}
                     <div>
-                        <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelTaskName')}</label>
+                        <label
+                            className="text-sm text-muted-foreground mb-1 block">{t('projects.labelTaskName')}</label>
                         <input
                             value={name}
                             onChange={(e) => setName(e.target.value)}
@@ -495,7 +498,8 @@ function CreateTaskModal({
 
                     {/* 选择需求 */}
                     <div>
-                        <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelRequirement')} *</label>
+                        <label
+                            className="text-sm text-muted-foreground mb-1 block">{t('projects.labelRequirement')} *</label>
                         <select
                             value={requirementId}
                             onChange={(e) => setRequirementId(e.target.value)}
@@ -510,7 +514,8 @@ function CreateTaskModal({
 
                     {/* 选择流水线 */}
                     <div>
-                        <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelPipeline')}</label>
+                        <label
+                            className="text-sm text-muted-foreground mb-1 block">{t('projects.labelPipeline')}</label>
                         <select
                             value={pipelineId}
                             onChange={(e) => setPipelineId(e.target.value)}
@@ -549,7 +554,8 @@ function CreateTaskModal({
                     {/* 前置任务 */}
                     {existingTasks.length > 0 && (
                         <div>
-                            <label className="text-sm text-muted-foreground mb-1 block">{t('projects.labelDependsOn')}</label>
+                            <label
+                                className="text-sm text-muted-foreground mb-1 block">{t('projects.labelDependsOn')}</label>
                             <div className="max-h-32 overflow-y-auto border border-border rounded p-2 space-y-1">
                                 {existingTasks.map(t => (
                                     <label key={t.id}
@@ -595,6 +601,7 @@ function CreateTaskModal({
 
 export default function ProjectsPage() {
     const {t} = useTranslation();
+    const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('projects');
     const [tasks, setTasks] = useState<TaskInfo[]>([]);
     const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
     const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -707,7 +714,7 @@ export default function ProjectsPage() {
     return (
         <div className="flex h-full">
             {/* 左侧工作区列表 */}
-            <div className="w-72 border-r border-border flex flex-col">
+            <div className="w-72 border-r border-border flex flex-col" data-tour="proj-workspace-list">
                 <div className="p-3 border-b border-border">
                     <div className="text-xs text-muted-foreground text-center py-1">
                         {t('projects.workspaceHint')}
@@ -770,6 +777,7 @@ export default function ProjectsPage() {
                                 <button
                                     onClick={() => setShowCreateTask(true)}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm"
+                                    data-tour="proj-new-task-btn"
                                 >
                                     <Plus className="w-4 h-4"/> {t('projects.newTask')}
                                 </button>
@@ -778,7 +786,7 @@ export default function ProjectsPage() {
 
                         {/* 看板区域 */}
                         <div className="flex-1 overflow-y-auto p-4">
-                            <div className="flex gap-4">
+                            <div className="flex gap-4" data-tour="proj-kanban">
                                 <KanbanColumn
                                     title={t('projects.columnRunning')}
                                     tasks={runningTasks}
@@ -854,6 +862,19 @@ export default function ProjectsPage() {
                     onCreated={loadTasks}
                 />
             )}
+            <Joyride
+                steps={guideSteps}
+                run={guideRun}
+                onEvent={handleJoyrideEvent}
+                continuous
+                options={{
+                    showProgress: true,
+                    skipBeacon: true,
+                    primaryColor: '#6366f1',
+                    buttons: ['back', 'close', 'primary', 'skip'],
+                    zIndex: 10000
+                }}
+            />
         </div>
     );
 }
