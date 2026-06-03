@@ -86,7 +86,7 @@ export const guideConfigs: Record<string, GuideConfig> = {
         steps: [
             {
                 target: '[data-tour="plan-generate-btn"]',
-                content: '选择需求和工作区后，点击生成计划。Claude 会分析项目代码并生成结构化开发计划。',
+                content: '选择需求和工作区后，点击生成计划。CLI 工具会分析项目代码并生成结构化开发计划。',
                 placement: 'bottom',
             },
             {
@@ -101,7 +101,7 @@ export const guideConfigs: Record<string, GuideConfig> = {
             },
             {
                 target: '[data-tour="plan-reply-area"]',
-                content: '生成过程中可与 Claude 多轮对话，补充要求或回答问题。',
+                content: '生成过程中可与 CLI 工具多轮对话，补充要求或回答问题。',
                 placement: 'top',
             },
         ],
@@ -111,7 +111,7 @@ export const guideConfigs: Record<string, GuideConfig> = {
         steps: [
             {
                 target: '[data-tour="exec-output"]',
-                content: '终端输出区 — 实时显示 Claude 执行每个步骤的日志。',
+                content: '终端输出区 — 实时显示 CLI 工具执行每个步骤的日志。',
                 placement: 'top',
             },
             {
@@ -121,7 +121,7 @@ export const guideConfigs: Record<string, GuideConfig> = {
             },
             {
                 target: '[data-tour="exec-reply"]',
-                content: '回复区域 — Claude 执行中如有提问，在此回复。',
+                content: '回复区域 — CLI 工具执行中如有提问，在此回复。',
                 placement: 'top',
             },
         ],
@@ -186,7 +186,7 @@ export const guideConfigs: Record<string, GuideConfig> = {
         steps: [
             {
                 target: '[data-tour="mcp-add-btn"]',
-                content: '添加 MCP 服务器 — 扩展 Claude 的工具能力，连接外部数据源。',
+                content: '添加 MCP 服务器 — 扩展 CLI 工具的能力，连接外部数据源。',
                 placement: 'right',
             },
             {

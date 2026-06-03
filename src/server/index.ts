@@ -167,8 +167,8 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/plan', createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
     app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService));
     app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService));
-    app.use('/api/skills', createSkillsRoutes(skillsService));
-    app.use('/api/mcp-servers', createMCPServersRoutes(mcpConfigService));
+    app.use('/api/skills', createSkillsRoutes(skillsService, cliRunnerService));
+    app.use('/api/mcp-servers', createMCPServersRoutes(mcpConfigService, cliRunnerService));
     app.use('/api/pipelines', createPipelineRoutes(pipelineService));
     app.use('/api/system', createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService));
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));

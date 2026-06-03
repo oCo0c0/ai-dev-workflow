@@ -23,7 +23,6 @@ import MCPPage from './pages/MCPPage';
 import PipelinesPage from './pages/PipelinesPage';
 import MinerUPage from './pages/MinerUPage';
 import ProjectsPage from './pages/ProjectsPage';
-import {ProviderSetupModal} from './components/ProviderSetupModal';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
 
@@ -37,7 +36,7 @@ interface ProviderStatusResponse {
  * 根组件 - 定义应用的路由结构 + CLI Provider 引导流程
  */
 function App() {
-    const {cliProvider, setCliProvider, setShowSetupModal} = useAppStore();
+    const {setCliProvider, setShowSetupModal} = useAppStore();
 
     // 启动时检查 CLI Provider 配置状态
     useEffect(() => {
@@ -69,16 +68,6 @@ function App() {
                     <Route path="/mineru" element={<MinerUPage/>}/>
                 </Route>
             </Routes>
-
-            {/* CLI Provider 引导弹窗 */}
-            <ProviderSetupModal
-                open={cliProvider.showSetupModal}
-                onClose={() => setShowSetupModal(false)}
-                onSelected={(providerId) => {
-                    setCliProvider(true, providerId);
-                    setShowSetupModal(false);
-                }}
-            />
         </BrowserRouter>
     );
 }

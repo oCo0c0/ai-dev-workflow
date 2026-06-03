@@ -35,7 +35,10 @@ import {
     FileSearch,
     FolderKanban,
     Languages,
+    Bot,
+    Terminal,
 } from 'lucide-react';
+import {ProviderSetupModal} from './ProviderSetupModal';
 
 /**
  * 侧边栏导航菜单项配置数组
@@ -82,6 +85,9 @@ export default function Layout() {
     const setLocale = useAppStore((s) => s.setLocale);
     const toggleTheme = useAppStore((s) => s.toggleTheme);
     const wsConnected = useAppStore((s) => s.ws.connected);
+    const cliProvider = useAppStore((s) => s.cliProvider);
+    const setCliProvider = useAppStore((s) => s.setCliProvider);
+    const setShowSetupModal = useAppStore((s) => s.setShowSetupModal);
 
     const location = useLocation();
 
@@ -200,6 +206,20 @@ export default function Layout() {
                         <h1 className="text-sm font-medium">{currentTitle}</h1>
                     </div>
                     <div className="flex items-center gap-2">
+                        {/* CLI Provider 切换 */}
+                        <button
+                            onClick={() => setShowSetupModal(true)}
+                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium"
+                            title={t('common.switchProvider')}
+                        >
+                            {cliProvider.active === 'codex'
+                                ? <Terminal className="h-4 w-4"/>
+                                : <Bot className="h-4 w-4"/>
+                            }
+                            <span className="hidden sm:inline">
+                                {cliProvider.active === 'codex' ? 'Codex' : 'Claude'}
+                            </span>
+                        </button>
                         {/* 语言切换 */}
                         <button
                             onClick={handleToggleLocale}
@@ -236,6 +256,17 @@ export default function Layout() {
                     </motion.div>
                 </AnimatePresence>
             </div>
+
+            {/* CLI Provider 切换弹窗 */}
+            <ProviderSetupModal
+                open={cliProvider.showSetupModal}
+                onClose={() => setShowSetupModal(false)}
+                onSelected={(providerId) => {
+                    setCliProvider(true, providerId);
+                    setShowSetupModal(false);
+                }}
+                firstRun={!cliProvider.configured}
+            />
         </div>
     );
 }

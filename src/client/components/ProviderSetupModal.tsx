@@ -36,9 +36,11 @@ interface ProviderSetupModalProps {
     open: boolean;
     onClose: () => void;
     onSelected?: (providerId: string) => void;
+    /** 首次启动引导模式：已配置时自动关闭 */
+    firstRun?: boolean;
 }
 
-export function ProviderSetupModal({open, onClose, onSelected}: ProviderSetupModalProps) {
+export function ProviderSetupModal({open, onClose, onSelected, firstRun = false}: ProviderSetupModalProps) {
     const [detected, setDetected] = useState<DetectedProvider[]>([]);
     const [loading, setLoading] = useState(true);
     const [selecting, setSelecting] = useState(false);
@@ -50,18 +52,22 @@ export function ProviderSetupModal({open, onClose, onSelected}: ProviderSetupMod
         if (!open) return;
         setLoading(true);
         setError(null);
+        setSelected(null);
         apiGet<ProviderStatusResponse>('/system/cli-provider/status')
             .then((data) => {
                 setDetected(data.detected);
-                // 如果已配置过，直接关闭
-                if (data.configured) {
+                // 首次引导模式：已配置过则直接关闭
+                if (firstRun && data.configured) {
                     onSelected?.(data.active);
                     onClose();
+                } else {
+                    // 切换模式：默认选中当前活跃的 provider
+                    setSelected(data.active);
                 }
             })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(false));
-    }, [open, onClose, onSelected]);
+    }, [open, onClose, onSelected, firstRun]);
 
     const handleSelect = async () => {
         if (!selected) return;
@@ -87,7 +93,9 @@ export function ProviderSetupModal({open, onClose, onSelected}: ProviderSetupMod
             <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-lg mx-4">
                 {/* 头部 */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                    <h2 className="text-lg font-semibold text-foreground">选择 CLI 工具</h2>
+                    <h2 className="text-lg font-semibold text-foreground">
+                        {firstRun ? '选择 CLI 工具' : '切换 CLI 工具'}
+                    </h2>
                     <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
                         <X className="h-4 w-4"/>
                     </Button>

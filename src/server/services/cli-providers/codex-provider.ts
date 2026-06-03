@@ -23,6 +23,119 @@ import type {
 
 /** Codex 配置目录 */
 const CODEX_DIR = path.join(os.homedir(), '.codex');
+/** Codex 配置文件路径（TOML 格式） */
+const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
+
+// === 最小 TOML 解析器（仅覆盖 config.toml 用到的结构） ===
+
+/** 解析结果：顶层 table + 数组表 */
+interface TomlParseResult {
+    tables: Record<string, Record<string, unknown>>;
+    arrayTables: Record<string, Record<string, unknown>[]>;
+}
+
+/**
+ * 最小 TOML 解析器 —— 仅处理 `[section]` 表头和 `[[array.section]]` 数组表头，
+ * 以及基础值类型（字符串、数字、布尔、内联数组）。
+ * 不支持嵌套表、多行字符串、日期等高级特性。
+ */
+function parseTomlMinimal(content: string): TomlParseResult {
+    const result: TomlParseResult = {tables: {}, arrayTables: {}};
+    let currentTarget: Record<string, unknown> | null = null;
+    let currentKey: string | null = null;
+    let isArrayTable = false;
+
+    for (const rawLine of content.split('\n')) {
+        const line = rawLine.trim();
+        // 跳过空行和注释
+        if (!line || line.startsWith('#')) continue;
+
+        // 数组表头 [[xxx.yyy]]
+        const arrayMatch = line.match(/^\[\[([^\]]+)\]\]$/);
+        if (arrayMatch) {
+            currentKey = arrayMatch[1].trim();
+            isArrayTable = true;
+            if (!result.arrayTables[currentKey]) result.arrayTables[currentKey] = [];
+            const entry: Record<string, unknown> = {};
+            result.arrayTables[currentKey].push(entry);
+            currentTarget = entry;
+            continue;
+        }
+
+        // 普通表头 [xxx.yyy]
+        const tableMatch = line.match(/^\[([^\]]+)\]$/);
+        if (tableMatch) {
+            currentKey = tableMatch[1].trim();
+            isArrayTable = false;
+            result.tables[currentKey] = {};
+            currentTarget = result.tables[currentKey];
+            continue;
+        }
+
+        // 键值对
+        const kvMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+        if (kvMatch && currentTarget) {
+            const [, k, rawVal] = kvMatch;
+            currentTarget[k] = parseTomlValue(rawVal.trim());
+        }
+    }
+
+    return result;
+}
+
+/** 解析单个 TOML 值 */
+function parseTomlValue(raw: string): unknown {
+    // 布尔
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    // 数字
+    if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
+    // 字符串（双引号或单引号）
+    const strMatch = raw.match(/^"(.*)"$/);
+    if (strMatch) return strMatch[1];
+    const strMatch2 = raw.match(/^'(.*)'$/);
+    if (strMatch2) return strMatch2[1];
+    // 内联数组
+    if (raw.startsWith('[') && raw.endsWith(']')) {
+        const inner = raw.slice(1, -1).trim();
+        if (!inner) return [];
+        return splitArrayElements(inner).map(v => parseTomlValue(v.trim()));
+    }
+    return raw;
+}
+
+/** 分割 TOML 数组元素（处理嵌套引号） */
+function splitArrayElements(s: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inStr = false;
+    let strChar = '';
+    let depth = 0;
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (inStr) {
+            current += c;
+            if (c === strChar && s[i - 1] !== '\\') inStr = false;
+        } else if (c === '"' || c === "'") {
+            inStr = true;
+            strChar = c;
+            current += c;
+        } else if (c === '[') {
+            depth++;
+            current += c;
+        } else if (c === ']') {
+            depth--;
+            current += c;
+        } else if (c === ',' && depth === 0) {
+            result.push(current);
+            current = '';
+        } else {
+            current += c;
+        }
+    }
+    if (current.trim()) result.push(current);
+    return result;
+}
 
 /**
  * OpenAI Codex CLI Provider
@@ -46,17 +159,26 @@ export class CodexProvider implements CLIProvider {
                 return {available: false, error: 'OPENAI_API_KEY environment variable not set'};
             }
 
-            // 检查 SDK 是否可导入
+            // 检查 SDK 是否安装（通过文件系统检测，避免 CJS 环境下 ESM 动态导入失败）
             let sdkPath: string | undefined;
             try {
-                // ESM 动态导入检测
-                const sdk = await import('@openai/codex-sdk');
-                if (!sdk.Codex) {
-                    return {available: false, error: '@openai/codex-sdk: Codex class not exported'};
-                }
-                sdkPath = '@openai/codex-sdk';
+                const resolved = require.resolve('@openai/codex-sdk/package.json');
+                sdkPath = path.dirname(resolved);
             } catch {
-                return {available: false, error: '@openai/codex-sdk not installed'};
+                // require.resolve 在 ESM-only 包的 CJS 环境下也可能失败，尝试直接检查路径
+                const candidates = [
+                    path.join(process.cwd(), 'node_modules', '@openai', 'codex-sdk'),
+                    path.join(__dirname, '..', '..', '..', '..', 'node_modules', '@openai', 'codex-sdk'),
+                ];
+                for (const c of candidates) {
+                    if (fs.existsSync(path.join(c, 'package.json'))) {
+                        sdkPath = c;
+                        break;
+                    }
+                }
+                if (!sdkPath) {
+                    return {available: false, error: '@openai/codex-sdk not installed'};
+                }
             }
 
             // 检查 codex CLI 是否安装
@@ -162,51 +284,73 @@ export class CodexProvider implements CLIProvider {
     async loadSkills(): Promise<SkillInfo[]> {
         const skills: SkillInfo[] = [];
 
-        // Codex 的指令/配置存储在 ~/.codex/ 目录
-        const instructionsDir = path.join(CODEX_DIR, 'instructions');
-        if (fs.existsSync(instructionsDir)) {
+        // 来源 1：config.toml 中的 [[skills.config]] 数组表
+        if (fs.existsSync(CODEX_CONFIG_FILE)) {
             try {
-                const entries = fs.readdirSync(instructionsDir, {withFileTypes: true});
-                for (const entry of entries) {
-                    if (entry.isFile() && entry.name.endsWith('.md')) {
-                        const filePath = path.join(instructionsDir, entry.name);
-                        try {
-                            const content = fs.readFileSync(filePath, 'utf-8');
-                            skills.push({
-                                name: entry.name.replace(/\.md$/, ''),
-                                description: extractDescription(content),
-                                enabled: true,
-                                filePath,
-                            });
-                        } catch { /* skip */ }
+                const raw = fs.readFileSync(CODEX_CONFIG_FILE, 'utf-8');
+                const parsed = parseTomlMinimal(raw);
+                const skillEntries = parsed.arrayTables['skills.config'];
+                if (Array.isArray(skillEntries)) {
+                    for (const entry of skillEntries) {
+                        const skillPath = typeof entry.path === 'string' ? entry.path : '';
+                        const enabled = entry.enabled !== false;
+                        if (!skillPath) continue;
+                        const name = path.basename(skillPath);
+                        let description = '';
+                        // 尝试读取 skill 文件获取描述
+                        const candidates = [skillPath, path.join(skillPath, 'SKILL.md'), path.join(skillPath, 'AGENTS.md')];
+                        for (const candidate of candidates) {
+                            if (fs.existsSync(candidate)) {
+                                try {
+                                    description = extractDescription(fs.readFileSync(candidate, 'utf-8'));
+                                } catch { /* skip */ }
+                                break;
+                            }
+                        }
+                        skills.push({name, description, enabled, filePath: skillPath});
                     }
                 }
             } catch { /* ignore */ }
+        }
+
+        // 来源 2：AGENTS.md 文件（Codex 的另一种 skill 定义方式）
+        const agentsFile = path.join(CODEX_DIR, 'AGENTS.md');
+        if (fs.existsSync(agentsFile) && skills.length === 0) {
+            try {
+                const content = fs.readFileSync(agentsFile, 'utf-8');
+                skills.push({
+                    name: 'AGENTS',
+                    description: extractDescription(content),
+                    enabled: true,
+                    filePath: agentsFile,
+                });
+            } catch { /* skip */ }
         }
 
         return skills;
     }
 
     async loadMcpServers(): Promise<McpServerInfo[]> {
-        // Codex MCP 配置（如有）
-        const configFile = path.join(CODEX_DIR, 'config.json');
-        if (!fs.existsSync(configFile)) {
+        // Codex MCP 配置在 config.toml 的 [mcp_servers.<name>] 段
+        if (!fs.existsSync(CODEX_CONFIG_FILE)) {
             return [];
         }
 
         try {
-            const raw = fs.readFileSync(configFile, 'utf-8');
-            const config = JSON.parse(raw);
+            const raw = fs.readFileSync(CODEX_CONFIG_FILE, 'utf-8');
+            const parsed = parseTomlMinimal(raw);
             const servers: McpServerInfo[] = [];
 
-            if (config.mcpServers && typeof config.mcpServers === 'object') {
-                for (const [name, serverConfig] of Object.entries(config.mcpServers as Record<string, {
-                    command?: string;
-                }>)) {
+            for (const [sectionKey, sectionVal] of Object.entries(parsed.tables)) {
+                // 匹配 mcp_servers.<name> 段
+                const mcpMatch = sectionKey.match(/^mcp_servers\.(.+)$/);
+                if (mcpMatch) {
+                    const name = mcpMatch[1];
+                    const cmd = typeof sectionVal.command === 'string' ? sectionVal.command : '';
                     servers.push({
                         name,
-                        type: inferServerType(serverConfig.command),
-                        command: serverConfig.command ?? '',
+                        type: inferServerType(cmd),
+                        command: cmd,
                         enabled: true,
                     });
                 }
@@ -228,7 +372,10 @@ export class CodexProvider implements CLIProvider {
 
     /** 动态导入并创建 Codex 客户端 */
     private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {
-        const {Codex} = await import('@openai/codex-sdk');
+        // ESM-only SDK 在 CJS 编译产物中需要特殊处理：
+        // 使用 Function 构造器绕过 bundler/tsc 的静态分析，确保运行时动态 import
+        const dynamicImport = new Function('modulePath', 'return import(modulePath)') as (m: string) => Promise<typeof import('@openai/codex-sdk')>;
+        const {Codex} = await dynamicImport('@openai/codex-sdk');
         return new Codex();
     }
 

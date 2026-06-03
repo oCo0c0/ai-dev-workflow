@@ -24,24 +24,20 @@ const error_utils_js_1 = require("../utils/error-utils.js");
  * 创建技能路由实例
  *
  * @param skillsService - 技能服务实例，负责技能数据的持久化操作与业务逻辑
+ * @param cliRunnerService - CLI 运行器服务实例，用于从 active provider 读取 skills
  * @returns 配置好所有技能相关路由的 Express Router 实例
- *
- * @example
- * ```ts
- * const skillsRouter = createSkillsRoutes(skillsService);
- * app.use('/api/skills', skillsRouter);
- * ```
  */
-function createSkillsRoutes(skillsService) {
+function createSkillsRoutes(skillsService, cliRunnerService) {
     const router = (0, express_1.Router)();
     // GET /api/skills - 获取所有技能列表
-    router.get('/', (_req, res) => {
+    // 从当前活跃的 CLI Provider 读取配置
+    router.get('/', async (_req, res) => {
         try {
-            const skills = skillsService.list();
+            const provider = cliRunnerService.getProvider();
+            const skills = await provider.loadSkills();
             res.json(skills);
         }
         catch (err) {
-            // 服务端内部错误，返回统一的错误响应格式
             res.status(500).json({ code: 'SKILLS_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
         }
     });

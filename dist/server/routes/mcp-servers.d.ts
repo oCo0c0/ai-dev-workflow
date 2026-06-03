@@ -17,17 +17,13 @@
  */
 import { Router } from 'express';
 import { MCPConfigService } from '../services/mcp-config-service.js';
+import type { CLIRunnerService } from '../services/cli-runner-service.js';
 /**
  * 创建 MCP 服务器配置路由实例
  *
  * @param mcpConfigService - MCP 配置服务实例，负责 MCP 服务器配置的持久化管理与连接测试
+ * @param cliRunnerService - CLI 运行器服务实例，用于从 active provider 读取 MCP 配置
  * @returns 配置好所有 MCP 服务器相关路由的 Express Router 实例
- *
- * @example
- * ```ts
- * const mcpRouter = createMCPServersRoutes(mcpConfigService);
- * app.use('/api/mcp-servers', mcpRouter);
- * ```
  */
-export declare function createMCPServersRoutes(mcpConfigService: MCPConfigService): Router;
+export declare function createMCPServersRoutes(mcpConfigService: MCPConfigService, cliRunnerService: CLIRunnerService): Router;
 //# sourceMappingURL=mcp-servers.d.ts.map

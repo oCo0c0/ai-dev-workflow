@@ -157,8 +157,8 @@ async function createServer(port) {
     app.use('/api/plan', (0, plan_js_1.createPlanRoutes)(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
     app.use('/api/execution', (0, execution_js_1.createExecutionRoutes)(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService));
     app.use('/api/tests', (0, tests_js_1.createTestRoutes)(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService));
-    app.use('/api/skills', (0, skills_js_1.createSkillsRoutes)(skillsService));
-    app.use('/api/mcp-servers', (0, mcp_servers_js_1.createMCPServersRoutes)(mcpConfigService));
+    app.use('/api/skills', (0, skills_js_1.createSkillsRoutes)(skillsService, cliRunnerService));
+    app.use('/api/mcp-servers', (0, mcp_servers_js_1.createMCPServersRoutes)(mcpConfigService, cliRunnerService));
     app.use('/api/pipelines', (0, pipelines_js_1.createPipelineRoutes)(pipelineService));
     app.use('/api/system', (0, system_js_1.createSystemRoutes)(cliRunnerService, mcpConfigService, sandboxService));
     app.use('/api/analytics', (0, analytics_js_1.createAnalyticsRoutes)(analyticsService, memoryService));
