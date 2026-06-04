@@ -219,6 +219,8 @@ export class ClaudeProvider implements CLIProvider {
                         name,
                         type: inferServerType(config.command),
                         command: config.command ?? '',
+                        args: config.args ?? [],
+                        env: config.env ?? {},
                         enabled: true,
                     });
                 }

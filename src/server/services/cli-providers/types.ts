@@ -138,6 +138,10 @@ export interface McpServerInfo {
     type: string;
     /** 启动命令 */
     command: string;
+    /** 命令参数 */
+    args?: string[];
+    /** 环境变量 */
+    env?: Record<string, string>;
     /** 是否启用 */
     enabled: boolean;
     /** 连接状态 */

@@ -181,10 +181,11 @@ export class CodexProvider implements CLIProvider {
                 }
             }
 
-            // 检查 codex CLI 是否安装
+            // 检查 codex CLI 是否安装（Windows 用 where，Unix 用 which，抑制 stderr 避免 GBK 乱码）
             let cliPath: string | undefined;
             try {
-                cliPath = execSync('which codex 2>/dev/null || where codex 2>/dev/null', {encoding: 'utf-8'}).trim();
+                const cmd = process.platform === 'win32' ? 'where codex' : 'which codex 2>/dev/null';
+                cliPath = execSync(cmd, {encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']}).trim();
             } catch {
                 // CLI 未安装但 SDK 可用，仍然可以使用
             }
@@ -351,6 +352,8 @@ export class CodexProvider implements CLIProvider {
                         name,
                         type: inferServerType(cmd),
                         command: cmd,
+                        args: Array.isArray(sectionVal.args) ? sectionVal.args as string[] : [],
+                        env: (typeof sectionVal.env === 'object' && sectionVal.env !== null) ? sectionVal.env as Record<string, string> : {},
                         enabled: true,
                     });
                 }
