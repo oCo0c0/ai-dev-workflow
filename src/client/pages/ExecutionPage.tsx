@@ -296,6 +296,8 @@ export default function ExecutionPage() {
     /** 暂停当前正在运行的执行 */
     const handlePause = async () => {
         if (!activeId) return;
+        // 乐观更新：立即在本地反映暂停状态
+        if (detail) setDetail({...detail, status: 'paused'});
         try {
             await apiPost(`/execution/${activeId}/pause`);
         } catch { /* 通过轮询处理状态更新 */
@@ -331,6 +333,8 @@ export default function ExecutionPage() {
     /** 中止当前执行，不再继续后续步骤 */
     const handleAbort = async () => {
         if (!activeId) return;
+        // 乐观更新：立即在本地反映中止状态
+        if (detail) setDetail({...detail, status: 'aborted'});
         try {
             await apiPost(`/execution/${activeId}/abort`);
         } catch { /* 通过轮询处理状态更新 */

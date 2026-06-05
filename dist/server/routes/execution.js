@@ -216,16 +216,21 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             if (result.sessionId)
                 execution.sessionId = result.sessionId;
             // 根据中止状态和退出码设置最终状态
-            if (result.aborted) {
+            // 注意：pause 路由可能已将 status 设为 'paused'，此时不要覆盖
+            if (result.aborted && execution.status !== 'paused') {
                 execution.status = 'aborted';
             }
-            else if (result.exitCode === 0) {
-                execution.status = 'completed';
+            else if (execution.status !== 'paused') {
+                if (result.exitCode === 0) {
+                    execution.status = 'completed';
+                }
+                else {
+                    execution.status = 'failed';
+                }
             }
-            else {
-                execution.status = 'failed';
+            if (execution.status !== 'paused') {
+                execution.completedAt = new Date().toISOString();
             }
-            execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
             (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId, status: execution.status } });
             // 如果执行成功完成且 Pipeline 配置了自动测试，则自动触发测试阶段
@@ -337,16 +342,21 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             });
             if (result.sessionId)
                 execution.sessionId = result.sessionId;
-            if (result.aborted) {
+            const curStatus = execution.status;
+            if (result.aborted && curStatus !== 'paused') {
                 execution.status = 'aborted';
             }
-            else if (result.exitCode === 0) {
-                execution.status = 'completed';
+            else if (curStatus !== 'paused') {
+                if (result.exitCode === 0) {
+                    execution.status = 'completed';
+                }
+                else {
+                    execution.status = 'failed';
+                }
             }
-            else {
-                execution.status = 'failed';
+            if (execution.status !== 'paused') {
+                execution.completedAt = new Date().toISOString();
             }
-            execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
             (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
             if (execution.status === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
@@ -421,16 +431,21 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             });
             if (result.sessionId)
                 execution.sessionId = result.sessionId;
-            if (result.aborted) {
+            const curStatus = execution.status;
+            if (result.aborted && curStatus !== 'paused') {
                 execution.status = 'aborted';
             }
-            else if (result.exitCode === 0) {
-                execution.status = 'completed';
+            else if (curStatus !== 'paused') {
+                if (result.exitCode === 0) {
+                    execution.status = 'completed';
+                }
+                else {
+                    execution.status = 'failed';
+                }
             }
-            else {
-                execution.status = 'failed';
+            if (execution.status !== 'paused') {
+                execution.completedAt = new Date().toISOString();
             }
-            execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
             (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
             if (execution.status === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
@@ -550,6 +565,8 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         }
         // 先确认收到请求，异步执行回复处理
         res.json({ ok: true });
+        // 重建 abortController（旧的在 pause 时已 aborted）
+        execution.abortController = new AbortController();
         // 将执行状态恢复为运行中，并广播用户消息
         execution.status = 'running';
         execution.logs.push(`\n**User:** ${message}\n`);
@@ -579,16 +596,21 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             if (result.sessionId)
                 execution.sessionId = result.sessionId;
             // 根据中止状态和退出码设置最终状态
-            if (result.aborted) {
+            const curStatus = execution.status;
+            if (result.aborted && curStatus !== 'paused') {
                 execution.status = 'aborted';
             }
-            else if (result.exitCode === 0) {
-                execution.status = 'completed';
+            else if (curStatus !== 'paused') {
+                if (result.exitCode === 0) {
+                    execution.status = 'completed';
+                }
+                else {
+                    execution.status = 'failed';
+                }
             }
-            else {
-                execution.status = 'failed';
+            if (execution.status !== 'paused') {
+                execution.completedAt = new Date().toISOString();
             }
-            execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
             (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
         }
