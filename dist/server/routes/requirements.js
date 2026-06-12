@@ -6,9 +6,13 @@
  *              通过 MCP（Model Context Protocol）桥接服务获取需求详情与搜索功能。
  *              支持从 MCP 服务器拉取需求并自动保存到本地存储，也支持纯查询模式。
  */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createRequirementsRoutes = createRequirementsRoutes;
 const express_1 = require("express");
+const crypto_1 = __importDefault(require("crypto"));
 const ones_image_service_js_1 = require("../services/ones-image-service.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
 /**
@@ -26,6 +30,40 @@ const error_utils_js_1 = require("../utils/error-utils.js");
 function createRequirementsRoutes(mcpBridgeService, requirementStore, mineruService) {
     const router = (0, express_1.Router)();
     // ─── 本地存储（已保存的需求） ───────────────────────────────────────────────
+    /**
+     * POST /api/requirements/create
+     * @description 手动创建需求，描述中可包含 MinerU 解析后的 Markdown
+     * @body { title: string, description?: string }
+     * @returns {Object} 创建的需求对象
+     */
+    router.post('/create', async (req, res) => {
+        try {
+            const title = req.body.title?.trim();
+            if (!title) {
+                res.status(400).json({ code: 'VALIDATION_ERROR', message: 'title is required' });
+                return;
+            }
+            const description = req.body.description?.trim() ?? '';
+            const requirement = {
+                id: `manual-${crypto_1.default.randomUUID()}`,
+                title,
+                status: 'draft',
+                priority: 'medium',
+                assignee: '',
+                updatedAt: new Date().toISOString(),
+                description,
+                acceptanceCriteria: [],
+                attachments: [],
+                relatedIssues: [],
+                source: 'manual',
+            };
+            const saved = requirementStore.upsert(requirement);
+            res.status(201).json(saved);
+        }
+        catch (err) {
+            res.status(500).json({ code: 'CREATE_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
+        }
+    });
     /**
      * GET /api/requirements/saved
      * @description 获取所有已保存到本地的需求列表

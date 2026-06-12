@@ -63,7 +63,20 @@
     "acceptanceCriteria": "验收标准",
     "relatedIssues": "关联缺陷",
     "noSelectionTitle": "选择一个需求查看详情",
-    "noSelectionSubtitle": "选中的需求可用于流水线执行"
+    "noSelectionSubtitle": "选中的需求可用于流水线执行",
+    "manualCreate": "手动创建",
+    "createTitle": "手动创建需求",
+    "createTitleLabel": "标题",
+    "createTitlePlaceholder": "输入需求标题",
+    "createDescLabel": "描述",
+    "createDescPlaceholder": "输入需求描述（可选，支持 Markdown）",
+    "uploadFiles": "上传文件",
+    "uploadHint": "支持 PDF、DOCX、PPTX、XLSX、PNG、JPG，将自动解析为文本",
+    "parseWithMinerU": "使用 MinerU 解析文档",
+    "minerUDisabled": "MinerU 未启用，文件将不会解析",
+    "creating": "创建中...",
+    "create": "创建需求",
+    "cancelCreate": "取消"
   },
   "workspace": {
     "title": "工作区",

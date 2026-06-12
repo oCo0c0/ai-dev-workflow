@@ -63,7 +63,20 @@
     "acceptanceCriteria": "Acceptance Criteria",
     "relatedIssues": "Related Issues",
     "noSelectionTitle": "Select a requirement to view details",
-    "noSelectionSubtitle": "Selected requirements can be used in Pipeline runs"
+    "noSelectionSubtitle": "Selected requirements can be used in Pipeline runs",
+    "manualCreate": "Create Manually",
+    "createTitle": "Create Requirement",
+    "createTitleLabel": "Title",
+    "createTitlePlaceholder": "Enter requirement title",
+    "createDescLabel": "Description",
+    "createDescPlaceholder": "Enter description (optional, Markdown supported)",
+    "uploadFiles": "Upload Files",
+    "uploadHint": "Supports PDF, DOCX, PPTX, XLSX, PNG, JPG — will be auto-parsed to text",
+    "parseWithMinerU": "Parse documents with MinerU",
+    "minerUDisabled": "MinerU not enabled, files will not be parsed",
+    "creating": "Creating...",
+    "create": "Create Requirement",
+    "cancelCreate": "Cancel"
   },
   "workspace": {
     "title": "Workspaces",

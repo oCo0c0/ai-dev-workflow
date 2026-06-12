@@ -11,7 +11,7 @@
  *
  * 已保存的需求可在 Pipeline 运行时使用，实现需求驱动的开发流程。
  */
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {useTranslation} from 'react-i18next';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
@@ -39,6 +39,8 @@ import {
     Clock,
     Pencil,
     Save,
+    Upload,
+    FileUp,
 } from 'lucide-react';
 
 /**
@@ -138,6 +140,19 @@ export default function RequirementsPage() {
     /** 是否正在保存编辑 */
     const [saving, setSaving] = useState(false);
 
+    // === 手动创建相关状态 ===
+    const [showCreate, setShowCreate] = useState(false);
+    const [createTitle, setCreateTitle] = useState('');
+    const [createDesc, setCreateDesc] = useState('');
+    const [createFiles, setCreateFiles] = useState<File[]>([]);
+    const [creating, setCreating] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // 编辑模式文件上传
+    const [editFiles, setEditFiles] = useState<File[]>([]);
+    const [editParsing, setEditParsing] = useState(false);
+    const editFileInputRef = useRef<HTMLInputElement>(null);
+
     /** 从全局状态获取设置选中需求的方法 */
     const setSelectedRequirement = useAppStore((s) => s.setSelectedRequirement);
 
@@ -156,6 +171,84 @@ export default function RequirementsPage() {
             setLoadingSaved(false);
         }
     }, []);
+
+    /** 手动创建需求（描述已包含预解析的 Markdown） */
+    const handleCreate = useCallback(async () => {
+        if (!createTitle.trim() || creating) return;
+        setCreating(true);
+        try {
+            const saved = await apiPost<StoredRequirement>('/requirements/create', {
+                title: createTitle.trim(),
+                description: createDesc.trim(),
+            });
+
+            await loadSaved();
+            setSelected(saved);
+            setSelectedRequirement(saved);
+            setShowCreate(false);
+            setCreateTitle('');
+            setCreateDesc('');
+            setCreateFiles([]);
+        } catch (err) {
+            setFetchError(err instanceof Error ? err.message : 'Create failed');
+        } finally {
+            setCreating(false);
+        }
+    }, [createTitle, createDesc, creating, loadSaved, setSelectedRequirement]);
+
+    /** 解析已选文件，将 MinerU 结果追加到描述 */
+    const handleParseFiles = useCallback(async () => {
+        if (!createFiles.length) return;
+        setCreating(true);
+        try {
+            let combined = '';
+            for (const file of createFiles) {
+                const formData = new FormData();
+                formData.append('files', file);
+                const res = await fetch('/api/mineru/parse', {method: 'POST', body: formData});
+                if (!res.ok) continue;
+                const data = await res.json() as {results?: {markdown?: string}[]};
+                const md = data.results?.[0]?.markdown;
+                if (md) {
+                    combined += `\n\n---\n\n## ${file.name}\n\n${md}`;
+                }
+            }
+            if (combined) {
+                setCreateDesc(prev => prev + combined);
+            }
+            setCreateFiles([]);
+        } catch (err) {
+            setFetchError(err instanceof Error ? err.message : 'Parse failed');
+        } finally {
+            setCreating(false);
+        }
+    }, [createFiles]);
+
+    /** 编辑模式：解析文件并追加到描述 */
+    const handleEditParseFiles = useCallback(async () => {
+        if (!editFiles.length) return;
+        setEditParsing(true);
+        try {
+            let combined = '';
+            for (const file of editFiles) {
+                const formData = new FormData();
+                formData.append('files', file);
+                const res = await fetch('/api/mineru/parse', {method: 'POST', body: formData});
+                if (!res.ok) continue;
+                const data = await res.json() as {results?: {markdown?: string}[]};
+                const md = data.results?.[0]?.markdown;
+                if (md) {
+                    combined += `\n\n---\n\n## ${file.name}\n\n${md}`;
+                }
+            }
+            if (combined) {
+                setEditDescription(prev => prev + combined);
+            }
+            setEditFiles([]);
+        } catch { /* silent */ } finally {
+            setEditParsing(false);
+        }
+    }, [editFiles]);
 
     // 组件挂载时自动加载已保存的需求列表
     useEffect(() => {
@@ -338,8 +431,17 @@ export default function RequirementsPage() {
                             {t('requirements.subtitle')}
                         </p>
                     </div>
-                    {/* 切换 MCP 搜索面板的按钮 */}
-                    <Button
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {setShowCreate(!showCreate); setShowSearch(false);}}
+                        >
+                            <Plus className="h-4 w-4 mr-1.5"/>
+                            {t('requirements.manualCreate')}
+                        </Button>
+                        {/* 切换 MCP 搜索面板的按钮 */}
+                        <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setShowSearch(!showSearch)}
@@ -348,6 +450,7 @@ export default function RequirementsPage() {
                         <Search className="h-4 w-4 mr-1.5"/>
                         {t('requirements.searchMcp')}
                     </Button>
+                    </div>
                 </div>
 
                 {/* 通过 ID 获取需求的输入区域 */}
@@ -386,6 +489,107 @@ export default function RequirementsPage() {
                     <div className="mt-2 flex items-center gap-2 text-sm text-destructive">
                         <AlertCircle className="h-4 w-4 shrink-0"/>
                         {fetchError}
+                    </div>
+                )}
+
+                {/* 手动创建需求表单 */}
+                {showCreate && (
+                    <div className="mt-3 rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                        <h3 className="text-sm font-semibold">{t('requirements.createTitle')}</h3>
+
+                        {/* 标题 */}
+                        <div>
+                            <label className="text-xs text-muted-foreground">{t('requirements.createTitleLabel')}</label>
+                            <Input
+                                value={createTitle}
+                                onChange={(e) => setCreateTitle(e.target.value)}
+                                placeholder={t('requirements.createTitlePlaceholder')}
+                                className="mt-1"
+                            />
+                        </div>
+
+                        {/* 描述 */}
+                        <div>
+                            <label className="text-xs text-muted-foreground">{t('requirements.createDescLabel')}</label>
+                            <textarea
+                                value={createDesc}
+                                onChange={(e) => setCreateDesc(e.target.value)}
+                                placeholder={t('requirements.createDescPlaceholder')}
+                                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[80px]"
+                                rows={3}
+                            />
+                        </div>
+
+                        {/* 文件上传 */}
+                        <div>
+                            <label className="text-xs text-muted-foreground">{t('requirements.uploadFiles')}</label>
+                            <p className="text-xs text-muted-foreground/70 mb-1">{t('requirements.uploadHint')}</p>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <FileUp className="h-4 w-4 mr-1.5"/>
+                                    {t('requirements.uploadFiles')}
+                                </Button>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    multiple
+                                    accept=".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const newFiles = Array.from(e.target.files ?? []);
+                                        setCreateFiles(prev => [...prev, ...newFiles]);
+                                        e.target.value = '';
+                                    }}
+                                />
+                            </div>
+                            {/* 已选文件列表 */}
+                            {createFiles.length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                    {createFiles.map((f, i) => (
+                                        <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground bg-background rounded px-2 py-1">
+                                            <FileText className="h-3.5 w-3.5 shrink-0"/>
+                                            <span className="truncate flex-1">{f.name}</span>
+                                            <button onClick={() => setCreateFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-destructive hover:text-destructive/80">
+                                                <X className="h-3.5 w-3.5"/>
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="mt-1"
+                                        disabled={creating}
+                                        onClick={handleParseFiles}
+                                    >
+                                        {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> : <Upload className="h-4 w-4 mr-1.5"/>}
+                                        {creating ? t('requirements.creating') : t('requirements.parseWithMinerU')}
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 操作按钮 */}
+                        <div className="flex items-center gap-2 pt-1">
+                            <Button
+                                size="sm"
+                                onClick={handleCreate}
+                                disabled={creating || !createTitle.trim()}
+                            >
+                                {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> : <Plus className="h-4 w-4 mr-1.5"/>}
+                                {creating ? t('requirements.creating') : t('requirements.create')}
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {setShowCreate(false); setCreateTitle(''); setCreateDesc(''); setCreateFiles([]);}}
+                            >
+                                {t('requirements.cancelCreate')}
+                            </Button>
+                        </div>
                     </div>
                 )}
 
@@ -586,6 +790,51 @@ export default function RequirementsPage() {
                                         className="w-full min-h-[400px] p-3 rounded-lg border border-border bg-background text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
                                         placeholder={t('requirements.descriptionPlaceholder')}
                                     />
+                                    {/* 编辑模式：上传文件解析并插入描述 */}
+                                    <div className="mt-2 space-y-1">
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => editFileInputRef.current?.click()}
+                                            >
+                                                <FileUp className="h-4 w-4 mr-1.5"/>
+                                                {t('requirements.uploadFiles')}
+                                            </Button>
+                                            <input
+                                                ref={editFileInputRef}
+                                                type="file"
+                                                multiple
+                                                accept=".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                    const newFiles = Array.from(e.target.files ?? []);
+                                                    setEditFiles(prev => [...prev, ...newFiles]);
+                                                    e.target.value = '';
+                                                }}
+                                            />
+                                        </div>
+                                        {editFiles.map((f, i) => (
+                                            <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground bg-background rounded px-2 py-1">
+                                                <FileText className="h-3.5 w-3.5 shrink-0"/>
+                                                <span className="truncate flex-1">{f.name}</span>
+                                                <button onClick={() => setEditFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-destructive hover:text-destructive/80">
+                                                    <X className="h-3.5 w-3.5"/>
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {editFiles.length > 0 && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={editParsing}
+                                                onClick={handleEditParseFiles}
+                                            >
+                                                {editParsing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> : <Upload className="h-4 w-4 mr-1.5"/>}
+                                                {t('requirements.parseWithMinerU')}
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                             ) : (
                                 selected.description && (

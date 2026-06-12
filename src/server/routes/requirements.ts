@@ -7,6 +7,7 @@
  */
 
 import {Router} from 'express';
+import crypto from 'crypto';
 import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import {OnesImageService} from '../services/ones-image-service.js';
@@ -33,6 +34,43 @@ export function createRequirementsRoutes(
     const router = Router();
 
     // ─── 本地存储（已保存的需求） ───────────────────────────────────────────────
+
+    /**
+     * POST /api/requirements/create
+     * @description 手动创建需求，描述中可包含 MinerU 解析后的 Markdown
+     * @body { title: string, description?: string }
+     * @returns {Object} 创建的需求对象
+     */
+    router.post('/create', async (req, res) => {
+        try {
+            const title = (req.body.title as string)?.trim();
+            if (!title) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'title is required'});
+                return;
+            }
+
+            const description = (req.body.description as string)?.trim() ?? '';
+
+            const requirement = {
+                id: `manual-${crypto.randomUUID()}`,
+                title,
+                status: 'draft',
+                priority: 'medium',
+                assignee: '',
+                updatedAt: new Date().toISOString(),
+                description,
+                acceptanceCriteria: [],
+                attachments: [],
+                relatedIssues: [],
+                source: 'manual',
+            };
+
+            const saved = requirementStore.upsert(requirement);
+            res.status(201).json(saved);
+        } catch (err) {
+            res.status(500).json({code: 'CREATE_ERROR', message: getErrorMessage(err)});
+        }
+    });
 
     /**
      * GET /api/requirements/saved
