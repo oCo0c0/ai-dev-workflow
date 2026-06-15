@@ -149,6 +149,7 @@
   "execution": {
     "historyTitle": "执行历史",
     "noExecutions": "暂无执行记录",
+    "unnamed": "未命名执行",
     "subtitleRunning": "执行进行中...",
     "subtitleDone": "执行{{status}}",
     "subtitleActive": "实时监控执行进度",

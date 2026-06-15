@@ -58,6 +58,7 @@ const skill_utils_js_1 = require("../utils/skill-utils.js");
 const prompt_enrichment_js_1 = require("../utils/prompt-enrichment.js");
 const execution_store_service_js_1 = require("../services/execution-store-service.js");
 const test_store_service_js_1 = require("../services/test-store-service.js");
+const requirement_store_service_js_1 = require("../services/requirement-store-service.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
 /**
  * 活跃执行的内存存储 Map。
@@ -105,6 +106,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
     const persistStore = new execution_store_service_js_1.ExecutionStoreService();
     const planFileStore = new plan_store_service_js_1.PlanStoreService();
     const testPersistStore = new test_store_service_js_1.TestStoreService();
+    const reqStore = new requirement_store_service_js_1.RequirementStoreService();
     const router = (0, express_1.Router)();
     /**
      * GET /api/execution/list
@@ -119,11 +121,24 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 let plan = planStore.get(e.planId);
                 if (!plan)
                     plan = planFileStore.get(e.planId);
+                // 补数据：plan 缺 requirementTitle 时从 requirement store 查
+                let reqTitle = plan?.requirementTitle;
+                let reqNumber = plan?.requirementNumber;
+                if (!reqTitle && plan?.requirementId) {
+                    try {
+                        const req = reqStore.get(plan.requirementId);
+                        if (req) {
+                            reqTitle = req.title;
+                            reqNumber = req.number;
+                        }
+                    }
+                    catch { /* 补数据失败不影响列表返回 */ }
+                }
                 return {
                     id: e.id,
                     planId: e.planId,
-                    requirementTitle: plan?.requirementTitle,
-                    requirementNumber: plan?.requirementNumber,
+                    requirementTitle: reqTitle,
+                    requirementNumber: reqNumber,
                     status: e.status,
                     currentStep: e.currentStep,
                     totalSteps: e.totalSteps,

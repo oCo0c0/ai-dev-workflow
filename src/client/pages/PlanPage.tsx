@@ -26,6 +26,7 @@ import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
+import {MarkdownContent} from '../components/MarkdownContent';
 import {
     Sparkles,
     Pencil,
@@ -948,12 +949,15 @@ export default function PlanPage() {
                                             className="w-full min-h-[400px] bg-muted/30 border border-input rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring resize-y"
                                         />
                                     ) : (
-                                        /* 查看模式：格式化的Markdown预渲染文本 */
-                                        <pre
-                                            className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto"
-                                            data-tour="plan-content">
-                      {plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
-                    </pre>
+                                        /* 查看模式：Markdown 渲染 */
+                                        <div
+                                            className="text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto"
+                                            data-tour="plan-content"
+                                        >
+                                            <MarkdownContent
+                                                content={plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
+                                            />
+                                        </div>
                                     )}
                                 </CardContent>
                             </Card>

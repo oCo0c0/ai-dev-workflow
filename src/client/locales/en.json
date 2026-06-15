@@ -149,6 +149,7 @@
   "execution": {
     "historyTitle": "Execution History",
     "noExecutions": "No executions yet",
+    "unnamed": "Unnamed Execution",
     "subtitleRunning": "Execution is in progress...",
     "subtitleDone": "Execution {{status}}",
     "subtitleActive": "Monitor real-time progress",

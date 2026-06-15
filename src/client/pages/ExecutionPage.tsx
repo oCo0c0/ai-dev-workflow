@@ -464,9 +464,9 @@ export default function ExecutionPage() {
                             {/* 状态图标 */}
                             <div className="mt-0.5 shrink-0">{statusIcon(exec.status)}</div>
                             <div className="flex-1 min-w-0">
-                                {/* 显示计划 ID 的前8位作为标识 */}
+                                {/* 需求号 + 描述 */}
                                 <p className="text-xs font-medium truncate text-foreground">
-                                    {exec.requirementNumber ? `${exec.requirementNumber} ` : ''}{exec.requirementTitle || exec.planId.substring(0, 8)}
+                                    {exec.requirementNumber ? `${exec.requirementNumber} ` : ''}{exec.requirementTitle || t('execution.unnamed')}
                                 </p>
                                 {/* 显示相对时间 */}
                                 <div className="flex items-center gap-1.5 mt-0.5">

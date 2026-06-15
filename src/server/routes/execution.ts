@@ -24,6 +24,7 @@ import type {MemoryService} from '../services/memory/memory-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {ExecutionStoreService, type PersistedExecution} from '../services/execution-store-service.js';
 import {TestStoreService, type PersistedTestRun} from '../services/test-store-service.js';
+import {RequirementStoreService} from '../services/requirement-store-service.js';
 import type {StoredPlan} from './plan.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import type {SandboxService} from '../services/sandbox-service.js';
@@ -117,6 +118,7 @@ export function createExecutionRoutes(
     const persistStore = new ExecutionStoreService();
     const planFileStore = new PlanStoreService();
     const testPersistStore = new TestStoreService();
+    const reqStore = new RequirementStoreService();
     const router = Router();
 
     /**
@@ -131,11 +133,25 @@ export function createExecutionRoutes(
                 // 优先从内存缓存取 plan，否则从文件存储取
                 let plan = planStore.get(e.planId) as StoredPlan | undefined;
                 if (!plan) plan = planFileStore.get(e.planId);
+
+                // 补数据：plan 缺 requirementTitle 时从 requirement store 查
+                let reqTitle = plan?.requirementTitle;
+                let reqNumber = plan?.requirementNumber;
+                if (!reqTitle && plan?.requirementId) {
+                    try {
+                        const req = reqStore.get(plan.requirementId);
+                        if (req) {
+                            reqTitle = req.title;
+                            reqNumber = req.number;
+                        }
+                    } catch { /* 补数据失败不影响列表返回 */ }
+                }
+
                 return {
                     id: e.id,
                     planId: e.planId,
-                    requirementTitle: plan?.requirementTitle,
-                    requirementNumber: plan?.requirementNumber,
+                    requirementTitle: reqTitle,
+                    requirementNumber: reqNumber,
                     status: e.status,
                     currentStep: e.currentStep,
                     totalSteps: e.totalSteps,
