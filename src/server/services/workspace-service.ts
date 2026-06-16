@@ -1019,13 +1019,12 @@ export class WorkspaceService {
      * @returns {Promise<{branch: string, worktreePath: string}>}
      */
     async createTaskBranch(workspacePath: string, baseBranch: string, taskName: string): Promise<{branch: string, worktreePath: string}> {
+        // 用 taskName（需求号）直接做分支名，全局唯一可读
         const sanitized = taskName
-            .toLowerCase()
-            .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+            .replace(/[^a-zA-Z0-9\u4e00-\u9fa5._-]+/g, '-')
             .replace(/^-|-$/g, '')
-            .substring(0, 40);
-        const shortId = crypto.randomBytes(3).toString('hex');
-        const branchName = `task/${sanitized}-${shortId}`;
+            .substring(0, 60);
+        const branchName = `task/${sanitized}`;
 
         const cwd = path.resolve(workspacePath);
 

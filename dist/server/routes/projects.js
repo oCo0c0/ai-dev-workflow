@@ -9,8 +9,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createTaskRoutes = createTaskRoutes;
 const express_1 = require("express");
+const requirement_store_service_js_1 = require("../services/requirement-store-service.js");
 function createTaskRoutes(taskStore, taskScheduler, workspaceService) {
     const router = (0, express_1.Router)();
+    const reqStore = new requirement_store_service_js_1.RequirementStoreService();
     // ==================== 任务管理（以 workspaceId 组织） ====================
     /** 列出工作区下所有任务（合并调度器实时状态） */
     router.get('/workspace/:workspaceId', (req, res) => {
@@ -59,10 +61,13 @@ function createTaskRoutes(taskStore, taskScheduler, workspaceService) {
         }
         try {
             const resolvedBaseBranch = baseBranch || workspace.baseBranch || 'main';
+            // 用需求号作 task name + 分支名（全局唯一可读）
+            const req = reqStore.get(requirementId);
+            const taskName = name || req?.number || requirementId;
             // 创建独立 Git Worktree（并行隔离）
-            const { branch } = await workspaceService.createTaskBranch(workspace.path, resolvedBaseBranch, name || `task-${Date.now()}`);
+            const { branch } = await workspaceService.createTaskBranch(workspace.path, resolvedBaseBranch, taskName);
             const task = taskStore.create(workspaceId, {
-                name: name || branch,
+                name: taskName,
                 projectId: workspaceId,
                 requirementId,
                 pipelineId: resolvedPipelineId,

@@ -21,7 +21,7 @@ import {useNavigate} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
-import {apiGet, apiPost, apiPut, apiDelete} from '../api';
+import {apiGet, apiPost, apiPut, apiDelete, pickFolder} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
 import {Button} from '../components/ui/button';
@@ -47,6 +47,7 @@ import {
     Pause,
     RotateCcw,
     Ban,
+    Download,
 } from 'lucide-react';
 
 /**
@@ -68,7 +69,7 @@ interface PlanSummary {
     /** 工作空间路径 */
     workspacePath: string;
     /** 计划状态 */
-    status: 'generating' | 'paused' | 'ready' | 'failed' | 'waiting_input';
+    status: 'generating' | 'paused' | 'ready' | 'failed' | 'waiting_input' | 'waiting_skill_confirm';
     /** 计划摘要文本（截取前段用于列表展示） */
     summary?: string;
     /** 创建时间（ISO 8601格式） */
@@ -93,6 +94,12 @@ interface StoredPlan extends PlanSummary {
     error?: string;
     /** Claude会话ID，用于对话上下文关联 */
     sessionId?: string;
+    /** 待执行技能队列（顺序敏感） */
+    pendingSkills?: string[];
+    /** 已执行完成的技能列表 */
+    executedSkills?: string[];
+    /** 当前执行中的技能名 */
+    currentSkill?: string;
 }
 
 /**
@@ -145,6 +152,12 @@ export default function PlanPage() {
     const [executing, setExecuting] = useState(false);                        // 是否正在启动执行
     const [replyText, setReplyText] = useState('');                           // 回复输入框文本
     const [replying, setReplying] = useState(false);                          // 是否正在发送回复
+    const [skillConfirm, setSkillConfirm] = useState<{
+        open: boolean;
+        nextSkill?: string;
+        completedSkill?: string
+    }>({open: false});
+    const [exporting, setExporting] = useState(false);
 
     // ─── 引用 ───
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);      // 轮询定时器引用
@@ -261,6 +274,16 @@ export default function PlanPage() {
                     setGenerating(false);
                     setPlanStatus('paused');
                     if (pollRef.current) clearInterval(pollRef.current);
+                } else if (result.status === 'waiting_skill_confirm') {
+                    setPlan(result);
+                    setGenerating(false);
+                    setPlanStatus('idle');
+                    setSkillConfirm({
+                        open: true,
+                        nextSkill: result.pendingSkills?.[0],
+                        completedSkill: result.executedSkills?.[result.executedSkills.length - 1]
+                    });
+                    if (pollRef.current) clearInterval(pollRef.current);
                 } else {
                     setPlan(result);
                 }
@@ -320,6 +343,7 @@ export default function PlanPage() {
                 workspacePath,
                 pipelineId: plan?.pipelineId,
                 requirementTitle: reqInfo?.title,
+                requirementNumber: reqInfo?.number,
             });
             // 将新任务ID存入全局状态，触发轮询effect
             setPlanTaskId(newTaskId);
@@ -388,6 +412,113 @@ export default function PlanPage() {
      * 3. 清除旧轮询，启动新轮询跟踪Claude的回复处理
      * 4. 回复完成后自动恢复焦点到输入框
      */
+    /** 确认继续下一个技能 */
+    const handleContinueSkill = async () => {
+        if (!activePlanId) return;
+        setSkillConfirm({open: false});
+        setGenerating(true);
+        try {
+            await apiPost(`/plan/${activePlanId}/continue-skill`);
+            // 重启轮询
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = setInterval(async () => {
+                try {
+                    const result = await apiGet<StoredPlan>(`/plan/${activePlanId}`);
+                    setPlan(result);
+                    if (result.status === 'ready' || result.status === 'failed' || result.status === 'paused') {
+                        setGenerating(false);
+                        if (pollRef.current) clearInterval(pollRef.current);
+                    } else if (result.status === 'waiting_skill_confirm') {
+                        setGenerating(false);
+                        setSkillConfirm({
+                            open: true,
+                            nextSkill: result.pendingSkills?.[0],
+                            completedSkill: result.executedSkills?.[result.executedSkills.length - 1]
+                        });
+                        if (pollRef.current) clearInterval(pollRef.current);
+                    }
+                } catch { /* continue polling */
+                }
+            }, 2000);
+        } catch (err) {
+            setGenerating(false);
+            setError(err instanceof Error ? err.message : 'Continue skill failed');
+        }
+    };
+
+    /** 跳过下一个技能 */
+    const handleSkipSkill = async () => {
+        if (!activePlanId) return;
+        setSkillConfirm({open: false});
+        setGenerating(true);
+        try {
+            const res = await apiPost<{ completed?: boolean }>(`/plan/${activePlanId}/skip-skill`);
+            if (res.completed) {
+                // 全部完成，刷新
+                const result = await apiGet<StoredPlan>(`/plan/${activePlanId}`);
+                setPlan(result);
+                setGenerating(false);
+                setPlanStatus('ready');
+                loadHistory();
+                return;
+            }
+            // 重启轮询
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = setInterval(async () => {
+                try {
+                    const result = await apiGet<StoredPlan>(`/plan/${activePlanId}`);
+                    setPlan(result);
+                    if (result.status === 'ready' || result.status === 'failed') {
+                        setGenerating(false);
+                        if (pollRef.current) clearInterval(pollRef.current);
+                    } else if (result.status === 'waiting_skill_confirm') {
+                        setGenerating(false);
+                        setSkillConfirm({
+                            open: true,
+                            nextSkill: result.pendingSkills?.[0],
+                            completedSkill: result.executedSkills?.[result.executedSkills.length - 1]
+                        });
+                        if (pollRef.current) clearInterval(pollRef.current);
+                    }
+                } catch { /* continue */
+                }
+            }, 2000);
+        } catch (err) {
+            setGenerating(false);
+            setError(err instanceof Error ? err.message : 'Skip skill failed');
+        }
+    };
+
+    /** 导出任务拆分 + 工时评估 xlsx（rawOutput 无 JSON 时自动先跑 task-breakdown-estimator 技能） */
+    const handleExportTasks = async () => {
+        if (!activePlanId) return;
+        setExporting(true);
+        setError(null);
+        try {
+            const folder = await pickFolder('选择导出目录');
+            const fileBase = plan?.requirementNumber || activePlanId.substring(0, 8);
+            const outputPath = folder
+                ? `${folder}/${fileBase}.xlsx`
+                : undefined;
+            const res = await apiPost<{ success: boolean; path: string; count: number; message?: string }>(
+                `/plan/${activePlanId}/export-tasks`,
+                outputPath ? {outputPath} : {},
+            );
+            if (res.success) {
+                // 导出成功后刷新 plan（技能执行可能已更新 rawOutput）
+                const refreshed = await apiGet<StoredPlan>(`/plan/${activePlanId}`);
+                setPlan(refreshed);
+            } else {
+                setError(res.message ?? '导出失败');
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : '导出失败';
+            setError(msg);
+        } finally {
+            setExporting(false);
+        }
+    };
+
     const handleReply = async () => {
         if (!replyText.trim() || !activePlanId || replying) return;
         const message = replyText.trim();
@@ -530,7 +661,7 @@ export default function PlanPage() {
                             {/* 计划摘要信息 */}
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium truncate text-foreground">
-                                    {p.requirementNumber ? `${p.requirementNumber} ` : ''}{p.requirementTitle || p.requirementId}
+                                    {p.requirementNumber ? `${p.requirementNumber} ` : ''}{p.requirementTitle || p.requirementId.substring(0, 8)}
                                 </p>
                                 {/* 更新时间 */}
                                 <div className="flex items-center gap-1.5 mt-0.5">
@@ -670,6 +801,19 @@ export default function PlanPage() {
                                             disabled={!canGenerate}>
                                         <RefreshCw className="h-4 w-4 mr-1.5"/>
                                         {t('plan.newPlan')}
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleExportTasks}
+                                        disabled={exporting}
+                                    >
+                                        {exporting ? (
+                                            <Loader2 className="h-4 w-4 mr-1.5 animate-spin"/>
+                                        ) : (
+                                            <Download className="h-4 w-4 mr-1.5"/>
+                                        )}
+                                        {exporting ? '导出中...' : '导出任务表'}
                                     </Button>
                                     <Button
                                         size="sm"
@@ -899,7 +1043,7 @@ export default function PlanPage() {
                                     <div className="flex items-center gap-2 text-sm">
                                         <span className="text-muted-foreground">{t('plan.requirement')}</span>
                                         <span className="font-medium">
-                      {plan.requirementNumber ? `${plan.requirementNumber} ` : ''}{plan.requirementTitle || plan.requirementId}
+                      {plan.requirementNumber ? `${plan.requirementNumber} ` : ''}{plan.requirementTitle || plan.requirementId.substring(0, 8)}
                     </span>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm mt-1">
@@ -1017,6 +1161,29 @@ export default function PlanPage() {
                     )}
                 </div>
             </div>
+            {/* 技能确认弹窗 */}
+            {skillConfirm.open && (
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50">
+                    <div className="bg-background rounded-lg border border-border shadow-xl p-6 max-w-md w-full mx-4">
+                        <h3 className="text-base font-semibold mb-2">技能执行确认</h3>
+                        <p className="text-sm text-muted-foreground mb-1">
+                            已完成技能：<span
+                            className="font-medium text-foreground">{skillConfirm.completedSkill}</span>
+                        </p>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            下一个技能：<span className="font-medium text-foreground">{skillConfirm.nextSkill}</span>
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={handleSkipSkill}>
+                                跳过
+                            </Button>
+                            <Button size="sm" onClick={handleContinueSkill}>
+                                继续执行
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <Joyride
                 steps={guideSteps}
                 run={guideRun}

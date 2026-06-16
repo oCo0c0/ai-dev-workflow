@@ -66,6 +66,8 @@
     "noSelectionSubtitle": "选中的需求可用于流水线执行",
     "manualCreate": "手动创建",
     "createTitle": "手动创建需求",
+    "createNumberLabel": "需求号（必填，全局唯一）",
+    "createNumberPlaceholder": "如 CWXT-130341",
     "createTitleLabel": "标题",
     "createTitlePlaceholder": "输入需求标题",
     "createDescLabel": "描述",

@@ -6,13 +6,9 @@
  *              通过 MCP（Model Context Protocol）桥接服务获取需求详情与搜索功能。
  *              支持从 MCP 服务器拉取需求并自动保存到本地存储，也支持纯查询模式。
  */
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createRequirementsRoutes = createRequirementsRoutes;
 const express_1 = require("express");
-const crypto_1 = __importDefault(require("crypto"));
 const ones_image_service_js_1 = require("../services/ones-image-service.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
 /**
@@ -43,9 +39,41 @@ function createRequirementsRoutes(mcpBridgeService, requirementStore, mineruServ
                 res.status(400).json({ code: 'VALIDATION_ERROR', message: 'title is required' });
                 return;
             }
+            const number = req.body.number?.trim();
+            if (!number) {
+                res.status(400).json({ code: 'VALIDATION_ERROR', message: 'number is required (e.g. CWXT-130341)' });
+                return;
+            }
             const description = req.body.description?.trim() ?? '';
+            const mode = req.body.mode;
+            // 重复检测：id 直接用 number（全局唯一）
+            const existing = requirementStore.get(number);
+            if (existing && !mode) {
+                res.status(409).json({
+                    code: 'DUPLICATE_NUMBER',
+                    message: `需求号 ${number} 已存在`,
+                    existingId: existing.id,
+                    existingTitle: existing.title,
+                });
+                return;
+            }
+            // 合并模式：追加描述到已存在需求
+            if (existing && mode === 'merge') {
+                const mergedDesc = (existing.description ?? '') + '\n\n---\n\n' + description;
+                const merged = {
+                    ...existing,
+                    title: title || existing.title,
+                    description: mergedDesc,
+                    updatedAt: new Date().toISOString(),
+                };
+                const saved = requirementStore.upsert(merged);
+                res.json(saved);
+                return;
+            }
+            // 新建或覆盖：id = number
             const requirement = {
-                id: `manual-${crypto_1.default.randomUUID()}`,
+                id: number,
+                number,
                 title,
                 status: 'draft',
                 priority: 'medium',

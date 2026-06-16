@@ -13,7 +13,7 @@ export interface PersistedPlan {
     /** 工作区路径 */
     workspacePath: string;
     /** 计划状态 */
-    status: 'generating' | 'paused' | 'ready' | 'failed' | 'waiting_input';
+    status: 'generating' | 'paused' | 'ready' | 'failed' | 'waiting_input' | 'waiting_skill_confirm';
     /** 计划摘要 */
     summary?: string;
     /** Claude Agent 原始输出 */
@@ -28,6 +28,12 @@ export interface PersistedPlan {
     sessionId?: string;
     /** 流水线 ID */
     pipelineId?: string;
+    /** 待执行技能队列（顺序敏感，先选先执行） */
+    pendingSkills?: string[];
+    /** 已执行完成的技能列表 */
+    executedSkills?: string[];
+    /** 当前执行中的技能名 */
+    currentSkill?: string;
 }
 /**
  * 开发计划存储服务类

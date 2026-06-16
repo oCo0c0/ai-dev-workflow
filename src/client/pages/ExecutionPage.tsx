@@ -56,7 +56,7 @@ interface ExecutionSummary {
     /** 关联需求编号（如 #125975） */
     requirementNumber?: string;
     /** 执行状态：运行中、已暂停、已完成、已失败、已中止 */
-    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm';
     /** 当前执行的步骤编号 */
     currentStep: number;
     /** 总步骤数 */
@@ -149,6 +149,7 @@ export default function ExecutionPage() {
     const [detail, setDetail] = useState<ExecutionDetail | null>(null);
     const [replyText, setReplyText] = useState('');
     const [replying, setReplying] = useState(false);
+    const [skillConfirm, setSkillConfirm] = useState<{open: boolean; nextSkill?: string; completedSkill?: string}>({open: false});
 
     // DOM 引用：用于日志自动滚动、轮询清理和回复输入框聚焦
     const logEndRef = useRef<HTMLDivElement>(null);
@@ -237,7 +238,7 @@ export default function ExecutionPage() {
                         planId: data.planId,
                         currentStep: data.currentStep,
                         totalSteps: data.totalSteps,
-                        status: data.status as 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted',
+                        status: data.status as 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm',
                         startedAt: data.startedAt,
                         completedAt: data.completedAt,
                     });
@@ -261,6 +262,15 @@ export default function ExecutionPage() {
                     if (pollRef.current) clearInterval(pollRef.current);
                     loadHistory();
                     setTimeout(() => replyInputRef.current?.focus(), 100);
+                }
+                // 技能执行完成，等待用户确认
+                if (data.status === 'waiting_skill_confirm') {
+                    if (pollRef.current) clearInterval(pollRef.current);
+                    setSkillConfirm({
+                        open: true,
+                        nextSkill: (data as {pendingSkills?: string[]}).pendingSkills?.[0],
+                        completedSkill: (data as {executedSkills?: string[]}).executedSkills?.slice(-1)[0],
+                    });
                 }
             } catch {
                 // 轮询请求失败时保持轮询，不中断
@@ -338,6 +348,75 @@ export default function ExecutionPage() {
         try {
             await apiPost(`/execution/${activeId}/abort`);
         } catch { /* 通过轮询处理状态更新 */
+        }
+    };
+
+    /** 确认继续下一个技能 */
+    const handleContinueSkill = async () => {
+        if (!activeId) return;
+        setSkillConfirm({open: false});
+        if (detail) setDetail({...detail, status: 'running'});
+        try {
+            await apiPost(`/execution/${activeId}/continue-skill`);
+            // 重启轮询
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = setInterval(async () => {
+                try {
+                    if (!activeId) return;
+                    const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
+                    setDetail(data);
+                    if (['completed', 'failed', 'aborted'].includes(data.status)) {
+                        if (pollRef.current) clearInterval(pollRef.current);
+                        loadHistory();
+                    } else if (data.status === 'waiting_skill_confirm') {
+                        if (pollRef.current) clearInterval(pollRef.current);
+                        setSkillConfirm({
+                            open: true,
+                            nextSkill: (data as {pendingSkills?: string[]}).pendingSkills?.[0],
+                            completedSkill: (data as {executedSkills?: string[]}).executedSkills?.slice(-1)[0],
+                        });
+                    }
+                } catch { /* continue */ }
+            }, 2000);
+        } catch (err) {
+            console.error('Continue skill failed:', err);
+        }
+    };
+
+    /** 跳过下一个技能 */
+    const handleSkipSkill = async () => {
+        if (!activeId) return;
+        setSkillConfirm({open: false});
+        if (detail) setDetail({...detail, status: 'running'});
+        try {
+            const res = await apiPost<{completed?: boolean}>(`/execution/${activeId}/skip-skill`);
+            if (res.completed) {
+                const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
+                setDetail(data);
+                loadHistory();
+                return;
+            }
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = setInterval(async () => {
+                try {
+                    if (!activeId) return;
+                    const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
+                    setDetail(data);
+                    if (['completed', 'failed', 'aborted'].includes(data.status)) {
+                        if (pollRef.current) clearInterval(pollRef.current);
+                        loadHistory();
+                    } else if (data.status === 'waiting_skill_confirm') {
+                        if (pollRef.current) clearInterval(pollRef.current);
+                        setSkillConfirm({
+                            open: true,
+                            nextSkill: (data as {pendingSkills?: string[]}).pendingSkills?.[0],
+                            completedSkill: (data as {executedSkills?: string[]}).executedSkills?.slice(-1)[0],
+                        });
+                    }
+                } catch { /* continue */ }
+            }, 2000);
+        } catch (err) {
+            console.error('Skip skill failed:', err);
         }
     };
 
@@ -810,6 +889,28 @@ export default function ExecutionPage() {
                     )}
                 </div>
             </div>
+            {/* 技能确认弹窗 */}
+            {skillConfirm.open && (
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50">
+                    <div className="bg-background rounded-lg border border-border shadow-xl p-6 max-w-md w-full mx-4">
+                        <h3 className="text-base font-semibold mb-2">技能执行确认</h3>
+                        <p className="text-sm text-muted-foreground mb-1">
+                            已完成技能：<span className="font-medium text-foreground">{skillConfirm.completedSkill}</span>
+                        </p>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            下一个技能：<span className="font-medium text-foreground">{skillConfirm.nextSkill}</span>
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={handleSkipSkill}>
+                                跳过
+                            </Button>
+                            <Button size="sm" onClick={handleContinueSkill}>
+                                继续执行
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <Joyride
                 steps={guideSteps}
                 run={guideRun}

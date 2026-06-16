@@ -22,8 +22,10 @@ import {create} from 'zustand';
  * @description 需求列表中展示的精简信息，不含详细描述和附件
  */
 interface Requirement {
-    /** 需求唯一标识 */
+    /** 需求唯一标识（= 需求号，如 CWXT-130341） */
     id: string;
+    /** 需求号（与 id 一致，全局唯一） */
+    number?: string;
     /** 需求标题 */
     title: string;
     /** 需求状态 */

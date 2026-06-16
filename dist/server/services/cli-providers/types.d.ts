@@ -114,6 +114,8 @@ export interface SkillInfo {
     enabled: boolean;
     /** 文件路径 */
     filePath: string;
+    /** 来源：builtin（内置）/ external（外部 cc/codex） */
+    source?: string;
 }
 /**
  * MCP 服务器信息摘要

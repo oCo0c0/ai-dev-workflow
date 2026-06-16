@@ -15,27 +15,77 @@
  * - PUT    /:name         更新指定技能
  * - DELETE /:name         删除指定技能
  */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createSkillsRoutes = createSkillsRoutes;
 const express_1 = require("express");
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
 const validation_js_1 = require("../middleware/validation.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
+/** 内置技能目录（项目 skills/ → dist/skills/） */
+const BUILTIN_SKILLS_DIR = path_1.default.resolve(__dirname, '..', '..', '..', 'skills');
+/** 从 markdown 提取描述（首行非空非标题） */
+function extractSkillDesc(content) {
+    for (const line of content.split('\n')) {
+        const t = line.trim();
+        if (!t)
+            continue;
+        if (t.startsWith('---'))
+            continue; // frontmatter
+        if (t.startsWith('#'))
+            return t.replace(/^#+\s*/, '').substring(0, 100);
+        return t.substring(0, 100);
+    }
+    return '';
+}
+/** 加载内置技能（5 个默认） */
+function loadBuiltinSkills() {
+    const out = [];
+    if (!fs_1.default.existsSync(BUILTIN_SKILLS_DIR))
+        return out;
+    try {
+        for (const entry of fs_1.default.readdirSync(BUILTIN_SKILLS_DIR, { withFileTypes: true })) {
+            if (!entry.isDirectory())
+                continue;
+            const mdPath = path_1.default.join(BUILTIN_SKILLS_DIR, entry.name, 'SKILL.md');
+            if (!fs_1.default.existsSync(mdPath))
+                continue;
+            try {
+                const content = fs_1.default.readFileSync(mdPath, 'utf-8');
+                out.push({
+                    name: entry.name,
+                    description: extractSkillDesc(content),
+                    enabled: true,
+                    filePath: mdPath,
+                    source: 'builtin',
+                });
+            }
+            catch { /* skip */ }
+        }
+    }
+    catch { /* ignore */ }
+    return out;
+}
 /**
  * 创建技能路由实例
- *
- * @param skillsService - 技能服务实例，负责技能数据的持久化操作与业务逻辑
- * @param cliRunnerService - CLI 运行器服务实例，用于从 active provider 读取 skills
- * @returns 配置好所有技能相关路由的 Express Router 实例
  */
 function createSkillsRoutes(skillsService, cliRunnerService) {
     const router = (0, express_1.Router)();
-    // GET /api/skills - 获取所有技能列表
-    // 从当前活跃的 CLI Provider 读取配置
+    // GET /api/skills - 获取所有技能列表（内置 + provider 合并，去重，内置优先）
     router.get('/', async (_req, res) => {
         try {
+            const builtin = loadBuiltinSkills();
             const provider = cliRunnerService.getProvider();
-            const skills = await provider.loadSkills();
-            res.json(skills);
+            const external = await provider.loadSkills();
+            // 标记外部来源
+            const externalMarked = external.map(s => ({ ...s, source: s.source ?? 'external' }));
+            // 合并去重：内置优先，外部同名跳过
+            const seen = new Set(builtin.map(s => s.name));
+            const merged = [...builtin, ...externalMarked.filter(s => !seen.has(s.name))];
+            res.json(merged);
         }
         catch (err) {
             res.status(500).json({ code: 'SKILLS_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });

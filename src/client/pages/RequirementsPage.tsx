@@ -15,7 +15,7 @@ import {useState, useEffect, useCallback, useRef} from 'react';
 import {useTranslation} from 'react-i18next';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
-import {apiGet, apiPost, apiPut, apiDelete} from '../api';
+import {apiGet, apiPost, apiPut, apiDelete, ApiError} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
 import {Badge} from '../components/ui/badge';
@@ -142,11 +142,14 @@ export default function RequirementsPage() {
 
     // === 手动创建相关状态 ===
     const [showCreate, setShowCreate] = useState(false);
+    const [createNumber, setCreateNumber] = useState('');
     const [createTitle, setCreateTitle] = useState('');
     const [createDesc, setCreateDesc] = useState('');
     const [createFiles, setCreateFiles] = useState<File[]>([]);
     const [creating, setCreating] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // 重复需求处理
+    const [duplicate, setDuplicate] = useState<{ number: string; existingTitle: string } | null>(null);
 
     // 编辑模式文件上传
     const [editFiles, setEditFiles] = useState<File[]>([]);
@@ -172,29 +175,44 @@ export default function RequirementsPage() {
         }
     }, []);
 
-    /** 手动创建需求（描述已包含预解析的 Markdown） */
-    const handleCreate = useCallback(async () => {
-        if (!createTitle.trim() || creating) return;
+    /** 手动创建需求（描述已包含预解析的 Markdown）。mode: undefined/overwrite/merge */
+    const handleCreate = useCallback(async (mode?: 'overwrite' | 'merge') => {
+        if (!createTitle.trim() || !createNumber.trim() || creating) return;
         setCreating(true);
+        setFetchError(null);
         try {
             const saved = await apiPost<StoredRequirement>('/requirements/create', {
+                number: createNumber.trim(),
                 title: createTitle.trim(),
                 description: createDesc.trim(),
+                mode,
             });
 
             await loadSaved();
             setSelected(saved);
             setSelectedRequirement(saved);
             setShowCreate(false);
+            setCreateNumber('');
             setCreateTitle('');
             setCreateDesc('');
             setCreateFiles([]);
+            setDuplicate(null);
         } catch (err) {
-            setFetchError(err instanceof Error ? err.message : 'Create failed');
+            // 409 重复 → 弹窗让用户选
+            if (err instanceof ApiError && err.status === 409 && err.body.code === 'DUPLICATE_NUMBER') {
+                setDuplicate({
+                    number: createNumber.trim(),
+                    existingTitle: (err.body.existingTitle as string) ?? '',
+                });
+            } else if (err instanceof ApiError) {
+                setFetchError((err.body.message as string) || 'Create failed');
+            } else {
+                setFetchError(err instanceof Error ? err.message : 'Create failed');
+            }
         } finally {
             setCreating(false);
         }
-    }, [createTitle, createDesc, creating, loadSaved, setSelectedRequirement]);
+    }, [createNumber, createTitle, createDesc, creating, loadSaved, setSelectedRequirement]);
 
     /** 解析已选文件，将 MinerU 结果追加到描述 */
     const handleParseFiles = useCallback(async () => {
@@ -207,7 +225,7 @@ export default function RequirementsPage() {
                 formData.append('files', file);
                 const res = await fetch('/api/mineru/parse', {method: 'POST', body: formData});
                 if (!res.ok) continue;
-                const data = await res.json() as {results?: {markdown?: string}[]};
+                const data = await res.json() as { results?: { markdown?: string }[] };
                 const md = data.results?.[0]?.markdown;
                 if (md) {
                     combined += `\n\n---\n\n## ${file.name}\n\n${md}`;
@@ -235,7 +253,7 @@ export default function RequirementsPage() {
                 formData.append('files', file);
                 const res = await fetch('/api/mineru/parse', {method: 'POST', body: formData});
                 if (!res.ok) continue;
-                const data = await res.json() as {results?: {markdown?: string}[]};
+                const data = await res.json() as { results?: { markdown?: string }[] };
                 const md = data.results?.[0]?.markdown;
                 if (md) {
                     combined += `\n\n---\n\n## ${file.name}\n\n${md}`;
@@ -245,7 +263,8 @@ export default function RequirementsPage() {
                 setEditDescription(prev => prev + combined);
             }
             setEditFiles([]);
-        } catch { /* silent */ } finally {
+        } catch { /* silent */
+        } finally {
             setEditParsing(false);
         }
     }, [editFiles]);
@@ -435,21 +454,24 @@ export default function RequirementsPage() {
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => {setShowCreate(!showCreate); setShowSearch(false);}}
+                            onClick={() => {
+                                setShowCreate(!showCreate);
+                                setShowSearch(false);
+                            }}
                         >
                             <Plus className="h-4 w-4 mr-1.5"/>
                             {t('requirements.manualCreate')}
                         </Button>
                         {/* 切换 MCP 搜索面板的按钮 */}
                         <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowSearch(!showSearch)}
-                        data-tour="req-search-btn"
-                    >
-                        <Search className="h-4 w-4 mr-1.5"/>
-                        {t('requirements.searchMcp')}
-                    </Button>
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowSearch(!showSearch)}
+                            data-tour="req-search-btn"
+                        >
+                            <Search className="h-4 w-4 mr-1.5"/>
+                            {t('requirements.searchMcp')}
+                        </Button>
                     </div>
                 </div>
 
@@ -497,9 +519,22 @@ export default function RequirementsPage() {
                     <div className="mt-3 rounded-lg border border-border bg-muted/30 p-4 space-y-3">
                         <h3 className="text-sm font-semibold">{t('requirements.createTitle')}</h3>
 
+                        {/* 需求号 */}
+                        <div>
+                            <label
+                                className="text-xs text-muted-foreground">{t('requirements.createNumberLabel')}</label>
+                            <Input
+                                value={createNumber}
+                                onChange={(e) => setCreateNumber(e.target.value)}
+                                placeholder={t('requirements.createNumberPlaceholder')}
+                                className="mt-1"
+                            />
+                        </div>
+
                         {/* 标题 */}
                         <div>
-                            <label className="text-xs text-muted-foreground">{t('requirements.createTitleLabel')}</label>
+                            <label
+                                className="text-xs text-muted-foreground">{t('requirements.createTitleLabel')}</label>
                             <Input
                                 value={createTitle}
                                 onChange={(e) => setCreateTitle(e.target.value)}
@@ -550,10 +585,13 @@ export default function RequirementsPage() {
                             {createFiles.length > 0 && (
                                 <div className="mt-2 space-y-1">
                                     {createFiles.map((f, i) => (
-                                        <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground bg-background rounded px-2 py-1">
+                                        <div key={i}
+                                             className="flex items-center gap-2 text-xs text-muted-foreground bg-background rounded px-2 py-1">
                                             <FileText className="h-3.5 w-3.5 shrink-0"/>
                                             <span className="truncate flex-1">{f.name}</span>
-                                            <button onClick={() => setCreateFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-destructive hover:text-destructive/80">
+                                            <button
+                                                onClick={() => setCreateFiles(prev => prev.filter((_, idx) => idx !== i))}
+                                                className="text-destructive hover:text-destructive/80">
                                                 <X className="h-3.5 w-3.5"/>
                                             </button>
                                         </div>
@@ -565,7 +603,8 @@ export default function RequirementsPage() {
                                         disabled={creating}
                                         onClick={handleParseFiles}
                                     >
-                                        {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> : <Upload className="h-4 w-4 mr-1.5"/>}
+                                        {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> :
+                                            <Upload className="h-4 w-4 mr-1.5"/>}
                                         {creating ? t('requirements.creating') : t('requirements.parseWithMinerU')}
                                     </Button>
                                 </div>
@@ -576,18 +615,48 @@ export default function RequirementsPage() {
                         <div className="flex items-center gap-2 pt-1">
                             <Button
                                 size="sm"
-                                onClick={handleCreate}
-                                disabled={creating || !createTitle.trim()}
+                                onClick={() => handleCreate()}
+                                disabled={creating || !createTitle.trim() || !createNumber.trim()}
                             >
-                                {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> : <Plus className="h-4 w-4 mr-1.5"/>}
+                                {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> :
+                                    <Plus className="h-4 w-4 mr-1.5"/>}
                                 {creating ? t('requirements.creating') : t('requirements.create')}
                             </Button>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {setShowCreate(false); setCreateTitle(''); setCreateDesc(''); setCreateFiles([]);}}
+                                onClick={() => {
+                                    setShowCreate(false);
+                                    setCreateNumber('');
+                                    setCreateTitle('');
+                                    setCreateDesc('');
+                                    setCreateFiles([]);
+                                }}
                             >
                                 {t('requirements.cancelCreate')}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {/* 重复需求处理弹窗 */}
+                {duplicate && (
+                    <div className="mt-3 rounded-lg border border-yellow-500/40 bg-yellow-500/5 p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm">
+                            <AlertCircle className="h-4 w-4 text-yellow-500"/>
+                            <span className="font-medium">需求号 {duplicate.number} 已存在</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">已存在标题：{duplicate.existingTitle || '(无)'}</p>
+                        <div className="flex items-center gap-2">
+                            <Button size="sm" onClick={() => handleCreate('overwrite')}>
+                                {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> : null}
+                                覆盖
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleCreate('merge')}>
+                                合并描述
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setDuplicate(null)}>
+                                取消
                             </Button>
                         </div>
                     </div>
@@ -815,10 +884,13 @@ export default function RequirementsPage() {
                                             />
                                         </div>
                                         {editFiles.map((f, i) => (
-                                            <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground bg-background rounded px-2 py-1">
+                                            <div key={i}
+                                                 className="flex items-center gap-2 text-xs text-muted-foreground bg-background rounded px-2 py-1">
                                                 <FileText className="h-3.5 w-3.5 shrink-0"/>
                                                 <span className="truncate flex-1">{f.name}</span>
-                                                <button onClick={() => setEditFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-destructive hover:text-destructive/80">
+                                                <button
+                                                    onClick={() => setEditFiles(prev => prev.filter((_, idx) => idx !== i))}
+                                                    className="text-destructive hover:text-destructive/80">
                                                     <X className="h-3.5 w-3.5"/>
                                                 </button>
                                             </div>
@@ -830,7 +902,8 @@ export default function RequirementsPage() {
                                                 disabled={editParsing}
                                                 onClick={handleEditParseFiles}
                                             >
-                                                {editParsing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> : <Upload className="h-4 w-4 mr-1.5"/>}
+                                                {editParsing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> :
+                                                    <Upload className="h-4 w-4 mr-1.5"/>}
                                                 {t('requirements.parseWithMinerU')}
                                             </Button>
                                         )}

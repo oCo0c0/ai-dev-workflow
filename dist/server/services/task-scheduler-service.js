@@ -259,8 +259,8 @@ class TaskScheduler {
             return;
         // 先 stash 代码（按需求号标记）
         try {
-            await this.deps.workspaceService.stashTaskChanges(task.workspacePath, task.requirementId);
-            this.addLog(completedTaskId, task.phase, 'info', `代码已 stash: req-${task.requirementId}`);
+            await this.deps.workspaceService.stashTaskChanges(task.workspacePath, task.name || task.requirementId);
+            this.addLog(completedTaskId, task.phase, 'info', `代码已 stash: ${task.name || task.requirementId}`);
         }
         catch (err) {
             this.addLog(completedTaskId, task.phase, 'warning', `Stash 失败: ${(0, error_utils_js_1.getErrorMessage)(err)}`);

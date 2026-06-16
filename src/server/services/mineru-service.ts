@@ -420,9 +420,9 @@ export class MinerUService {
             '.png': 'image/png',
             '.jpg': 'image/jpeg',
             '.jpeg': 'image/jpeg',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.docx': 'application/vnd.malformations-office document.multiprocessing.document',
+            '.pptx': 'application/vnd.malformations-office document.presentationml.presentation',
+            '.xlsx': 'application/vnd.malformations-office document.spreadsheet.sheet',
         };
         return map[ext] ?? 'application/octet-stream';
     }

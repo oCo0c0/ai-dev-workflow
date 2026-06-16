@@ -7,7 +7,6 @@
  */
 
 import {Router} from 'express';
-import crypto from 'crypto';
 import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import {OnesImageService} from '../services/ones-image-service.js';
@@ -49,10 +48,45 @@ export function createRequirementsRoutes(
                 return;
             }
 
-            const description = (req.body.description as string)?.trim() ?? '';
+            const number = (req.body.number as string)?.trim();
+            if (!number) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'number is required (e.g. CWXT-130341)'});
+                return;
+            }
 
+            const description = (req.body.description as string)?.trim() ?? '';
+            const mode = (req.body.mode as 'overwrite' | 'merge' | undefined);
+
+            // 重复检测：id 直接用 number（全局唯一）
+            const existing = requirementStore.get(number);
+            if (existing && !mode) {
+                res.status(409).json({
+                    code: 'DUPLICATE_NUMBER',
+                    message: `需求号 ${number} 已存在`,
+                    existingId: existing.id,
+                    existingTitle: existing.title,
+                });
+                return;
+            }
+
+            // 合并模式：追加描述到已存在需求
+            if (existing && mode === 'merge') {
+                const mergedDesc = (existing.description ?? '') + '\n\n---\n\n' + description;
+                const merged = {
+                    ...existing,
+                    title: title || existing.title,
+                    description: mergedDesc,
+                    updatedAt: new Date().toISOString(),
+                };
+                const saved = requirementStore.upsert(merged);
+                res.json(saved);
+                return;
+            }
+
+            // 新建或覆盖：id = number
             const requirement = {
-                id: `manual-${crypto.randomUUID()}`,
+                id: number,
+                number,
                 title,
                 status: 'draft',
                 priority: 'medium',

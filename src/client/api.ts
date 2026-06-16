@@ -30,13 +30,27 @@ export async function apiGet<T>(path: string): Promise<T> {
  * @returns 解析后的 JSON 响应数据
  * @throws 当 HTTP 状态码非 2xx 时，抛出包含后端错误信息的 Error
  */
+/** HTTP 错误，携带状态码 + 后端响应体 */
+export class ApiError extends Error {
+    status: number;
+    body: Record<string, unknown>;
+    constructor(status: number, body: Record<string, unknown>) {
+        super((body.message as string) || `HTTP ${status}`);
+        this.status = status;
+        this.body = body;
+    }
+}
+
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error((await res.json()).message || res.statusText);
+    if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new ApiError(res.status, errBody);
+    }
     return res.json();
 }
 

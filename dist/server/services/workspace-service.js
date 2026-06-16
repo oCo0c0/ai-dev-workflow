@@ -21,7 +21,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WorkspaceService = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const crypto_1 = __importDefault(require("crypto"));
 const child_process_1 = require("child_process");
 const constants_js_1 = require("../utils/constants.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
@@ -833,13 +832,12 @@ class WorkspaceService {
      * @returns {Promise<{branch: string, worktreePath: string}>}
      */
     async createTaskBranch(workspacePath, baseBranch, taskName) {
+        // 用 taskName（需求号）直接做分支名，全局唯一可读
         const sanitized = taskName
-            .toLowerCase()
-            .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+            .replace(/[^a-zA-Z0-9\u4e00-\u9fa5._-]+/g, '-')
             .replace(/^-|-$/g, '')
-            .substring(0, 40);
-        const shortId = crypto_1.default.randomBytes(3).toString('hex');
-        const branchName = `task/${sanitized}-${shortId}`;
+            .substring(0, 60);
+        const branchName = `task/${sanitized}`;
         const cwd = path_1.default.resolve(workspacePath);
         // stash 当前改动（忽略失败）
         try {

@@ -21,7 +21,7 @@ export interface PersistedExecution {
     /** 关联需求 ID */
     requirementId: string;
     /** 执行状态 */
-    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm';
     /** 当前步骤索引 */
     currentStep: number;
     /** 总步骤数 */
@@ -36,6 +36,12 @@ export interface PersistedExecution {
     sessionId?: string;
     /** 工作区路径 */
     workspacePath?: string;
+    /** 待执行技能队列（顺序敏感，先选先执行） */
+    pendingSkills?: string[];
+    /** 已执行完成的技能列表 */
+    executedSkills?: string[];
+    /** 当前执行中的技能名 */
+    currentSkill?: string;
 }
 
 /** executionId → requirementId 的索引文件路径 */

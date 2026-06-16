@@ -51,6 +51,8 @@ interface Skill {
     enabled: boolean;
     /** 技能文件在服务器上的存储路径 */
     filePath: string;
+    /** 来源：builtin（内置）/ external（外部 cc/codex） */
+    source?: string;
 }
 
 /**
@@ -258,20 +260,27 @@ export default function SkillsPage() {
                                 )}
                             >
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate">{skill.name}</p>
+                                    <div className="flex items-center gap-1.5">
+                                        <p className="text-sm font-medium truncate">{skill.name}</p>
+                                        {skill.source === 'builtin' && (
+                                            <span className="text-[10px] px-1 py-0.5 rounded bg-primary/15 text-primary shrink-0">内置</span>
+                                        )}
+                                    </div>
                                     <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
                                 </div>
-                                {/* 删除按钮：鼠标悬停时显示，阻止冒泡避免触发选中 */}
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteSkill(skill.name);
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1"
-                                    title={t('common.delete')}
-                                >
-                                    <Trash2 className="h-3.5 w-3.5"/>
-                                </button>
+                                {/* 删除按钮：仅外部技能可删，内置不可删 */}
+                                {skill.source !== 'builtin' && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            deleteSkill(skill.name);
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1"
+                                        title={t('common.delete')}
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5"/>
+                                    </button>
+                                )}
                             </div>
                         ))}
                     </div>

@@ -44,8 +44,8 @@ interface StoredExecution {
     planId: string;
     /** 关联需求ID */
     requirementId: string;
-    /** 执行状态：运行中 | 已暂停 | 已完成 | 已失败 | 已中止 */
-    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+    /** 执行状态 */
+    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm';
     /** 当前执行到的步骤索引 */
     currentStep: number;
     /** 总步骤数 */
@@ -62,6 +62,12 @@ interface StoredExecution {
     workspacePath?: string;
     /** 中止控制器，用于向 CLI 运行器发送中止信号 */
     abortController?: AbortController;
+    /** 待执行技能队列（顺序敏感） */
+    pendingSkills?: string[];
+    /** 已执行完成的技能列表 */
+    executedSkills?: string[];
+    /** 当前执行中的技能名 */
+    currentSkill?: string;
 }
 
 /**
@@ -90,6 +96,9 @@ function toPersisted(exec: StoredExecution): PersistedExecution {
         logs: exec.logs,
         sessionId: exec.sessionId,
         workspacePath: exec.workspacePath,
+        pendingSkills: exec.pendingSkills,
+        executedSkills: exec.executedSkills,
+        currentSkill: exec.currentSkill,
     };
 }
 
@@ -144,7 +153,8 @@ export function createExecutionRoutes(
                             reqTitle = req.title;
                             reqNumber = req.number;
                         }
-                    } catch { /* 补数据失败不影响列表返回 */ }
+                    } catch { /* 补数据失败不影响列表返回 */
+                    }
                 }
 
                 return {
@@ -236,44 +246,62 @@ export function createExecutionRoutes(
                 });
             };
 
-            const result = await cliRunnerService.runBridge(
-                {
-                    prompt: enrichPrompt(plan.rawOutput ?? plan.summary ?? '', memoryService, plan.workspacePath),
-                    cwd: plan.workspacePath,
-                    sessionId: plan.sessionId,
-                    maxTurns: 50,
-                    skills: executionSkills,
-                },
-                {
-                    workspacePath: plan.workspacePath,
-                    onOutput,
-                    signal: abortController.signal,
+            const prompt = enrichPrompt(plan.rawOutput ?? plan.summary ?? '', memoryService, plan.workspacePath);
+
+            // 多技能串行执行；非数组/空数组则单次执行（兼容旧行为）
+            if (Array.isArray(executionSkills) && executionSkills.length > 0) {
+                execution.pendingSkills = [...executionSkills];
+                execution.executedSkills = [];
+                persistStore.upsert(toPersisted(execution));
+
+                await runNextExecutionSkill(
+                    execution,
+                    plan,
+                    {
+                        cliRunnerService,
+                        prompt,
+                        memoryService,
+                        pipelineService,
+                        testExecutorService,
+                        testPersistStore,
+                        sandboxService,
+                        onOutput
+                    },
+                    persistStore,
+                );
+            } else {
+                const result = await cliRunnerService.runBridge(
+                    {
+                        prompt,
+                        cwd: plan.workspacePath,
+                        sessionId: plan.sessionId,
+                        maxTurns: 50,
+                        skills: executionSkills,
+                    },
+                    {
+                        workspacePath: plan.workspacePath,
+                        onOutput,
+                        signal: abortController.signal,
+                    }
+                );
+
+                if (result.sessionId) execution.sessionId = result.sessionId;
+
+                const curStatus = execution.status as string;
+                if (result.aborted && curStatus !== 'paused') {
+                    execution.status = 'aborted';
+                } else if (curStatus !== 'paused') {
+                    execution.status = result.exitCode === 0 ? 'completed' : 'failed';
                 }
-            );
-
-            // 保存会话ID以便后续多轮对话
-            if (result.sessionId) execution.sessionId = result.sessionId;
-
-            // 根据中止状态和退出码设置最终状态
-            // 注意：pause 路由可能已将 status 设为 'paused'，此时不要覆盖
-            if (result.aborted && execution.status !== 'paused') {
-                execution.status = 'aborted';
-            } else if (execution.status !== 'paused') {
-                if (result.exitCode === 0) {
-                    execution.status = 'completed';
-                } else {
-                    execution.status = 'failed';
+                if ((execution.status as string) !== 'paused') {
+                    execution.completedAt = new Date().toISOString();
                 }
-            }
-            if (execution.status !== 'paused') {
-                execution.completedAt = new Date().toISOString();
-            }
-            persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId, status: execution.status}});
+                persistStore.upsert(toPersisted(execution));
+                broadcast({type: 'execution:complete', data: {executionId, status: execution.status}});
 
-            // 如果执行成功完成且 Pipeline 配置了自动测试，则自动触发测试阶段
-            if (execution.status === 'completed' && plan.pipelineId && pipelineService && testExecutorService) {
-                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                if (execution.status === 'completed' && plan.pipelineId && pipelineService && testExecutorService) {
+                    void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                }
             }
         } catch (err) {
             execution.status = 'failed';
@@ -684,7 +712,254 @@ export function createExecutionRoutes(
         }
     });
 
+    /**
+     * POST /api/execution/:id/continue-skill
+     * 确认继续执行下一个技能
+     */
+    router.post('/:id/continue-skill', async (req, res) => {
+        const execution = executionStore.get(req.params.id);
+        if (!execution) {
+            res.status(404).json({code: 'NOT_FOUND', message: 'Execution not found'});
+            return;
+        }
+        if (execution.status !== 'waiting_skill_confirm') {
+            res.status(400).json({code: 'INVALID_STATE', message: 'Execution is not waiting for skill confirmation'});
+            return;
+        }
+        if (!execution.pendingSkills || execution.pendingSkills.length === 0) {
+            res.status(400).json({code: 'INVALID_STATE', message: 'No pending skills'});
+            return;
+        }
+
+        res.json({ok: true});
+
+        execution.abortController = new AbortController();
+        const plan = (getPlanStore().get(execution.planId) as StoredPlan | undefined) ?? planFileStore.get(execution.planId);
+        if (!plan) {
+            execution.status = 'failed';
+            persistStore.upsert(toPersisted(execution));
+            return;
+        }
+
+        try {
+            const prompt = enrichPrompt(plan.rawOutput ?? plan.summary ?? '', memoryService, execution.workspacePath || process.cwd());
+            const onOutput = (data: string) => {
+                execution.logs.push(data);
+                broadcast({
+                    type: 'execution:output',
+                    data: {executionId: execution.id, stepIndex: execution.currentStep, content: data}
+                });
+            };
+            await runNextExecutionSkill(
+                execution,
+                plan,
+                {
+                    cliRunnerService,
+                    prompt,
+                    memoryService,
+                    pipelineService,
+                    testExecutorService,
+                    testPersistStore,
+                    sandboxService,
+                    onOutput
+                },
+                persistStore,
+            );
+        } catch (err) {
+            execution.status = 'failed';
+            execution.completedAt = new Date().toISOString();
+            persistStore.upsert(toPersisted(execution));
+            broadcast({type: 'error', data: {message: `Continue skill failed: ${getErrorMessage(err)}`}});
+        }
+    });
+
+    /**
+     * POST /api/execution/:id/skip-skill
+     * 跳过下一个待执行技能
+     */
+    router.post('/:id/skip-skill', async (req, res) => {
+        const execution = executionStore.get(req.params.id);
+        if (!execution) {
+            res.status(404).json({code: 'NOT_FOUND', message: 'Execution not found'});
+            return;
+        }
+        if (execution.status !== 'waiting_skill_confirm') {
+            res.status(400).json({code: 'INVALID_STATE', message: 'Execution is not waiting for skill confirmation'});
+            return;
+        }
+
+        const skipped = execution.pendingSkills?.shift();
+        if (skipped) {
+            execution.executedSkills = [...(execution.executedSkills ?? []), `${skipped}(skipped)`];
+        }
+
+        if (execution.pendingSkills && execution.pendingSkills.length > 0) {
+            res.json({ok: true, skipped});
+            execution.abortController = new AbortController();
+            const plan = (getPlanStore().get(execution.planId) as StoredPlan | undefined) ?? planFileStore.get(execution.planId);
+            if (!plan) {
+                execution.status = 'failed';
+                persistStore.upsert(toPersisted(execution));
+                return;
+            }
+            try {
+                const prompt = enrichPrompt(plan.rawOutput ?? plan.summary ?? '', memoryService, execution.workspacePath || process.cwd());
+                const onOutput = (data: string) => {
+                    execution.logs.push(data);
+                    broadcast({
+                        type: 'execution:output',
+                        data: {executionId: execution.id, stepIndex: execution.currentStep, content: data}
+                    });
+                };
+                await runNextExecutionSkill(
+                    execution,
+                    plan,
+                    {
+                        cliRunnerService,
+                        prompt,
+                        memoryService,
+                        pipelineService,
+                        testExecutorService,
+                        testPersistStore,
+                        sandboxService,
+                        onOutput
+                    },
+                    persistStore,
+                );
+            } catch (err) {
+                execution.status = 'failed';
+                execution.completedAt = new Date().toISOString();
+                persistStore.upsert(toPersisted(execution));
+            }
+        } else {
+            execution.status = 'completed';
+            execution.completedAt = new Date().toISOString();
+            persistStore.upsert(toPersisted(execution));
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+            res.json({ok: true, skipped, completed: true});
+        }
+    });
+
     return router;
+}
+
+// === 多技能串行执行 ===
+
+/**
+ * 执行队列中下一个技能。队列空 → completed。
+ * 完成单个技能后进入 waiting_skill_confirm，等用户 continue-skill 触发下一个。
+ */
+async function runNextExecutionSkill(
+    execution: StoredExecution,
+    plan: StoredPlan,
+    opts: {
+        cliRunnerService: CLIRunnerService;
+        prompt: string;
+        memoryService?: MemoryService;
+        pipelineService?: PipelineService;
+        testExecutorService?: TestExecutorService;
+        testPersistStore: TestStoreService;
+        sandboxService?: SandboxService;
+        onOutput: (data: string) => void;
+    },
+    persistStore: ExecutionStoreService,
+): Promise<void> {
+    const pending = execution.pendingSkills ?? [];
+
+    if (pending.length === 0) {
+        // 全部完成
+        execution.status = 'completed';
+        execution.completedAt = new Date().toISOString();
+        execution.currentSkill = undefined;
+        persistStore.upsert(toPersisted(execution));
+        broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+
+        // 触发测试阶段
+        if (plan.pipelineId && opts.pipelineService && opts.testExecutorService) {
+            void triggerTestPhase(execution, plan, opts.pipelineService, opts.cliRunnerService, opts.testExecutorService, opts.testPersistStore, opts.sandboxService);
+        }
+        return;
+    }
+
+    const skill = pending[0];
+    execution.pendingSkills = pending.slice(1);
+    execution.currentSkill = skill;
+    execution.status = 'running';
+    persistStore.upsert(toPersisted(execution));
+
+    try {
+        const result = await opts.cliRunnerService.runBridge(
+            {
+                prompt: opts.prompt,
+                cwd: execution.workspacePath || plan.workspacePath,
+                sessionId: execution.sessionId,
+                maxTurns: 50,
+                skills: [skill],
+            },
+            {
+                workspacePath: execution.workspacePath || plan.workspacePath,
+                onOutput: opts.onOutput,
+                signal: execution.abortController?.signal,
+            }
+        );
+
+        if (result.sessionId) execution.sessionId = result.sessionId;
+
+        // 当前技能完成 → 加入已执行
+        execution.executedSkills = [...(execution.executedSkills ?? []), skill];
+        execution.currentSkill = undefined;
+
+        const curStatus = execution.status as string;
+        // 被 pause 中止时不进 waiting
+        if (curStatus === 'paused' || (result.aborted && curStatus === 'paused')) {
+            persistStore.upsert(toPersisted(execution));
+            return;
+        }
+        if (result.aborted && curStatus !== 'paused') {
+            execution.status = 'aborted';
+            execution.completedAt = new Date().toISOString();
+            persistStore.upsert(toPersisted(execution));
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+            return;
+        }
+        if (result.exitCode !== 0) {
+            execution.status = 'failed';
+            execution.completedAt = new Date().toISOString();
+            persistStore.upsert(toPersisted(execution));
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+            return;
+        }
+
+        // 还有下一个技能 → waiting_skill_confirm
+        if (execution.pendingSkills && execution.pendingSkills.length > 0) {
+            execution.status = 'waiting_skill_confirm';
+            persistStore.upsert(toPersisted(execution));
+            broadcast({
+                type: 'execution:skill_complete',
+                data: {
+                    executionId: execution.id,
+                    completedSkill: skill,
+                    nextSkill: execution.pendingSkills[0],
+                    pendingCount: execution.pendingSkills.length,
+                },
+            });
+        } else {
+            // 最后一个完成
+            execution.status = 'completed';
+            execution.completedAt = new Date().toISOString();
+            persistStore.upsert(toPersisted(execution));
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+
+            if (plan.pipelineId && opts.pipelineService && opts.testExecutorService) {
+                void triggerTestPhase(execution, plan, opts.pipelineService, opts.cliRunnerService, opts.testExecutorService, opts.testPersistStore, opts.sandboxService);
+            }
+        }
+    } catch (err) {
+        execution.status = 'failed';
+        execution.completedAt = new Date().toISOString();
+        persistStore.upsert(toPersisted(execution));
+        broadcast({type: 'error', data: {message: `Skill "${skill}" failed: ${getErrorMessage(err)}`}});
+    }
 }
 
 // === 执行完成后自动触发测试阶段 ===

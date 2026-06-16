@@ -10,6 +10,7 @@ import {Router} from 'express';
 import type {TaskStoreService} from '../services/task-store-service.js';
 import type {TaskScheduler, TaskInfo} from '../services/task-scheduler-service.js';
 import type {WorkspaceService} from '../services/workspace-service.js';
+import {RequirementStoreService} from '../services/requirement-store-service.js';
 
 export function createTaskRoutes(
     taskStore: TaskStoreService,
@@ -17,6 +18,7 @@ export function createTaskRoutes(
     workspaceService: WorkspaceService,
 ): Router {
     const router = Router();
+    const reqStore = new RequirementStoreService();
 
     // ==================== 任务管理（以 workspaceId 组织） ====================
 
@@ -72,15 +74,19 @@ export function createTaskRoutes(
         try {
             const resolvedBaseBranch = baseBranch || workspace.baseBranch || 'main';
 
+            // 用需求号作 task name + 分支名（全局唯一可读）
+            const req = reqStore.get(requirementId);
+            const taskName = name || req?.number || requirementId;
+
             // 创建独立 Git Worktree（并行隔离）
             const {branch} = await workspaceService.createTaskBranch(
                 workspace.path,
                 resolvedBaseBranch,
-                name || `task-${Date.now()}`
+                taskName
             );
 
             const task = taskStore.create(workspaceId, {
-                name: name || branch,
+                name: taskName,
                 projectId: workspaceId,
                 requirementId,
                 pipelineId: resolvedPipelineId,
