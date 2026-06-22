@@ -154,32 +154,31 @@ class RequirementStoreService {
                 console.warn(`[ones-image] Wiki token download failed, falling back: ${err instanceof Error ? err.message : err}`);
             }
         }
-        // 策略2（回退）: 逐个下载未成功的图片
-        for (const [filename] of imageResources) {
+        // 策略2（回退）: 并行下载未成功的图片（每文件内回退链串行）
+        await Promise.all(Array.from(imageResources.keys()).map(async (filename) => {
             const localPath = path_1.default.join(imgDir, filename);
             if (fs_1.default.existsSync(localPath))
-                continue;
+                return;
             const directUrl = urlMap.get(filename);
-            let downloaded = false;
             // 回退A: 直接下载（无认证）
-            if (!downloaded && directUrl) {
+            if (directUrl) {
                 try {
                     await (0, http_utils_js_1.downloadFile)(directUrl, localPath);
-                    downloaded = true;
+                    return;
                 }
                 catch { /* 回退 */
                 }
             }
             // 回退B: OnesImageService 旧方法
-            if (!downloaded && onesImageService) {
+            if (onesImageService) {
                 try {
                     const resourceHash = filename.replace(/\.[^.]+$/, '');
-                    downloaded = await onesImageService.downloadImage(resourceHash, localPath);
+                    await onesImageService.downloadImage(resourceHash, localPath);
                 }
                 catch { /* 下载失败不阻塞流程 */
                 }
             }
-        }
+        }));
         let desc = req.description;
         // 替换 [Image: filename.png] 格式
         desc = desc.replace(/\[Image:\s*([^\]]+)\]/g, (_match, imageName) => {

@@ -16,6 +16,7 @@ const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const error_utils_js_1 = require("../../utils/error-utils.js");
+const markdown_utils_js_1 = require("../../utils/markdown-utils.js");
 /** Codex 配置目录 */
 const CODEX_DIR = path_1.default.join(os_1.default.homedir(), '.codex');
 /** Codex 配置文件路径（TOML 格式） */
@@ -284,7 +285,7 @@ class CodexProvider {
                         for (const candidate of candidates) {
                             if (fs_1.default.existsSync(candidate)) {
                                 try {
-                                    description = extractDescription(fs_1.default.readFileSync(candidate, 'utf-8'));
+                                    description = (0, markdown_utils_js_1.extractDescription)(fs_1.default.readFileSync(candidate, 'utf-8'));
                                 }
                                 catch { /* skip */ }
                                 break;
@@ -303,7 +304,7 @@ class CodexProvider {
                 const content = fs_1.default.readFileSync(agentsFile, 'utf-8');
                 skills.push({
                     name: 'AGENTS',
-                    description: extractDescription(content),
+                    description: (0, markdown_utils_js_1.extractDescription)(content),
                     enabled: true,
                     filePath: agentsFile,
                 });
@@ -329,7 +330,7 @@ class CodexProvider {
                     const cmd = typeof sectionVal.command === 'string' ? sectionVal.command : '';
                     servers.push({
                         name,
-                        type: inferServerType(cmd),
+                        type: (0, markdown_utils_js_1.inferServerType)(cmd),
                         command: cmd,
                         args: Array.isArray(sectionVal.args) ? sectionVal.args : [],
                         env: (typeof sectionVal.env === 'object' && sectionVal.env !== null) ? sectionVal.env : {},
@@ -348,7 +349,6 @@ class CodexProvider {
         this.sessionIdToThreadId.clear();
         this.threadIdToSessionId.clear();
     }
-    // === 内部方法 ===
     /** 动态导入并创建 Codex 客户端 */
     async createClient() {
         // ESM-only SDK 在 CJS 编译产物中需要特殊处理：
@@ -366,32 +366,4 @@ class CodexProvider {
     }
 }
 exports.CodexProvider = CodexProvider;
-// === 辅助函数 ===
-/** 从 Markdown 内容提取描述 */
-function extractDescription(content) {
-    const lines = content.split('\n');
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-            return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
-        }
-        if (trimmed.startsWith('#')) {
-            const headerText = trimmed.replace(/^#+\s*/, '');
-            return headerText.length > 100 ? headerText.substring(0, 100) + '...' : headerText;
-        }
-    }
-    return '';
-}
-/** 根据命令推断服务器类型 */
-function inferServerType(command) {
-    if (!command)
-        return 'custom';
-    if (command.includes('node') || command.includes('npx'))
-        return 'node';
-    if (command.includes('python') || command.includes('uvx'))
-        return 'python';
-    if (command.includes('docker'))
-        return 'docker';
-    return 'custom';
-}
 //# sourceMappingURL=codex-provider.js.map

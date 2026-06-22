@@ -24,6 +24,7 @@ const http_1 = __importDefault(require("http"));
 const https_1 = __importDefault(require("https"));
 const http_utils_js_1 = require("../utils/http-utils.js");
 const constants_js_1 = require("../utils/constants.js");
+const lru_cache_js_1 = require("../utils/lru-cache.js");
 /** Base64URL 编码 */
 function base64Url(buf) {
     return buf.toString('base64url');
@@ -38,7 +39,7 @@ class OnesImageService {
     password;
     session = null;
     /** Wiki page 缓存：wikiPageUuid → { refUuid, token, expiresAt } */
-    wikiPageCache = new Map();
+    wikiPageCache = new lru_cache_js_1.LruCache(500);
     /** GraphQL 查询任务的 relatedWikiPages */
     static TASK_DETAIL_QUERY = `
         query Task($key: Key) {
@@ -117,35 +118,47 @@ class OnesImageService {
         const authorizeLocation = authorizeRes.headers.get('location');
         if (!authorizeLocation)
             throw new Error('ONES: Authorize missing location');
-        const authRequestId = new URL(authorizeLocation).searchParams.get('id');
-        if (!authRequestId)
-            throw new Error('ONES: Cannot parse auth_request_id');
-        // 6. Finalize
-        const finalizeRes = await this.fetch(`${baseUrl}/identity/api/auth_request/finalize`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json;charset=UTF-8', 'Cookie': cookieHeader() },
-            body: JSON.stringify({
-                auth_request_id: authRequestId,
-                region_uuid: orgUser.region_uuid,
-                org_uuid: orgUser.org_uuid,
-                org_user_uuid: orgUser.org_user.org_user_uuid,
-            }),
-        });
-        if (!finalizeRes.ok)
-            throw new Error(`ONES: Finalize failed: ${finalizeRes.status}`);
-        // 7. Callback → code
-        const callbackRes = await this.fetch(`${baseUrl}/identity/authorize/callback?id=${authRequestId}&lang=zh`, {
-            method: 'GET',
-            headers: { Cookie: cookieHeader() },
-            redirect: 'manual',
-        });
-        collectCookies(callbackRes);
-        const callbackLocation = callbackRes.headers.get('location');
-        if (!callbackLocation)
-            throw new Error('ONES: Callback missing location');
-        const code = new URL(callbackLocation).searchParams.get('code');
+        // 直接从 authorize 响应中获取 code（ONES 新流程）
+        let code = new URL(authorizeLocation).searchParams.get('code');
+        if (code) {
+            // 新流程：直接返回 code
+        }
+        else {
+            // 兼容旧流程：需要先获取 auth_request_id
+            const authRequestId = new URL(authorizeLocation).searchParams.get('id');
+            if (!authRequestId) {
+                throw new Error('ONES: Cannot parse auth_request_id or code');
+            }
+            // 6. Finalize
+            const finalizeRes = await this.fetch(`${baseUrl}/identity/api/auth_request/finalize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json;charset=UTF-8', 'Cookie': cookieHeader() },
+                body: JSON.stringify({
+                    auth_request_id: authRequestId,
+                    region_uuid: orgUser.region_uuid,
+                    org_uuid: orgUser.org_uuid,
+                    org_user_uuid: orgUser.org_user.org_user_uuid,
+                }),
+            });
+            if (!finalizeRes.ok)
+                throw new Error(`ONES: Finalize failed: ${finalizeRes.status}`);
+            // 7. Callback → code
+            const callbackRes = await this.fetch(`${baseUrl}/identity/authorize/callback?id=${authRequestId}&lang=zh`, {
+                method: 'GET',
+                headers: { Cookie: cookieHeader() },
+                redirect: 'manual',
+            });
+            collectCookies(callbackRes);
+            const callbackLocation = callbackRes.headers.get('location');
+            if (!callbackLocation)
+                throw new Error('ONES: Callback missing location');
+            const codeFromCallback = new URL(callbackLocation).searchParams.get('code');
+            if (!codeFromCallback)
+                throw new Error('ONES: Cannot parse authorization code');
+            code = codeFromCallback;
+        }
         if (!code)
-            throw new Error('ONES: Cannot parse authorization code');
+            throw new Error('ONES: No authorization code obtained');
         // 8. Token exchange
         const tokenRes = await this.fetch(`${baseUrl}/identity/oauth/token`, {
             method: 'POST',

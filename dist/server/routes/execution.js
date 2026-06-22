@@ -91,6 +91,41 @@ function toPersisted(exec) {
     };
 }
 /**
+ * 统一处理 runBridge 返回结果：保存 sessionId、判定终态、持久化、广播。
+ * 多处调用点复用（/start、/retry-step、/skip-step、/reply）。
+ */
+function finalizeRunResult(execution, result, persistStore, broadcastFn) {
+    if (result.sessionId)
+        execution.sessionId = result.sessionId;
+    const curStatus = execution.status;
+    if (result.aborted && curStatus !== 'paused') {
+        execution.status = 'aborted';
+    }
+    else if (curStatus !== 'paused') {
+        execution.status = result.exitCode === 0 ? 'completed' : 'failed';
+    }
+    if (execution.status !== 'paused') {
+        execution.completedAt = new Date().toISOString();
+    }
+    persistStore.upsert(toPersisted(execution));
+    broadcastFn({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
+}
+/**
+ * 构造 runNextExecutionSkill 的 args 对象（prompt + onOutput + 各 service）。
+ * continue-skill / skip-skill 共用。
+ */
+function buildSkillArgs(execution, plan, services) {
+    const prompt = (0, prompt_enrichment_js_1.enrichPrompt)(plan.rawOutput ?? plan.summary ?? '', services.memoryService, execution.workspacePath || process.cwd());
+    const onOutput = (data) => {
+        execution.logs.push(data);
+        (0, websocket_js_1.broadcast)({
+            type: 'execution:output',
+            data: { executionId: execution.id, stepIndex: execution.currentStep, content: data }
+        });
+    };
+    return { ...services, prompt, onOutput };
+}
+/**
  * 创建执行管理路由
  * @param cliRunnerService - CLI 运行器服务实例，用于调用 Claude CLI 执行代码
  * @param pipelineService - 可选的流水线服务实例，用于解析执行阶段的技能和测试配置
@@ -249,20 +284,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                     onOutput,
                     signal: abortController.signal,
                 });
-                if (result.sessionId)
-                    execution.sessionId = result.sessionId;
-                const curStatus = execution.status;
-                if (result.aborted && curStatus !== 'paused') {
-                    execution.status = 'aborted';
-                }
-                else if (curStatus !== 'paused') {
-                    execution.status = result.exitCode === 0 ? 'completed' : 'failed';
-                }
-                if (execution.status !== 'paused') {
-                    execution.completedAt = new Date().toISOString();
-                }
-                persistStore.upsert(toPersisted(execution));
-                (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId, status: execution.status } });
+                finalizeRunResult(execution, result, persistStore, websocket_js_1.broadcast);
                 if (execution.status === 'completed' && plan.pipelineId && pipelineService && testExecutorService) {
                     void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
                 }
@@ -370,25 +392,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 },
                 signal: execution.abortController?.signal,
             });
-            if (result.sessionId)
-                execution.sessionId = result.sessionId;
-            const curStatus = execution.status;
-            if (result.aborted && curStatus !== 'paused') {
-                execution.status = 'aborted';
-            }
-            else if (curStatus !== 'paused') {
-                if (result.exitCode === 0) {
-                    execution.status = 'completed';
-                }
-                else {
-                    execution.status = 'failed';
-                }
-            }
-            if (execution.status !== 'paused') {
-                execution.completedAt = new Date().toISOString();
-            }
-            persistStore.upsert(toPersisted(execution));
-            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
+            finalizeRunResult(execution, result, persistStore, websocket_js_1.broadcast);
             if (execution.status === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
                 void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
             }
@@ -459,25 +463,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 },
                 signal: execution.abortController?.signal,
             });
-            if (result.sessionId)
-                execution.sessionId = result.sessionId;
-            const curStatus = execution.status;
-            if (result.aborted && curStatus !== 'paused') {
-                execution.status = 'aborted';
-            }
-            else if (curStatus !== 'paused') {
-                if (result.exitCode === 0) {
-                    execution.status = 'completed';
-                }
-                else {
-                    execution.status = 'failed';
-                }
-            }
-            if (execution.status !== 'paused') {
-                execution.completedAt = new Date().toISOString();
-            }
-            persistStore.upsert(toPersisted(execution));
-            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
+            finalizeRunResult(execution, result, persistStore, websocket_js_1.broadcast);
             if (execution.status === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
                 void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
             }
@@ -622,27 +608,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 },
                 signal: execution.abortController?.signal,
             });
-            // 保存会话ID以便后续多轮对话
-            if (result.sessionId)
-                execution.sessionId = result.sessionId;
-            // 根据中止状态和退出码设置最终状态
-            const curStatus = execution.status;
-            if (result.aborted && curStatus !== 'paused') {
-                execution.status = 'aborted';
-            }
-            else if (curStatus !== 'paused') {
-                if (result.exitCode === 0) {
-                    execution.status = 'completed';
-                }
-                else {
-                    execution.status = 'failed';
-                }
-            }
-            if (execution.status !== 'paused') {
-                execution.completedAt = new Date().toISOString();
-            }
-            persistStore.upsert(toPersisted(execution));
-            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
+            finalizeRunResult(execution, result, persistStore, websocket_js_1.broadcast);
         }
         catch (err) {
             execution.status = 'failed';
@@ -678,24 +644,8 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             return;
         }
         try {
-            const prompt = (0, prompt_enrichment_js_1.enrichPrompt)(plan.rawOutput ?? plan.summary ?? '', memoryService, execution.workspacePath || process.cwd());
-            const onOutput = (data) => {
-                execution.logs.push(data);
-                (0, websocket_js_1.broadcast)({
-                    type: 'execution:output',
-                    data: { executionId: execution.id, stepIndex: execution.currentStep, content: data }
-                });
-            };
-            await runNextExecutionSkill(execution, plan, {
-                cliRunnerService,
-                prompt,
-                memoryService,
-                pipelineService,
-                testExecutorService,
-                testPersistStore,
-                sandboxService,
-                onOutput
-            }, persistStore);
+            const args = buildSkillArgs(execution, plan, { cliRunnerService, memoryService, pipelineService, testExecutorService, testPersistStore, sandboxService });
+            await runNextExecutionSkill(execution, plan, args, persistStore);
         }
         catch (err) {
             execution.status = 'failed';
@@ -732,24 +682,8 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 return;
             }
             try {
-                const prompt = (0, prompt_enrichment_js_1.enrichPrompt)(plan.rawOutput ?? plan.summary ?? '', memoryService, execution.workspacePath || process.cwd());
-                const onOutput = (data) => {
-                    execution.logs.push(data);
-                    (0, websocket_js_1.broadcast)({
-                        type: 'execution:output',
-                        data: { executionId: execution.id, stepIndex: execution.currentStep, content: data }
-                    });
-                };
-                await runNextExecutionSkill(execution, plan, {
-                    cliRunnerService,
-                    prompt,
-                    memoryService,
-                    pipelineService,
-                    testExecutorService,
-                    testPersistStore,
-                    sandboxService,
-                    onOutput
-                }, persistStore);
+                const args = buildSkillArgs(execution, plan, { cliRunnerService, memoryService, pipelineService, testExecutorService, testPersistStore, sandboxService });
+                await runNextExecutionSkill(execution, plan, args, persistStore);
             }
             catch (err) {
                 execution.status = 'failed';
@@ -767,7 +701,6 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
     });
     return router;
 }
-// === 多技能串行执行 ===
 /**
  * 执行队列中下一个技能。队列空 → completed。
  * 完成单个技能后进入 waiting_skill_confirm，等用户 continue-skill 触发下一个。
@@ -861,7 +794,6 @@ async function runNextExecutionSkill(execution, plan, opts, persistStore) {
         (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `Skill "${skill}" failed: ${(0, error_utils_js_1.getErrorMessage)(err)}` } });
     }
 }
-// === 执行完成后自动触发测试阶段 ===
 /**
  * 根据流水线配置，在执行完成后自动触发测试阶段。
  * 支持两种测试模式：

@@ -25,22 +25,9 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const validation_js_1 = require("../middleware/validation.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
+const markdown_utils_js_1 = require("../utils/markdown-utils.js");
 /** 内置技能目录（项目 skills/ → dist/skills/） */
 const BUILTIN_SKILLS_DIR = path_1.default.resolve(__dirname, '..', '..', '..', 'skills');
-/** 从 markdown 提取描述（首行非空非标题） */
-function extractSkillDesc(content) {
-    for (const line of content.split('\n')) {
-        const t = line.trim();
-        if (!t)
-            continue;
-        if (t.startsWith('---'))
-            continue; // frontmatter
-        if (t.startsWith('#'))
-            return t.replace(/^#+\s*/, '').substring(0, 100);
-        return t.substring(0, 100);
-    }
-    return '';
-}
 /** 加载内置技能（5 个默认） */
 function loadBuiltinSkills() {
     const out = [];
@@ -57,7 +44,7 @@ function loadBuiltinSkills() {
                 const content = fs_1.default.readFileSync(mdPath, 'utf-8');
                 out.push({
                     name: entry.name,
-                    description: extractSkillDesc(content),
+                    description: (0, markdown_utils_js_1.extractDescription)(content),
                     enabled: true,
                     filePath: mdPath,
                     source: 'builtin',

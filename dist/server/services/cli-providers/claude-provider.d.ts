@@ -5,7 +5,7 @@
  * 封装 Claude Agent SDK 的桥接进程管理，从原有的 BridgeProcess 类迁移而来。
  * 通过持久化子进程（claude-bridge.mjs）+ JSON 行协议实现双向通信。
  */
-import type { CLIProvider, CLIProviderStatus, CLIProviderInput, CLIProviderOptions, CLIProviderResult, SkillInfo, McpServerInfo } from './types.js';
+import type { CLIProvider, CLIProviderInput, CLIProviderOptions, CLIProviderResult, CLIProviderStatus, McpServerInfo, SkillInfo } from './types.js';
 /**
  * Claude Code CLI Provider
  * @description 通过持久化桥接子进程与 Claude Agent SDK 通信

@@ -56,7 +56,10 @@ export declare class PlanStoreService {
     /**
      * 列出所有计划（按 updatedAt 倒序）
      */
-    list(): PersistedPlan[];
+    list(): Promise<PersistedPlan[]>;
+    /** 同步列表（仅 fallback 用，避免 async 链扩散） */
+    private listSync;
+    private readPlanFileAsync;
     /**
      * 根据 planId 获取计划
      */

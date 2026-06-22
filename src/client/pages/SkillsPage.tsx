@@ -81,30 +81,22 @@ interface SkillDetail extends Skill {
 export default function SkillsPage() {
     const {t} = useTranslation();
     const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('skills');
-    // === 列表和选中状态 ===
     /** 所有技能列表 */
     const [skills, setSkills] = useState<Skill[]>([]);
     /** 当前选中的技能详情 */
     const [selected, setSelected] = useState<SkillDetail | null>(null);
 
-    // === 编辑模式状态 ===
     /** 是否处于编辑模式 */
     const [editing, setEditing] = useState(false);
     /** 编辑中的内容（独立于 selected，用于取消编辑时恢复） */
     const [editContent, setEditContent] = useState('');
 
-    // === 创建模式状态 ===
     /** 是否处于创建模式 */
     const [creating, setCreating] = useState(false);
-    /** 新技能名称 */
     const [newName, setNewName] = useState('');
-    /** 新技能描述 */
     const [newDescription, setNewDescription] = useState('');
-    /** 新技能内容 */
     const [newContent, setNewContent] = useState('');
 
-    // === 通用状态 ===
-    /** 是否正在加载数据 */
     const [loading, setLoading] = useState(false);
     /** 全局错误信息 */
     const [error, setError] = useState<string | null>(null);

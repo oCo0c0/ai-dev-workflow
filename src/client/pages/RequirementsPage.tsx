@@ -97,50 +97,29 @@ interface StoredRequirement extends Requirement {
  *
  * @returns {JSX.Element} 需求管理页面的 React 组件
  */
-export default function RequirementsPage() {
+export default function RequirementsPage(): JSX.Element {
     const {t} = useTranslation();
     const {run: guideRun, steps: guideSteps, handleJoyrideEvent} = useGuide('requirements');
-    // === 已保存需求相关状态 ===
-    /** 已保存到本地的需求列表 */
     const [saved, setSaved] = useState<StoredRequirement[]>([]);
-    /** 当前选中的需求详情（右侧面板展示） */
     const [selected, setSelected] = useState<StoredRequirement | null>(null);
-    /** 是否正在加载已保存需求列表 */
     const [loadingSaved, setLoadingSaved] = useState(false);
 
-    // === 按 ID 获取需求相关状态 ===
-    /** 用户输入的需求 ID */
     const [fetchId, setFetchId] = useState('');
-    /** 是否正在获取需求 */
     const [fetching, setFetching] = useState(false);
-    /** 获取需求时的错误信息 */
     const [fetchError, setFetchError] = useState<string | null>(null);
-    /** 是否解析文档附件 */
     const [parseDocuments, setParseDocuments] = useState(false);
 
-    // === MCP 搜索相关状态 ===
-    /** 搜索关键词 */
     const [searchQuery, setSearchQuery] = useState('');
-    /** 搜索结果列表（不自动保存） */
     const [searchResults, setSearchResults] = useState<Requirement[]>([]);
-    /** 是否正在搜索 */
     const [searching, setSearching] = useState(false);
-    /** 搜索时的错误信息 */
     const [searchError, setSearchError] = useState<string | null>(null);
-    /** 是否展开搜索面板 */
     const [showSearch, setShowSearch] = useState(false);
 
-    // === 编辑相关状态 ===
-    /** 是否处于编辑模式 */
     const [editing, setEditing] = useState(false);
-    /** 编辑中的标题 */
     const [editTitle, setEditTitle] = useState('');
-    /** 编辑中的描述 */
     const [editDescription, setEditDescription] = useState('');
-    /** 是否正在保存编辑 */
     const [saving, setSaving] = useState(false);
 
-    // === 手动创建相关状态 ===
     const [showCreate, setShowCreate] = useState(false);
     const [createNumber, setCreateNumber] = useState('');
     const [createTitle, setCreateTitle] = useState('');
@@ -148,7 +127,6 @@ export default function RequirementsPage() {
     const [createFiles, setCreateFiles] = useState<File[]>([]);
     const [creating, setCreating] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    // 重复需求处理
     const [duplicate, setDuplicate] = useState<{ number: string; existingTitle: string } | null>(null);
 
     // 编辑模式文件上传

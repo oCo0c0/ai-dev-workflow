@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
+import {StatusIcon} from '../components/StatusIcon';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
 
@@ -90,20 +91,7 @@ interface ExecutionDetail extends ExecutionSummary {
  * @returns 对应的 React 图标元素
  */
 function statusIcon(status: string) {
-    switch (status) {
-        case 'completed':
-            return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500"/>;
-        case 'failed':
-            return <XCircle className="h-3.5 w-3.5 text-destructive"/>;
-        case 'running':
-            return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin"/>;
-        case 'paused':
-            return <AlertCircle className="h-3.5 w-3.5 text-yellow-500"/>;
-        case 'aborted':
-            return <Square className="h-3.5 w-3.5 text-muted-foreground"/>;
-        default:
-            return <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>;
-    }
+    return <StatusIcon status={status}/>;
 }
 
 // === 主组件 ===
@@ -486,6 +474,7 @@ export default function ExecutionPage() {
         completed: {label: t('execution.statusCompleted'), color: 'text-emerald-500', bg: 'bg-emerald-500/10'},
         failed: {label: t('execution.statusFailed'), color: 'text-destructive', bg: 'bg-destructive/10'},
         aborted: {label: t('execution.statusAborted'), color: 'text-muted-foreground', bg: 'bg-muted'},
+        waiting_skill_confirm: {label: t('execution.statusSkillConfirm'), color: 'text-purple-500', bg: 'bg-purple-500/10'},
     };
 
     const cfg = statusConfig[execStatus] ?? statusConfig.idle;

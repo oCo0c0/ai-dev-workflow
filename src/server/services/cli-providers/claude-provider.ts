@@ -6,20 +6,21 @@
  * 通过持久化子进程（claude-bridge.mjs）+ JSON 行协议实现双向通信。
  */
 
-import {spawn, ChildProcess} from 'child_process';
+import {ChildProcess, spawn} from 'child_process';
 import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import {getErrorMessage} from '../../utils/error-utils.js';
+import {extractDescription} from '../../utils/markdown-utils.js';
 import type {
     CLIProvider,
-    CLIProviderStatus,
     CLIProviderInput,
     CLIProviderOptions,
     CLIProviderResult,
-    SkillInfo,
+    CLIProviderStatus,
     McpServerInfo,
+    SkillInfo,
 } from './types.js';
 
 /** 桥接脚本路径（编译后相对 dist/server/services/） */
@@ -71,8 +72,7 @@ export class ClaudeProvider implements CLIProvider {
             // 检查 @anthropic-ai/claude-agent-sdk 是否可导入
             let sdkPath: string | undefined;
             try {
-                const resolved = require.resolve('@anthropic-ai/claude-agent-sdk');
-                sdkPath = resolved;
+                sdkPath = require.resolve('@anthropic-ai/claude-agent-sdk');
             } catch {
                 return {available: false, error: '@anthropic-ai/claude-agent-sdk not installed'};
             }
@@ -155,10 +155,12 @@ export class ClaudeProvider implements CLIProvider {
                                 enabled: true,
                                 filePath,
                             });
-                        } catch { /* skip */ }
+                        } catch { /* skip */
+                        }
                     }
                 }
-            } catch { /* ignore */ }
+            } catch { /* ignore */
+            }
         }
 
         // 扫描 skills/ 目录
@@ -178,7 +180,8 @@ export class ClaudeProvider implements CLIProvider {
                                     enabled: true,
                                     filePath: mdFile,
                                 });
-                            } catch { /* skip */ }
+                            } catch { /* skip */
+                            }
                         }
                     } else if (entry.isFile() && entry.name.endsWith('.md')) {
                         const filePath = path.join(SKILLS_DIR, entry.name);
@@ -190,10 +193,12 @@ export class ClaudeProvider implements CLIProvider {
                                 enabled: true,
                                 filePath,
                             });
-                        } catch { /* skip */ }
+                        } catch { /* skip */
+                        }
                     }
                 }
-            } catch { /* ignore */ }
+            } catch { /* ignore */
+            }
         }
 
         return skills;
@@ -241,8 +246,6 @@ export class ClaudeProvider implements CLIProvider {
         this.startPromise = null;
     }
 
-    // === 内部桥接进程管理（从原 BridgeProcess 迁移） ===
-
     private async ensureStarted(): Promise<void> {
         if (this.ready && this.process) return;
         if (this.startPromise) return this.startPromise;
@@ -284,7 +287,8 @@ export class ClaudeProvider implements CLIProvider {
                     if (!line.trim()) continue;
                     try {
                         this.handleMessage(JSON.parse(line));
-                    } catch { /* ignore non-JSON */ }
+                    } catch { /* ignore non-JSON */
+                    }
                 }
             });
 
@@ -381,24 +385,6 @@ export class ClaudeProvider implements CLIProvider {
                 break;
         }
     }
-}
-
-// === 辅助函数 ===
-
-/** 从 Markdown 内容提取描述 */
-function extractDescription(content: string): string {
-    const lines = content.split('\n');
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-            return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
-        }
-        if (trimmed.startsWith('#')) {
-            const headerText = trimmed.replace(/^#+\s*/, '');
-            return headerText.length > 100 ? headerText.substring(0, 100) + '...' : headerText;
-        }
-    }
-    return '';
 }
 
 /** 在技能子目录中查找主 .md 文件 */

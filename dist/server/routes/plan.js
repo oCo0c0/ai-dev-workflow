@@ -28,6 +28,7 @@ const requirement_store_service_js_1 = require("../services/requirement-store-se
 const skill_utils_js_1 = require("../utils/skill-utils.js");
 const prompt_enrichment_js_1 = require("../utils/prompt-enrichment.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
+const lru_cache_js_1 = require("../utils/lru-cache.js");
 /** Bridge 调用超时时间（30 分钟） */
 const BRIDGE_TIMEOUT_MS = 30 * 60 * 1000;
 /** 计划生成时的系统提示模板 */
@@ -339,7 +340,7 @@ function injectTasksToTemplate(templatePath, outputPath, headers, rows) {
  * 内存缓存，用于快速访问已生成的计划数据。
  * 数据源为文件持久化存储，缓存缺失时会从文件存储中加载并回填。
  */
-const planCache = new Map();
+const planCache = new lru_cache_js_1.LruCache(50);
 /**
  * 跟踪正在生成的 plan 的 AbortController，用于 pause/abort 控制。
  */
@@ -648,9 +649,9 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
         }
     });
     // GET /api/plan/list - 获取计划列表
-    router.get('/list', (_req, res) => {
+    router.get('/list', async (_req, res) => {
         try {
-            const plans = planStore.list().map(p => {
+            const plans = (await planStore.list()).map(p => {
                 // 迁移：旧 plan 没有 requirementTitle，从 requirement store 补数据
                 if (!p.requirementTitle) {
                     try {
@@ -700,7 +701,8 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
                     planCache.set(plan.id, { ...plan });
                 }
             }
-            catch { /* 补数据失败不影响返回 */ }
+            catch { /* 补数据失败不影响返回 */
+            }
         }
         res.json(plan);
     });

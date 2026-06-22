@@ -61,7 +61,6 @@ const PLAN_INDEX_FILE = path.join(APP_DATA_DIR, 'plan-index.json');
 export class PlanStoreService {
     /** 读取 planId → requirementId 索引 */
     private loadIndex(): Record<string, string> {
-        if (!fs.existsSync(PLAN_INDEX_FILE)) return {};
         try {
             return JSON.parse(fs.readFileSync(PLAN_INDEX_FILE, 'utf-8'));
         } catch {
@@ -82,7 +81,6 @@ export class PlanStoreService {
     /** 从文件读取单个 plan */
     private readPlanFile(requirementId: string): PersistedPlan | undefined {
         const filePath = this.planFilePath(requirementId);
-        if (!fs.existsSync(filePath)) return undefined;
         try {
             return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         } catch {
@@ -106,19 +104,42 @@ export class PlanStoreService {
     /**
      * 列出所有计划（按 updatedAt 倒序）
      */
-    list(): PersistedPlan[] {
-        if (!fs.existsSync(REQUIREMENTS_DIR)) return [];
-
-        const plans: PersistedPlan[] = [];
-        const dirs = fs.readdirSync(REQUIREMENTS_DIR, {withFileTypes: true});
-
-        for (const dir of dirs) {
-            if (!dir.isDirectory()) continue;
-            const plan = this.readPlanFile(dir.name);
-            if (plan) plans.push(plan);
+    async list(): Promise<PersistedPlan[]> {
+        try {
+            const dirs = await fs.promises.readdir(REQUIREMENTS_DIR, {withFileTypes: true});
+            const plans: PersistedPlan[] = [];
+            // 并行读取所有 plan 文件
+            const results = await Promise.all(
+                dirs.filter(d => d.isDirectory()).map(d => this.readPlanFileAsync(d.name))
+            );
+            for (const plan of results) if (plan) plans.push(plan);
+            return plans.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        } catch {
+            return [];
         }
+    }
 
-        return plans.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    /** 同步列表（仅 fallback 用，避免 async 链扩散） */
+    private listSync(): PersistedPlan[] {
+        if (!fs.existsSync(REQUIREMENTS_DIR)) return [];
+        const plans: PersistedPlan[] = [];
+        try {
+            const dirs = fs.readdirSync(REQUIREMENTS_DIR, {withFileTypes: true});
+            for (const dir of dirs) {
+                if (!dir.isDirectory()) continue;
+                const plan = this.readPlanFile(dir.name);
+                if (plan) plans.push(plan);
+            }
+        } catch { /* ignore */ }
+        return plans;
+    }
+
+    private async readPlanFileAsync(requirementId: string): Promise<PersistedPlan | undefined> {
+        try {
+            return JSON.parse(await fs.promises.readFile(this.planFilePath(requirementId), 'utf-8'));
+        } catch {
+            return undefined;
+        }
     }
 
     /**
@@ -131,7 +152,7 @@ export class PlanStoreService {
             return this.readPlanFile(requirementId);
         }
         // 索引未命中，扫描（兼容旧数据）
-        return this.list().find(p => p.id === planId);
+        return this.listSync().find(p => p.id === planId);
     }
 
     /**

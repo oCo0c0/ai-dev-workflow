@@ -19,7 +19,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createSystemRoutes = createSystemRoutes;
 const express_1 = require("express");
 const config_service_js_1 = require("../services/config-service.js");
-const index_js_1 = require("../services/cli-providers/index.js");
+const cli_providers_1 = require("../services/cli-providers");
 const error_utils_js_1 = require("../utils/error-utils.js");
 /**
  * 创建系统状态路由实例
@@ -80,7 +80,7 @@ function createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService) 
             catch {
                 config = configService.getDefaultConfig();
             }
-            const detected = await (0, index_js_1.detectInstalledProviders)();
+            const detected = await (0, cli_providers_1.detectInstalledProviders)();
             res.json({
                 configured: config.cliProvider?.setupCompleted ?? false,
                 active: config.cliProvider?.active ?? 'claude',
@@ -101,7 +101,7 @@ function createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService) 
                 return;
             }
             // 检测选择的 Provider 是否可用
-            const provider = (0, index_js_1.getProvider)(providerId);
+            const provider = (0, cli_providers_1.getProvider)(providerId);
             if (!provider) {
                 res.status(404).json({ code: 'PROVIDER_NOT_FOUND', message: `Provider "${providerId}" not found` });
                 return;

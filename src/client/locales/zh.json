@@ -162,6 +162,7 @@
     "statusCompleted": "已完成",
     "statusFailed": "失败",
     "statusAborted": "已终止",
+    "statusSkillConfirm": "技能确认中",
     "noSelectionTitle": "未选择执行记录",
     "noSelectionSubtitle": "前往计划页面确认计划以启动执行，或从历史中选择",
     "stepProgress": "步骤 {{current}} / {{total}}",

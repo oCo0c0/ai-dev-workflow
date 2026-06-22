@@ -27,6 +27,7 @@ import type {MemoryService} from '../services/memory/memory-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {getErrorMessage} from '../utils/error-utils.js';
+import {LruCache} from '../utils/lru-cache.js';
 
 /**
  * @type {PersistedPlan}
@@ -40,8 +41,6 @@ const BRIDGE_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** 计划生成时的系统提示模板 */
 const PLAN_PROMPT_TEMPLATE = `Analyze the following requirement and generate a structured development plan.\n\n## Requirement\n{title}\n\n{description}\n\n## Instructions\nGenerate a development plan. Respond in the same language as the requirement.`;
-
-// === 任务导出（xlsx）相关类型与工具 ===
 
 /** 任务导出 JSON 单行结构（技能输出） */
 interface TaskExportRow {
@@ -387,7 +386,7 @@ function injectTasksToTemplate(
  * 内存缓存，用于快速访问已生成的计划数据。
  * 数据源为文件持久化存储，缓存缺失时会从文件存储中加载并回填。
  */
-const planCache = new Map<string, PersistedPlan>();
+const planCache = new LruCache<string, PersistedPlan>(50);
 
 /**
  * 跟踪正在生成的 plan 的 AbortController，用于 pause/abort 控制。
@@ -398,7 +397,7 @@ const activeGenerations = new Map<string, AbortController>();
  * 获取计划内存缓存的引用。
  * 主要供 execution 路由模块访问计划数据。
  */
-export function getPlanStore(): Map<string, PersistedPlan> {
+export function getPlanStore(): LruCache<string, PersistedPlan> {
     return planCache;
 }
 
@@ -796,9 +795,9 @@ export function createPlanRoutes(
     });
 
     // GET /api/plan/list - 获取计划列表
-    router.get('/list', (_req, res) => {
+    router.get('/list', async (_req, res) => {
         try {
-            const plans = planStore.list().map(p => {
+            const plans = (await planStore.list()).map(p => {
                 // 迁移：旧 plan 没有 requirementTitle，从 requirement store 补数据
                 if (!p.requirementTitle) {
                     try {
@@ -846,7 +845,8 @@ export function createPlanRoutes(
                     planStore.upsert(plan);
                     planCache.set(plan.id, {...plan});
                 }
-            } catch { /* 补数据失败不影响返回 */ }
+            } catch { /* 补数据失败不影响返回 */
+            }
         }
         res.json(plan);
     });

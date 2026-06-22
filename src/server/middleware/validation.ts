@@ -112,7 +112,7 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
  * @returns 校验结果，valid 为 true 时 path 为规范化后的路径
  */
 export function validateWorkspacePath(workspacePath: string): { valid: boolean; path?: string; error?: string } {
-    if (!workspacePath || typeof workspacePath !== 'string') {
+    if (!workspacePath) {
         return {valid: false, error: 'workspacePath is required'};
     }
 

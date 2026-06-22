@@ -17,6 +17,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const error_utils_js_1 = require("../../utils/error-utils.js");
+const markdown_utils_js_1 = require("../../utils/markdown-utils.js");
 /** 桥接脚本路径（编译后相对 dist/server/services/） */
 const BRIDGE_SCRIPT = path_1.default.resolve(__dirname, '../../../bridge/claude-bridge.mjs');
 /** Claude 配置根目录 */
@@ -49,8 +50,7 @@ class ClaudeProvider {
             // 检查 @anthropic-ai/claude-agent-sdk 是否可导入
             let sdkPath;
             try {
-                const resolved = require.resolve('@anthropic-ai/claude-agent-sdk');
-                sdkPath = resolved;
+                sdkPath = require.resolve('@anthropic-ai/claude-agent-sdk');
             }
             catch {
                 return { available: false, error: '@anthropic-ai/claude-agent-sdk not installed' };
@@ -121,16 +121,18 @@ class ClaudeProvider {
                             const content = fs_1.default.readFileSync(filePath, 'utf-8');
                             skills.push({
                                 name: entry.name.replace(/\.md$/, ''),
-                                description: extractDescription(content),
+                                description: (0, markdown_utils_js_1.extractDescription)(content),
                                 enabled: true,
                                 filePath,
                             });
                         }
-                        catch { /* skip */ }
+                        catch { /* skip */
+                        }
                     }
                 }
             }
-            catch { /* ignore */ }
+            catch { /* ignore */
+            }
         }
         // 扫描 skills/ 目录
         if (fs_1.default.existsSync(SKILLS_DIR)) {
@@ -145,12 +147,13 @@ class ClaudeProvider {
                                 const content = fs_1.default.readFileSync(mdFile, 'utf-8');
                                 skills.push({
                                     name: entry.name,
-                                    description: extractDescription(content),
+                                    description: (0, markdown_utils_js_1.extractDescription)(content),
                                     enabled: true,
                                     filePath: mdFile,
                                 });
                             }
-                            catch { /* skip */ }
+                            catch { /* skip */
+                            }
                         }
                     }
                     else if (entry.isFile() && entry.name.endsWith('.md')) {
@@ -159,16 +162,18 @@ class ClaudeProvider {
                             const content = fs_1.default.readFileSync(filePath, 'utf-8');
                             skills.push({
                                 name: entry.name.replace(/\.md$/, ''),
-                                description: extractDescription(content),
+                                description: (0, markdown_utils_js_1.extractDescription)(content),
                                 enabled: true,
                                 filePath,
                             });
                         }
-                        catch { /* skip */ }
+                        catch { /* skip */
+                        }
                     }
                 }
             }
-            catch { /* ignore */ }
+            catch { /* ignore */
+            }
         }
         return skills;
     }
@@ -206,7 +211,6 @@ class ClaudeProvider {
         }
         this.startPromise = null;
     }
-    // === 内部桥接进程管理（从原 BridgeProcess 迁移） ===
     async ensureStarted() {
         if (this.ready && this.process)
             return;
@@ -245,7 +249,8 @@ class ClaudeProvider {
                     try {
                         this.handleMessage(JSON.parse(line));
                     }
-                    catch { /* ignore non-JSON */ }
+                    catch { /* ignore non-JSON */
+                    }
                 }
             });
             child.stderr.on('data', (chunk) => {
@@ -336,22 +341,6 @@ class ClaudeProvider {
     }
 }
 exports.ClaudeProvider = ClaudeProvider;
-// === 辅助函数 ===
-/** 从 Markdown 内容提取描述 */
-function extractDescription(content) {
-    const lines = content.split('\n');
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-            return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
-        }
-        if (trimmed.startsWith('#')) {
-            const headerText = trimmed.replace(/^#+\s*/, '');
-            return headerText.length > 100 ? headerText.substring(0, 100) + '...' : headerText;
-        }
-    }
-    return '';
-}
 /** 在技能子目录中查找主 .md 文件 */
 function findSkillMdFile(dirPath) {
     try {

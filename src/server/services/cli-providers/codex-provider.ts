@@ -11,6 +11,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import {getErrorMessage} from '../../utils/error-utils.js';
+import {extractDescription, inferServerType} from '../../utils/markdown-utils.js';
 import type {
     CLIProvider,
     CLIProviderStatus,
@@ -25,8 +26,6 @@ import type {
 const CODEX_DIR = path.join(os.homedir(), '.codex');
 /** Codex 配置文件路径（TOML 格式） */
 const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
-
-// === 最小 TOML 解析器（仅覆盖 config.toml 用到的结构） ===
 
 /** 解析结果：顶层 table + 数组表 */
 interface TomlParseResult {
@@ -371,8 +370,6 @@ export class CodexProvider implements CLIProvider {
         this.threadIdToSessionId.clear();
     }
 
-    // === 内部方法 ===
-
     /** 动态导入并创建 Codex 客户端 */
     private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {
         // ESM-only SDK 在 CJS 编译产物中需要特殊处理：
@@ -389,31 +386,4 @@ export class CodexProvider implements CLIProvider {
         }
         return this.client;
     }
-}
-
-// === 辅助函数 ===
-
-/** 从 Markdown 内容提取描述 */
-function extractDescription(content: string): string {
-    const lines = content.split('\n');
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-            return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
-        }
-        if (trimmed.startsWith('#')) {
-            const headerText = trimmed.replace(/^#+\s*/, '');
-            return headerText.length > 100 ? headerText.substring(0, 100) + '...' : headerText;
-        }
-    }
-    return '';
-}
-
-/** 根据命令推断服务器类型 */
-function inferServerType(command?: string): string {
-    if (!command) return 'custom';
-    if (command.includes('node') || command.includes('npx')) return 'node';
-    if (command.includes('python') || command.includes('uvx')) return 'python';
-    if (command.includes('docker')) return 'docker';
-    return 'custom';
 }

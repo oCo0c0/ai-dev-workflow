@@ -88,7 +88,7 @@ function errorHandler(err, _req, res, _next) {
  * @returns 校验结果，valid 为 true 时 path 为规范化后的路径
  */
 function validateWorkspacePath(workspacePath) {
-    if (!workspacePath || typeof workspacePath !== 'string') {
+    if (!workspacePath) {
         return { valid: false, error: 'workspacePath is required' };
     }
     const trimmed = workspacePath.trim();

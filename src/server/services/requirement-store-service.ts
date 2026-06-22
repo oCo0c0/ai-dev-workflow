@@ -209,32 +209,31 @@ export class RequirementStoreService {
             }
         }
 
-        // 策略2（回退）: 逐个下载未成功的图片
-        for (const [filename] of imageResources) {
+        // 策略2（回退）: 并行下载未成功的图片（每文件内回退链串行）
+        await Promise.all(Array.from(imageResources.keys()).map(async (filename) => {
             const localPath = path.join(imgDir, filename);
-            if (fs.existsSync(localPath)) continue;
+            if (fs.existsSync(localPath)) return;
 
             const directUrl = urlMap.get(filename);
-            let downloaded = false;
 
             // 回退A: 直接下载（无认证）
-            if (!downloaded && directUrl) {
+            if (directUrl) {
                 try {
                     await httpDownloadFile(directUrl, localPath);
-                    downloaded = true;
+                    return;
                 } catch { /* 回退 */
                 }
             }
 
             // 回退B: OnesImageService 旧方法
-            if (!downloaded && onesImageService) {
+            if (onesImageService) {
                 try {
                     const resourceHash = filename.replace(/\.[^.]+$/, '');
-                    downloaded = await onesImageService.downloadImage(resourceHash, localPath);
+                    await onesImageService.downloadImage(resourceHash, localPath);
                 } catch { /* 下载失败不阻塞流程 */
                 }
             }
-        }
+        }));
 
         let desc = req.description;
 

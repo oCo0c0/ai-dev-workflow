@@ -19,6 +19,7 @@ import {apiGet, apiPost, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
 import {Button} from '../components/ui/button';
+import {StatusIcon} from '../components/StatusIcon';
 import {Card, CardContent} from '../components/ui/card';
 import {Badge} from '../components/ui/badge';
 import {Joyride} from 'react-joyride';
@@ -177,16 +178,7 @@ type TestRunMode = 'run_existing' | 'ai_generate' | 'ai_generate_e2e';
 // ============================================================
 
 function statusIcon(status: string) {
-    switch (status) {
-        case 'completed':
-            return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500"/>;
-        case 'failed':
-            return <XCircle className="h-3.5 w-3.5 text-destructive"/>;
-        case 'running':
-            return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin"/>;
-        default:
-            return <TestTube className="h-3.5 w-3.5 text-muted-foreground"/>;
-    }
+    return <StatusIcon status={status} defaultIcon={<TestTube className="h-3.5 w-3.5 text-muted-foreground"/>}/>;
 }
 
 function modeLabelKey(mode: string): string {

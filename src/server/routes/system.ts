@@ -20,7 +20,7 @@ import {CLIRunnerService} from '../services/cli-runner-service.js';
 import {MCPConfigService} from '../services/mcp-config-service.js';
 import type {SandboxService} from '../services/sandbox-service.js';
 import {ConfigService, type AppConfig} from '../services/config-service.js';
-import {detectInstalledProviders, getProvider} from '../services/cli-providers/index.js';
+import {detectInstalledProviders, getProvider} from '../services/cli-providers';
 import {getErrorMessage} from '../utils/error-utils.js';
 
 /**

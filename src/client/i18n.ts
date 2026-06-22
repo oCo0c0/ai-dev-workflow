@@ -5,7 +5,7 @@ import en from './locales/en.json';
 
 const savedLocale = localStorage.getItem('locale') || 'zh';
 
-i18n.use(initReactI18next).init({
+void i18n.use(initReactI18next).init({
     resources: {
         zh: {translation: zh},
         en: {translation: en},
@@ -14,5 +14,3 @@ i18n.use(initReactI18next).init({
     fallbackLng: 'zh',
     interpolation: {escapeValue: false},
 });
-
-export default i18n;

@@ -162,6 +162,7 @@
     "statusCompleted": "Completed",
     "statusFailed": "Failed",
     "statusAborted": "Aborted",
+    "statusSkillConfirm": "Skill Confirm",
     "noSelectionTitle": "No execution selected",
     "noSelectionSubtitle": "Go to Plan page, confirm a plan to start execution, or select from history",
     "stepProgress": "Step {{current}} / {{total}}",

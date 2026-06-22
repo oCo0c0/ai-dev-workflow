@@ -27,8 +27,6 @@ const PLAN_INDEX_FILE = path_1.default.join(constants_js_1.APP_DATA_DIR, 'plan-i
 class PlanStoreService {
     /** 读取 planId → requirementId 索引 */
     loadIndex() {
-        if (!fs_1.default.existsSync(PLAN_INDEX_FILE))
-            return {};
         try {
             return JSON.parse(fs_1.default.readFileSync(PLAN_INDEX_FILE, 'utf-8'));
         }
@@ -47,8 +45,6 @@ class PlanStoreService {
     /** 从文件读取单个 plan */
     readPlanFile(requirementId) {
         const filePath = this.planFilePath(requirementId);
-        if (!fs_1.default.existsSync(filePath))
-            return undefined;
         try {
             return JSON.parse(fs_1.default.readFileSync(filePath, 'utf-8'));
         }
@@ -71,19 +67,46 @@ class PlanStoreService {
     /**
      * 列出所有计划（按 updatedAt 倒序）
      */
-    list() {
+    async list() {
+        try {
+            const dirs = await fs_1.default.promises.readdir(constants_js_1.REQUIREMENTS_DIR, { withFileTypes: true });
+            const plans = [];
+            // 并行读取所有 plan 文件
+            const results = await Promise.all(dirs.filter(d => d.isDirectory()).map(d => this.readPlanFileAsync(d.name)));
+            for (const plan of results)
+                if (plan)
+                    plans.push(plan);
+            return plans.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        }
+        catch {
+            return [];
+        }
+    }
+    /** 同步列表（仅 fallback 用，避免 async 链扩散） */
+    listSync() {
         if (!fs_1.default.existsSync(constants_js_1.REQUIREMENTS_DIR))
             return [];
         const plans = [];
-        const dirs = fs_1.default.readdirSync(constants_js_1.REQUIREMENTS_DIR, { withFileTypes: true });
-        for (const dir of dirs) {
-            if (!dir.isDirectory())
-                continue;
-            const plan = this.readPlanFile(dir.name);
-            if (plan)
-                plans.push(plan);
+        try {
+            const dirs = fs_1.default.readdirSync(constants_js_1.REQUIREMENTS_DIR, { withFileTypes: true });
+            for (const dir of dirs) {
+                if (!dir.isDirectory())
+                    continue;
+                const plan = this.readPlanFile(dir.name);
+                if (plan)
+                    plans.push(plan);
+            }
         }
-        return plans.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        catch { /* ignore */ }
+        return plans;
+    }
+    async readPlanFileAsync(requirementId) {
+        try {
+            return JSON.parse(await fs_1.default.promises.readFile(this.planFilePath(requirementId), 'utf-8'));
+        }
+        catch {
+            return undefined;
+        }
     }
     /**
      * 根据 planId 获取计划
@@ -95,7 +118,7 @@ class PlanStoreService {
             return this.readPlanFile(requirementId);
         }
         // 索引未命中，扫描（兼容旧数据）
-        return this.list().find(p => p.id === planId);
+        return this.listSync().find(p => p.id === planId);
     }
     /**
      * 根据需求 ID 获取计划（直接读取，无需索引）

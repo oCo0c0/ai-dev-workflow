@@ -128,7 +128,7 @@ interface ExecutionStatus {
     /** 总步骤数 */
     totalSteps: number;
     /** 执行状态 */
-    status: 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+    status: 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm';
     /** 开始时间（ISO 格式） */
     startedAt: string;
     /** 完成时间（ISO 格式），执行未完成时为 undefined */

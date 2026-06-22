@@ -15,6 +15,7 @@ import { PipelineService } from '../services/pipeline-service.js';
 import { type PersistedPlan } from '../services/plan-store-service.js';
 import type { MemoryService } from '../services/memory/memory-service.js';
 import type { MinerUService } from '../services/mineru-service.js';
+import { LruCache } from '../utils/lru-cache.js';
 /**
  * @type {PersistedPlan}
  * @description 向后兼容的类型别名，导出给 execution 路由模块使用。
@@ -25,7 +26,7 @@ export type StoredPlan = PersistedPlan;
  * 获取计划内存缓存的引用。
  * 主要供 execution 路由模块访问计划数据。
  */
-export declare function getPlanStore(): Map<string, PersistedPlan>;
+export declare function getPlanStore(): LruCache<string, PersistedPlan>;
 /**
  * 创建开发计划管理路由
  */

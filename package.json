@@ -1,6 +1,6 @@
 {
   "name": "ai-dev-workbench",
-  "version": "1.1.8-fix",
+  "version": "2.0.0",
   "description": "AI-powered development workbench integrating requirements, coding, and testing",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
