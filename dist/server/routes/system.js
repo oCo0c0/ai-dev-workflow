@@ -15,12 +15,66 @@
  * - GET  /cli-provider/status 获取 CLI Provider 状态
  * - POST /cli-provider/select 选择 CLI Provider（首次引导）
  */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createSystemRoutes = createSystemRoutes;
 const express_1 = require("express");
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
 const config_service_js_1 = require("../services/config-service.js");
 const cli_providers_1 = require("../services/cli-providers");
 const error_utils_js_1 = require("../utils/error-utils.js");
+/** Claude Code settings.json 路径 */
+const CLAUDE_SETTINGS_FILE = path_1.default.join(os_1.default.homedir(), '.claude', 'settings.json');
+/** Codex config.toml 路径 */
+const CODEX_CONFIG_FILE = path_1.default.join(os_1.default.homedir(), '.codex', 'config.toml');
+/**
+ * 从 Claude Code settings.json 的 env 解析模型档位映射
+ * 返回 [{tier, label, model}] —— tier 为 SDK 可识别的别名
+ */
+function readClaudeModelTiers() {
+    const result = [];
+    try {
+        if (!fs_1.default.existsSync(CLAUDE_SETTINGS_FILE))
+            return result;
+        const raw = fs_1.default.readFileSync(CLAUDE_SETTINGS_FILE, 'utf-8');
+        const settings = JSON.parse(raw);
+        const env = settings.env ?? {};
+        const tiers = [
+            ['haiku', 'Haiku', 'ANTHROPIC_DEFAULT_HAIKU_MODEL'],
+            ['sonnet', 'Sonnet', 'ANTHROPIC_DEFAULT_SONNET_MODEL'],
+            ['opus', 'Opus', 'ANTHROPIC_DEFAULT_OPUS_MODEL'],
+        ];
+        for (const [tier, label, envKey] of tiers) {
+            const model = env[envKey];
+            if (model)
+                result.push({ tier, label, model });
+        }
+    }
+    catch { /* ignore */ }
+    return result;
+}
+/**
+ * 从 Codex config.toml 解析当前配置的模型
+ * 读取顶层 model = "xxx" 字段
+ */
+function readCodexModel() {
+    try {
+        if (!fs_1.default.existsSync(CODEX_CONFIG_FILE))
+            return null;
+        const raw = fs_1.default.readFileSync(CODEX_CONFIG_FILE, 'utf-8');
+        // 简单解析顶层 model = "xxx"（在第一个 [section] 之前）
+        const sectionIdx = raw.indexOf('\n[');
+        const head = sectionIdx >= 0 ? raw.slice(0, sectionIdx) : raw;
+        const match = head.match(/^model\s*=\s*"([^"]+)"/m);
+        return match ? match[1] : null;
+    }
+    catch { /* ignore */ }
+    return null;
+}
 /**
  * 创建系统状态路由实例
  *
@@ -126,6 +180,7 @@ function createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService) 
             config.cliProvider = {
                 active: providerId,
                 setupCompleted: true,
+                ...config.cliProvider,
             };
             configService.save(config);
             // 切换运行时 Provider
@@ -142,6 +197,79 @@ function createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService) 
         }
         catch (err) {
             res.status(500).json({ code: 'PROVIDER_SELECT_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
+        }
+    });
+    // GET /api/system/available-models - 读取配置文件中的可用模型列表
+    // Claude: settings.json 的 3 个模型档位映射
+    // Codex: config.toml 的当前 model
+    router.get('/available-models', (_req, res) => {
+        try {
+            res.json({
+                claude: readClaudeModelTiers(),
+                codex: readCodexModel(),
+            });
+        }
+        catch (err) {
+            res.status(500).json({ code: 'MODEL_LIST_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
+        }
+    });
+    // GET /api/system/model-config - 获取当前模型配置
+    router.get('/model-config', (_req, res) => {
+        try {
+            const configService = new config_service_js_1.ConfigService();
+            const config = configService.load();
+            const activeProvider = config.cliProvider?.active || 'claude';
+            res.json({
+                activeProvider,
+                claude: config.cliProvider?.claude || {
+                    model: 'claude-sonnet-4-20250514',
+                    extendedThinking: true,
+                    reasoningEffort: 'high',
+                    streaming: true,
+                },
+                codex: config.cliProvider?.codex || {
+                    model: 'codex-mini-latest',
+                    streaming: true,
+                },
+            });
+        }
+        catch (err) {
+            res.status(500).json({ code: 'CONFIG_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
+        }
+    });
+    // PUT /api/system/model-config - 更新模型配置
+    router.put('/model-config', async (req, res) => {
+        try {
+            const { provider, claude, codex } = req.body;
+            const configService = new config_service_js_1.ConfigService();
+            const config = configService.load();
+            // 更新 Provider（如果指定）
+            if (provider && (provider === 'claude' || provider === 'codex')) {
+                config.cliProvider = { ...config.cliProvider, active: provider };
+            }
+            // 更新 Claude 配置
+            if (claude) {
+                config.cliProvider = {
+                    ...config.cliProvider,
+                    claude: { ...config.cliProvider?.claude, ...claude },
+                };
+            }
+            // 更新 Codex 配置
+            if (codex) {
+                config.cliProvider = {
+                    ...config.cliProvider,
+                    codex: { ...config.cliProvider?.codex, ...codex },
+                };
+            }
+            configService.save(config);
+            // 如果切换了 Provider，通知 CLI Runner
+            if (provider && provider !== config.cliProvider?.active) {
+                await cliRunnerService.switchProvider(provider);
+            }
+            res.json({ success: true, config: config.cliProvider });
+        }
+        catch (err) {
+            res.status(500).json({ code: 'CONFIG_UPDATE_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
         }
     });
     return router;

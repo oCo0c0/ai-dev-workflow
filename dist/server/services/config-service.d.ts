@@ -44,10 +44,27 @@ export interface AppConfig {
         active?: 'claude' | 'codex';
         /** 是否已完成首次引导选择 */
         setupCompleted?: boolean;
+        /** Claude 特定配置 */
+        claude?: {
+            /** 使用的模型名称（默认 'claude-sonnet-4-20250514'） */
+            model?: string;
+            /** 是否启用扩展思考（默认 true） */
+            extendedThinking?: boolean;
+            /** 推理强度（默认 'high'） */
+            reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+            /** 是否启用流式输出（默认 true） */
+            streaming?: boolean;
+            /** 最大 token 数（可选） */
+            maxTokens?: number;
+        };
         /** Codex 特定配置 */
         codex?: {
             /** 使用的模型名称（默认 'codex-mini-latest'） */
             model?: string;
+            /** 是否启用流式输出（默认 true） */
+            streaming?: boolean;
+            /** 最大 token 数（可选） */
+            maxTokens?: number;
         };
     };
     /** MinerU 文档解析服务配置 */

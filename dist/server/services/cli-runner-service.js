@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CLIRunnerService = void 0;
 const error_utils_js_1 = require("../utils/error-utils.js");
 const index_js_1 = require("./cli-providers/index.js");
+const config_service_js_1 = require("./config-service.js");
 // === CLI 运行器服务（Facade） ===
 /**
  * CLI 运行器服务类
@@ -102,6 +103,29 @@ class CLIRunnerService {
      * @returns 执行结果
      */
     async runBridge(input, options) {
+        // 从配置文件读取当前 Provider 的模型配置并注入到 options
+        let modelOptions = {};
+        try {
+            const configService = new config_service_js_1.ConfigService();
+            const config = configService.load();
+            if (this.activeProviderId === 'claude' && config.cliProvider?.claude) {
+                modelOptions = {
+                    model: config.cliProvider.claude.model,
+                    reasoningEffort: config.cliProvider.claude.reasoningEffort,
+                    extendedThinking: config.cliProvider.claude.extendedThinking,
+                    streaming: config.cliProvider.claude.streaming,
+                };
+            }
+            else if (this.activeProviderId === 'codex' && config.cliProvider?.codex) {
+                modelOptions = {
+                    model: config.cliProvider.codex.model,
+                    streaming: config.cliProvider.codex.streaming,
+                };
+            }
+        }
+        catch {
+            // 配置读取失败时使用 Provider 默认行为
+        }
         const result = await this.provider.run({
             prompt: input.prompt,
             cwd: input.cwd,
@@ -113,6 +137,7 @@ class CLIRunnerService {
             signal: options?.signal,
             onOutput: options?.onOutput,
             onError: options?.onError,
+            ...modelOptions,
         });
         return {
             exitCode: result.exitCode,

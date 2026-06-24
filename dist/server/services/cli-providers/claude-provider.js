@@ -97,7 +97,15 @@ class ClaudeProvider {
                 options.signal.addEventListener('abort', abortHandler, { once: true });
             }
             this.pendingRequests.set(requestId, req);
-            const message = JSON.stringify({ requestId, ...input }) + '\n';
+            // 合并模型配置到请求消息（传递给 bridge 进程）
+            const messagePayload = { requestId, ...input };
+            if (options?.model)
+                messagePayload.model = options.model;
+            if (options?.reasoningEffort)
+                messagePayload.reasoningEffort = options.reasoningEffort;
+            if (options?.extendedThinking !== undefined)
+                messagePayload.extendedThinking = options.extendedThinking;
+            const message = JSON.stringify(messagePayload) + '\n';
             const proc = this.process;
             if (proc && proc.stdin) {
                 proc.stdin.write(message);

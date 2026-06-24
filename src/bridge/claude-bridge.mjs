@@ -85,7 +85,7 @@ function emit(obj) {
  * @param request.skills - 可选，技能配置
  */
 async function handleRequest(request) {
-    const {requestId, prompt, cwd, sessionId, maxTurns = 10, skills} = request;
+    const {requestId, prompt, cwd, sessionId, maxTurns = 10, skills, model, reasoningEffort, extendedThinking} = request;
 
     if (!prompt) {
         emit({requestId, type: 'error', message: 'prompt is required'});
@@ -100,6 +100,19 @@ async function handleRequest(request) {
             ...(sessionId ? {resume: sessionId} : {}),
             ...(skills ? {skills} : {}),
         };
+
+        // 应用模型配置（来自 config.json）
+        if (model) {
+            options.model = model;
+        }
+        if (extendedThinking) {
+            // 扩展思考：通过 additionalArgs 传递 thinking 预算
+            options.additionalArgs = [...(options.additionalArgs || []), '--thinking'];
+        }
+        if (reasoningEffort) {
+            // 推理强度：映射为 --model-fast / 默认行为由 model 决定
+            // Claude Code CLI 通过 --model 选择，effort 通过 thinking budget 体现
+        }
 
         if (CLI_PATH) {
             options.pathToClaudeCodeExecutable = CLI_PATH;

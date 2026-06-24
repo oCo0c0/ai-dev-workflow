@@ -69,10 +69,27 @@ export interface AppConfig {
         active?: 'claude' | 'codex';
         /** 是否已完成首次引导选择 */
         setupCompleted?: boolean;
+        /** Claude 特定配置 */
+        claude?: {
+            /** 使用的模型名称（默认 'claude-sonnet-4-20250514'） */
+            model?: string;
+            /** 是否启用扩展思考（默认 true） */
+            extendedThinking?: boolean;
+            /** 推理强度（默认 'high'） */
+            reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+            /** 是否启用流式输出（默认 true） */
+            streaming?: boolean;
+            /** 最大 token 数（可选） */
+            maxTokens?: number;
+        };
         /** Codex 特定配置 */
         codex?: {
             /** 使用的模型名称（默认 'codex-mini-latest'） */
             model?: string;
+            /** 是否启用流式输出（默认 true） */
+            streaming?: boolean;
+            /** 最大 token 数（可选） */
+            maxTokens?: number;
         };
     };
     /** MinerU 文档解析服务配置 */
@@ -115,6 +132,16 @@ const DEFAULT_CONFIG: AppConfig = {
     cliProvider: {
         active: 'claude',
         setupCompleted: false,
+        claude: {
+            model: 'sonnet',
+            extendedThinking: true,
+            reasoningEffort: 'high',
+            streaming: true,
+        },
+        codex: {
+            model: 'codex-mini-latest',
+            streaming: true,
+        },
     },
     mineru: {
         enabled: true,
@@ -258,6 +285,57 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
                         errors.push({
                             field: 'cliProvider.codex.model',
                             message: 'cliProvider.codex.model must be a string'
+                        });
+                    }
+                    if (codex.streaming !== undefined && typeof codex.streaming !== 'boolean') {
+                        errors.push({
+                            field: 'cliProvider.codex.streaming',
+                            message: 'cliProvider.codex.streaming must be a boolean'
+                        });
+                    }
+                    if (codex.maxTokens !== undefined && (typeof codex.maxTokens !== 'number' || codex.maxTokens < 1)) {
+                        errors.push({
+                            field: 'cliProvider.codex.maxTokens',
+                            message: 'cliProvider.codex.maxTokens must be a positive number'
+                        });
+                    }
+                }
+            }
+            // 验证 claude 配置
+            if (cliProvider.claude !== undefined) {
+                if (typeof cliProvider.claude !== 'object' || cliProvider.claude === null) {
+                    errors.push({field: 'cliProvider.claude', message: 'cliProvider.claude must be an object'});
+                } else {
+                    const claude = cliProvider.claude as Record<string, unknown>;
+                    if (claude.model !== undefined && typeof claude.model !== 'string') {
+                        errors.push({
+                            field: 'cliProvider.claude.model',
+                            message: 'cliProvider.claude.model must be a string'
+                        });
+                    }
+                    if (claude.extendedThinking !== undefined && typeof claude.extendedThinking !== 'boolean') {
+                        errors.push({
+                            field: 'cliProvider.claude.extendedThinking',
+                            message: 'cliProvider.claude.extendedThinking must be a boolean'
+                        });
+                    }
+                    if (claude.reasoningEffort !== undefined &&
+                        !['low', 'medium', 'high', 'xhigh', 'max'].includes(claude.reasoningEffort as string)) {
+                        errors.push({
+                            field: 'cliProvider.claude.reasoningEffort',
+                            message: 'cliProvider.claude.reasoningEffort must be one of: low, medium, high, xhigh, max'
+                        });
+                    }
+                    if (claude.streaming !== undefined && typeof claude.streaming !== 'boolean') {
+                        errors.push({
+                            field: 'cliProvider.claude.streaming',
+                            message: 'cliProvider.claude.streaming must be a boolean'
+                        });
+                    }
+                    if (claude.maxTokens !== undefined && (typeof claude.maxTokens !== 'number' || claude.maxTokens < 1)) {
+                        errors.push({
+                            field: 'cliProvider.claude.maxTokens',
+                            message: 'cliProvider.claude.maxTokens must be a positive number'
                         });
                     }
                 }

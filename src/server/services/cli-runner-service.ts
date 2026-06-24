@@ -11,6 +11,7 @@
 import {getErrorMessage} from '../utils/error-utils.js';
 import {getProvider} from './cli-providers/index.js';
 import type {CLIProvider} from './cli-providers/types.js';
+import {ConfigService} from './config-service.js';
 
 // === 数据模型（保持原有接口不变，向后兼容） ===
 
@@ -162,6 +163,33 @@ export class CLIRunnerService {
         input: { prompt: string; cwd?: string; sessionId?: string; maxTurns?: number; skills?: string[] | 'all' },
         options?: CLIRunnerOptions
     ): Promise<CLIExecutionResult> {
+        // 从配置文件读取当前 Provider 的模型配置并注入到 options
+        let modelOptions: {
+            model?: string;
+            reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+            extendedThinking?: boolean;
+            streaming?: boolean;
+        } = {};
+        try {
+            const configService = new ConfigService();
+            const config = configService.load();
+            if (this.activeProviderId === 'claude' && config.cliProvider?.claude) {
+                modelOptions = {
+                    model: config.cliProvider.claude.model,
+                    reasoningEffort: config.cliProvider.claude.reasoningEffort,
+                    extendedThinking: config.cliProvider.claude.extendedThinking,
+                    streaming: config.cliProvider.claude.streaming,
+                };
+            } else if (this.activeProviderId === 'codex' && config.cliProvider?.codex) {
+                modelOptions = {
+                    model: config.cliProvider.codex.model,
+                    streaming: config.cliProvider.codex.streaming,
+                };
+            }
+        } catch {
+            // 配置读取失败时使用 Provider 默认行为
+        }
+
         const result = await this.provider.run(
             {
                 prompt: input.prompt,
@@ -175,6 +203,7 @@ export class CLIRunnerService {
                 signal: options?.signal,
                 onOutput: options?.onOutput,
                 onError: options?.onError,
+                ...modelOptions,
             }
         );
 

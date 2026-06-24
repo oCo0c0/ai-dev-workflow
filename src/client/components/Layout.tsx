@@ -37,8 +37,10 @@ import {
     Languages,
     Bot,
     Terminal,
+    Cpu,
 } from 'lucide-react';
 import {ProviderSetupModal} from './ProviderSetupModal';
+import {ModelConfigModal} from './ModelConfigModal';
 
 /**
  * 侧边栏导航菜单项配置数组
@@ -88,11 +90,23 @@ export default function Layout() {
     const cliProvider = useAppStore((s) => s.cliProvider);
     const setCliProvider = useAppStore((s) => s.setCliProvider);
     const setShowSetupModal = useAppStore((s) => s.setShowSetupModal);
+    const setShowModelConfigModal = useAppStore((s) => s.setShowModelConfigModal);
+    const fetchModelConfig = useAppStore((s) => s.fetchModelConfig);
+    const fetchAvailableModels = useAppStore((s) => s.fetchAvailableModels);
+    const claudeModelTiers = useAppStore((s) => s.claudeModelTiers);
 
     const location = useLocation();
 
     useWebSocket();
     useKeyboardShortcuts();
+
+    // 应用启动时加载模型配置和可用模型列表（串行避免覆盖）
+    useEffect(() => {
+        (async () => {
+            await fetchModelConfig();
+            await fetchAvailableModels();
+        })();
+    }, [fetchModelConfig, fetchAvailableModels]);
 
     useEffect(() => {
         function handleResize() {
@@ -220,6 +234,25 @@ export default function Layout() {
                                 {cliProvider.active === 'codex' ? 'Codex' : 'Claude'}
                             </span>
                         </button>
+                        {/* 模型配置 */}
+                        <button
+                            onClick={() => setShowModelConfigModal(true)}
+                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium"
+                            title="模型配置"
+                        >
+                            <Cpu className="h-4 w-4"/>
+                            <span className="hidden md:inline">
+                                {cliProvider.active === 'codex'
+                                    ? (cliProvider.modelConfig.codex.model || '未配置')
+                                    : (() => {
+                                        const tier = claudeModelTiers.find(
+                                            t => t.tier === cliProvider.modelConfig.claude.model
+                                        );
+                                        return tier ? tier.model : cliProvider.modelConfig.claude.model;
+                                    })()
+                                }
+                            </span>
+                        </button>
                         {/* 语言切换 */}
                         <button
                             onClick={handleToggleLocale}
@@ -266,6 +299,12 @@ export default function Layout() {
                     setShowSetupModal(false);
                 }}
                 firstRun={!cliProvider.configured}
+            />
+
+            {/* 模型配置弹窗 */}
+            <ModelConfigModal
+                open={cliProvider.showModelConfigModal}
+                onClose={() => setShowModelConfigModal(false)}
             />
         </div>
     );

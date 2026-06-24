@@ -234,6 +234,7 @@ export class CodexProvider implements CLIProvider {
             // 使用 runStreamed 获取流式输出
             const {events} = await thread.runStreamed(input.prompt, {
                 signal: options?.signal,
+                ...(options?.model ? {model: options.model} : {}),
             });
 
             for await (const event of events) {

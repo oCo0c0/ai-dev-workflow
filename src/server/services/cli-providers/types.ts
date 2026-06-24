@@ -96,6 +96,14 @@ export interface CLIProviderOptions {
     onOutput?: (data: string) => void;
     /** 错误输出回调 */
     onError?: (data: string) => void;
+    /** 模型名称（覆盖配置文件中的默认模型） */
+    model?: string;
+    /** 推理强度（Claude 专用） */
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    /** 是否启用扩展思考（Claude 专用） */
+    extendedThinking?: boolean;
+    /** 是否启用流式输出 */
+    streaming?: boolean;
 }
 
 /**
