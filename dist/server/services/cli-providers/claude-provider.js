@@ -22,10 +22,12 @@ const markdown_utils_js_1 = require("../../utils/markdown-utils.js");
 const BRIDGE_SCRIPT = path_1.default.resolve(__dirname, '../../../bridge/claude-bridge.mjs');
 /** Claude 配置根目录 */
 const CLAUDE_DIR = path_1.default.join(os_1.default.homedir(), '.claude');
-/** 全局命令目录 */
+/** 全局命令目录（slash commands，支持子目录） */
 const COMMANDS_DIR = path_1.default.join(CLAUDE_DIR, 'commands');
-/** 技能目录 */
+/** 个人技能目录 */
 const SKILLS_DIR = path_1.default.join(CLAUDE_DIR, 'skills');
+/** 已安装插件清单（权威插件 installPath 来源） */
+const INSTALLED_PLUGINS_FILE = path_1.default.join(CLAUDE_DIR, 'plugins', 'installed_plugins.json');
 /** Claude 设置文件 */
 const SETTINGS_FILE = path_1.default.join(CLAUDE_DIR, 'settings.json');
 /**
@@ -117,73 +119,15 @@ class ClaudeProvider {
         });
     }
     async loadSkills() {
-        const skills = [];
-        // 扫描 commands/ 目录
-        if (fs_1.default.existsSync(COMMANDS_DIR)) {
-            try {
-                const entries = fs_1.default.readdirSync(COMMANDS_DIR, { withFileTypes: true });
-                for (const entry of entries) {
-                    if (entry.isFile() && entry.name.endsWith('.md')) {
-                        const filePath = path_1.default.join(COMMANDS_DIR, entry.name);
-                        try {
-                            const content = fs_1.default.readFileSync(filePath, 'utf-8');
-                            skills.push({
-                                name: entry.name.replace(/\.md$/, ''),
-                                description: (0, markdown_utils_js_1.extractDescription)(content),
-                                enabled: true,
-                                filePath,
-                            });
-                        }
-                        catch { /* skip */
-                        }
-                    }
-                }
-            }
-            catch { /* ignore */
-            }
-        }
-        // 扫描 skills/ 目录
-        if (fs_1.default.existsSync(SKILLS_DIR)) {
-            try {
-                const entries = fs_1.default.readdirSync(SKILLS_DIR, { withFileTypes: true });
-                for (const entry of entries) {
-                    if (entry.isDirectory()) {
-                        const skillDir = path_1.default.join(SKILLS_DIR, entry.name);
-                        const mdFile = findSkillMdFile(skillDir);
-                        if (mdFile) {
-                            try {
-                                const content = fs_1.default.readFileSync(mdFile, 'utf-8');
-                                skills.push({
-                                    name: entry.name,
-                                    description: (0, markdown_utils_js_1.extractDescription)(content),
-                                    enabled: true,
-                                    filePath: mdFile,
-                                });
-                            }
-                            catch { /* skip */
-                            }
-                        }
-                    }
-                    else if (entry.isFile() && entry.name.endsWith('.md')) {
-                        const filePath = path_1.default.join(SKILLS_DIR, entry.name);
-                        try {
-                            const content = fs_1.default.readFileSync(filePath, 'utf-8');
-                            skills.push({
-                                name: entry.name.replace(/\.md$/, ''),
-                                description: (0, markdown_utils_js_1.extractDescription)(content),
-                                enabled: true,
-                                filePath,
-                            });
-                        }
-                        catch { /* skip */
-                        }
-                    }
-                }
-            }
-            catch { /* ignore */
-            }
-        }
-        return skills;
+        // 用 name 去重（同源同名只保留一个），保留插入顺序
+        const map = new Map();
+        // 1. 个人技能 ~/.claude/skills/<name>/SKILL.md（含根 .md）
+        scanSkillsDir(SKILLS_DIR, '', 'personal', map);
+        // 2. 命令 ~/.claude/commands/**/*.md（子目录 → dir:name）
+        scanCommandsDir(COMMANDS_DIR, '', map);
+        // 3. 插件技能（权威：installed_plugins.json 的 installPath）
+        scanPluginSkills(INSTALLED_PLUGINS_FILE, map);
+        return Array.from(map.values());
     }
     async loadMcpServers() {
         if (!fs_1.default.existsSync(SETTINGS_FILE)) {
@@ -367,6 +311,196 @@ function findSkillMdFile(dirPath) {
     catch {
         return null;
     }
+}
+/** 读 .md 文件并写入 map（已存在则跳过） */
+function addMdSkill(filePath, name, source, map) {
+    if (map.has(name))
+        return;
+    try {
+        const content = fs_1.default.readFileSync(filePath, 'utf-8');
+        map.set(name, {
+            name,
+            description: (0, markdown_utils_js_1.extractDescription)(content),
+            enabled: true,
+            filePath,
+            source,
+        });
+    }
+    catch { /* skip unreadable */
+    }
+}
+/**
+ * 扫描个人技能目录 ~/.claude/skills/
+ * - 子目录 <name>/SKILL.md → 名 <name>
+ * - 根 .md 文件 → 名 <name>（去 .md）
+ */
+function scanSkillsDir(dir, _prefix, source, map) {
+    if (!fs_1.default.existsSync(dir))
+        return;
+    try {
+        for (const entry of fs_1.default.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isDirectory()) {
+                const mdFile = findSkillMdFile(path_1.default.join(dir, entry.name));
+                if (mdFile)
+                    addMdSkill(mdFile, entry.name, source, map);
+            }
+            else if (entry.isFile() && entry.name.endsWith('.md')) {
+                addMdSkill(path_1.default.join(dir, entry.name), entry.name.replace(/\.md$/, ''), source, map);
+            }
+        }
+    }
+    catch { /* ignore */
+    }
+}
+/**
+ * 递归扫描命令目录（commands 下所有 md 文件，含子目录）
+ * 子目录命令名带前缀：paddleocr/http-doc-workflow.md → paddleocr:http-doc-workflow
+ * @param dir    当前目录
+ * @param prefix 已积累的前缀（含末尾冒号，顶层为空）
+ */
+function scanCommandsDir(dir, prefix, map) {
+    if (!fs_1.default.existsSync(dir))
+        return;
+    try {
+        for (const entry of fs_1.default.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isFile() && entry.name.endsWith('.md')) {
+                const name = `${prefix}${entry.name.replace(/\.md$/, '')}`;
+                addMdSkill(path_1.default.join(dir, entry.name), name, 'command', map);
+            }
+            else if (entry.isDirectory()) {
+                // 递归子目录，前缀累积
+                scanCommandsDir(path_1.default.join(dir, entry.name), `${prefix}${entry.name}:`, map);
+            }
+        }
+    }
+    catch { /* ignore */
+    }
+}
+/** 读取插件 manifest（installPath/.claude-plugin/plugin.json），失败返回 null */
+function readPluginManifest(installPath) {
+    const manifestPath = path_1.default.join(installPath, '.claude-plugin', 'plugin.json');
+    try {
+        return JSON.parse(fs_1.default.readFileSync(manifestPath, 'utf-8'));
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * 解析插件声明的技能目录（绝对路径）。严格只认 skills 目录，不扫插件根：
+ * - manifest 有 skills 字段（字符串或数组，如 "./skills/"）：仅保留指向 skills 的目录
+ * - 无 manifest 或无 skills 字段：回退到约定 installPath/skills（不存在则空）
+ */
+function resolvePluginSkillDirs(installPath) {
+    const manifest = readPluginManifest(installPath);
+    const dirs = [];
+    if (manifest && manifest.skills !== undefined) {
+        const raw = manifest.skills;
+        const arr = Array.isArray(raw) ? raw : [raw];
+        for (const rel of arr) {
+            if (typeof rel !== 'string')
+                continue;
+            // ponytail: 只认 skills 类目录，忽略 ./commands/ 等非技能声明
+            if (!rel.includes('skills'))
+                continue;
+            const abs = path_1.default.resolve(installPath, rel);
+            if (fs_1.default.existsSync(abs))
+                dirs.push(abs);
+        }
+        if (dirs.length)
+            return dirs;
+    }
+    // 约定回退：仅 installPath/skills
+    const skillsSub = path_1.default.join(installPath, 'skills');
+    return fs_1.default.existsSync(skillsSub) ? [skillsSub] : [];
+}
+/** 计算 SKILL.md 内容指纹（大小 + 前 1KB 文本），用于跨插件去重 monorepo 重复内容 */
+function skillContentFingerprint(filePath) {
+    try {
+        const stat = fs_1.default.statSync(filePath);
+        const fd = fs_1.default.openSync(filePath, 'r');
+        const buf = Buffer.alloc(1024);
+        const bytes = fs_1.default.readSync(fd, buf, 0, 1024, 0);
+        fs_1.default.closeSync(fd);
+        return `${stat.size}:${buf.subarray(0, bytes).toString('utf-8')}`;
+    }
+    catch {
+        return '';
+    }
+}
+/**
+ * 扫描插件技能（权威来源 installed_plugins.json）：
+ * 1. 对每个插件按 manifest 解析技能目录
+ * 2. 扫目录下 SKILL.md，名 <plugin>:<skillDir>
+ * 3. 用内容指纹全局去重（context-engineering 等 monorepo 多插件共享内容，避免重复）
+ */
+function scanPluginSkills(installedFile, map) {
+    let raw;
+    try {
+        raw = fs_1.default.readFileSync(installedFile, 'utf-8');
+    }
+    catch {
+        return; // 无插件清单则跳过
+    }
+    let pluginsObj;
+    try {
+        const parsed = JSON.parse(raw);
+        pluginsObj = parsed?.plugins ?? parsed; // 兼容 {plugins:{...}} 或直接 {...}
+        if (!pluginsObj || typeof pluginsObj !== 'object')
+            return;
+    }
+    catch {
+        return;
+    }
+    const contentSeen = new Set(); // 全局内容指纹去重
+    for (const [key, entries] of Object.entries(pluginsObj)) {
+        const pluginName = key.split('@')[0];
+        if (!Array.isArray(entries))
+            continue;
+        for (const entry of entries) {
+            if (!entry?.installPath || !fs_1.default.existsSync(entry.installPath))
+                continue;
+            for (const skillDir of resolvePluginSkillDirs(entry.installPath)) {
+                // 每个 skills 目录只取一层：<skillName>/SKILL.md
+                for (const skillMd of findSkillMdFiles(skillDir, 1)) {
+                    const fp = skillContentFingerprint(skillMd);
+                    if (fp && contentSeen.has(fp))
+                        continue; // monorepo 重复内容跳过
+                    if (fp)
+                        contentSeen.add(fp);
+                    const skillName = path_1.default.basename(path_1.default.dirname(skillMd));
+                    addMdSkill(skillMd, `${pluginName}:${skillName}`, 'plugin', map);
+                }
+            }
+        }
+    }
+}
+/** 递归查找目录下所有 SKILL.md（限定深度避免无限递归，跳过 .git/node_modules） */
+function findSkillMdFiles(rootDir, maxDepth = 2) {
+    const results = [];
+    const walk = (dir, depth) => {
+        if (depth > maxDepth)
+            return;
+        let entries;
+        try {
+            entries = fs_1.default.readdirSync(dir, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                if (entry.name === '.git' || entry.name === 'node_modules')
+                    continue;
+                walk(path_1.default.join(dir, entry.name), depth + 1);
+            }
+            else if (entry.isFile() && entry.name === 'SKILL.md') {
+                results.push(path_1.default.join(dir, entry.name));
+            }
+        }
+    };
+    walk(rootDir, 0);
+    return results;
 }
 /** 根据命令推断 MCP 服务器类型 */
 function inferServerType(command) {

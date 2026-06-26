@@ -1065,14 +1065,18 @@ export function createPlanRoutes(
                 return;
             }
 
-            // 0. 检测 rawOutput 是否已有任务数据（JSON 或 markdown 表格）。无 → 跑技能补全。
-            let tasks = extractTasksFromOutput(plan.rawOutput ?? '');
+            // 0. 优先检查 taskBreakdown 字段，其次检查 rawOutput
+            let tasks = extractTasksFromOutput(plan.taskBreakdown ?? '') || extractTasksFromOutput(plan.rawOutput ?? '');
 
             if (!tasks || tasks.length === 0) {
-                // rawOutput 无任务数据，触发 task-breakdown-estimator 技能
+                // 无任务数据，触发 task-breakdown-estimator 技能
                 const skillName = 'task-breakdown-estimator';
                 const abortController = new AbortController();
                 activeGenerations.set(plan.id, abortController);
+
+                // 保存原始开发计划，防止技能输出污染 rawOutput
+                const originalRawOutput = plan.rawOutput ?? '';
+                const originalSummary = plan.summary ?? '';
 
                 plan.status = 'generating';
                 plan.currentSkill = skillName;
@@ -1109,7 +1113,8 @@ ${description ?? ''}
 ${planContent}
 
 立即输出完整表格，不要追问。`;
-                    const prevOutput = plan.rawOutput ?? '';
+                    // 任务拆分使用空输出开始，不污染rawOutput
+                    const prevOutput = '';
 
                     await runBridgeWithTimeout(
                         plan,
@@ -1138,7 +1143,18 @@ ${planContent}
                     return;
                 }
                 Object.assign(plan, refreshed);
-                tasks = extractTasksFromOutput(plan.rawOutput ?? '');
+
+                // 技能输出当前在 rawOutput（runBridge 写死该字段）→ 挪到 taskBreakdown
+                plan.taskBreakdown = plan.rawOutput ?? '';
+                // 恢复原始开发计划，保持开发计划与任务拆分彻底分离
+                plan.rawOutput = originalRawOutput;
+                plan.summary = originalSummary;
+                plan.status = 'ready';
+                plan.currentSkill = undefined;
+                plan.updatedAt = new Date().toISOString();
+                persistPlan(plan, planStore);
+
+                tasks = extractTasksFromOutput(plan.taskBreakdown ?? '');
             }
 
             // 1. 仍无任务数据

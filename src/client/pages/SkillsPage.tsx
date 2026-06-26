@@ -35,6 +35,7 @@ import {
     Zap,
     Loader2,
     FileCode,
+    RefreshCw,
 } from 'lucide-react';
 
 /**
@@ -214,19 +215,34 @@ export default function SkillsPage() {
             <div className="flex-1 flex gap-4 min-h-0">
                 {/* === 左侧：技能列表 === */}
                 <div className="w-64 flex flex-col flex-shrink-0">
-                    {/* 新建技能按钮 */}
-                    <Button
-                        onClick={() => {
-                            setCreating(true);
-                            setSelected(null);
-                        }}
-                        className="w-full mb-3"
-                        size="sm"
-                        data-tour="skill-new-btn"
-                    >
-                        <Plus className="h-4 w-4 mr-1"/>
-                        {t('skills.newSkill')}
-                    </Button>
+                    {/* 新建技能按钮 + 刷新按钮 */}
+                    <div className="flex gap-2 mb-3">
+                        <Button
+                            onClick={() => {
+                                setCreating(true);
+                                setSelected(null);
+                            }}
+                            className="flex-1"
+                            size="sm"
+                            data-tour="skill-new-btn"
+                        >
+                            <Plus className="h-4 w-4 mr-1"/>
+                            {t('skills.newSkill')}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={fetchSkills}
+                            disabled={loading}
+                            title="重新扫描 ~/.claude 下的技能（个人技能 / 命令 / 插件）"
+                        >
+                            {loading ? (
+                                <Loader2 className="h-4 w-4 animate-spin"/>
+                            ) : (
+                                <RefreshCw className="h-4 w-4"/>
+                            )}
+                        </Button>
+                    </div>
                     {/* 技能列表：支持加载状态、空状态和正常列表 */}
                     <div className="flex-1 overflow-y-auto space-y-1" data-tour="skill-list">
                         {loading && (
@@ -252,16 +268,26 @@ export default function SkillsPage() {
                                 )}
                             >
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                         <p className="text-sm font-medium truncate">{skill.name}</p>
-                                        {skill.source === 'builtin' && (
-                                            <span className="text-[10px] px-1 py-0.5 rounded bg-primary/15 text-primary shrink-0">内置</span>
-                                        )}
+                                        <span
+                                            className={cn(
+                                                'text-[10px] px-1 py-0.5 rounded shrink-0',
+                                                skill.source === 'builtin' && 'bg-primary/15 text-primary',
+                                                skill.source === 'plugin' && 'bg-violet-500/15 text-violet-600',
+                                                skill.source === 'command' && 'bg-sky-500/15 text-sky-600',
+                                                (skill.source === 'personal' || !skill.source) && 'bg-muted text-muted-foreground',
+                                            )}
+                                        >
+                                            {skill.source === 'builtin' ? '内置' :
+                                                skill.source === 'plugin' ? '插件' :
+                                                    skill.source === 'command' ? '命令' : '个人'}
+                                        </span>
                                     </div>
                                     <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
                                 </div>
-                                {/* 删除按钮：仅外部技能可删，内置不可删 */}
-                                {skill.source !== 'builtin' && (
+                                {/* 删除按钮：内置/插件不可删（破坏插件），其余可删 */}
+                                {skill.source !== 'builtin' && skill.source !== 'plugin' && (
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -345,11 +371,13 @@ export default function SkillsPage() {
                                             </Button>
                                         </>
                                     ) : (
-                                        /* 查看模式：进入编辑 */
-                                        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                                            <Pencil className="h-4 w-4 mr-1"/>
-                                            {t('common.edit')}
-                                        </Button>
+                                        /* 查看模式：进入编辑（插件技能只读，不可编辑） */
+                                        selected.source !== 'plugin' && (
+                                            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                                                <Pencil className="h-4 w-4 mr-1"/>
+                                                {t('common.edit')}
+                                            </Button>
+                                        )
                                     )}
                                 </div>
                             </div>

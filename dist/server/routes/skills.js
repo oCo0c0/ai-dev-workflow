@@ -79,15 +79,37 @@ function createSkillsRoutes(skillsService, cliRunnerService) {
         }
     });
     // GET /api/skills/:name - 根据名称获取技能详情
-    router.get('/:name', (req, res) => {
+    router.get('/:name', async (req, res) => {
         try {
-            const skill = skillsService.get(req.params.name);
-            if (!skill) {
-                // 技能不存在时返回 404 状态码
-                res.status(404).json({ code: 'NOT_FOUND', message: `Skill "${req.params.name}" not found` });
+            const name = req.params.name;
+            // 1. 先查用户自建/个人技能（commands/skills 目录）
+            const skill = skillsService.get(name);
+            if (skill) {
+                res.json(skill);
                 return;
             }
-            res.json(skill);
+            // 2. fallback：从 provider 扫描结果（含插件/命令）按 name 匹配，读 filePath 返回内容
+            const provider = cliRunnerService.getProvider();
+            const external = await provider.loadSkills();
+            const hit = external.find(s => s.name === name);
+            if (hit) {
+                let content = '';
+                try {
+                    content = fs_1.default.readFileSync(hit.filePath, 'utf-8');
+                }
+                catch { /* 读不到返回空内容 */
+                }
+                res.json({
+                    name: hit.name,
+                    description: hit.description,
+                    enabled: true,
+                    filePath: hit.filePath,
+                    source: hit.source ?? 'external',
+                    content,
+                });
+                return;
+            }
+            res.status(404).json({ code: 'NOT_FOUND', message: `Skill "${name}" not found` });
         }
         catch (err) {
             res.status(500).json({ code: 'SKILLS_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });

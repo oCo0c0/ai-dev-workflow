@@ -28,6 +28,8 @@ export interface PersistedPlan {
     sessionId?: string;
     /** 流水线 ID */
     pipelineId?: string;
+    /** 任务拆分结果（独立存储，不污染rawOutput） */
+    taskBreakdown?: string;
     /** 待执行技能队列（顺序敏感，先选先执行） */
     pendingSkills?: string[];
     /** 已执行完成的技能列表 */

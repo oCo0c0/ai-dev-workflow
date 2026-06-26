@@ -100,6 +100,8 @@ interface StoredPlan extends PlanSummary {
     executedSkills?: string[];
     /** 当前执行中的技能名 */
     currentSkill?: string;
+    /** 任务拆分结果（独立存储） */
+    taskBreakdown?: string;
 }
 
 /**
@@ -1105,6 +1107,26 @@ export default function PlanPage() {
                                     )}
                                 </CardContent>
                             </Card>
+
+                            {/* 任务拆分独立卡片：taskBreakdown 存在时展示，与开发计划分离 */}
+                            {!editing && plan.taskBreakdown && (
+                                <Card className="border-emerald-500/20 bg-emerald-500/5">
+                                    <CardContent className="p-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <Download className="h-4 w-4 text-emerald-600"/>
+                                            <h3 className="text-sm font-semibold text-emerald-700">
+                                                任务拆分与工时评估
+                                            </h3>
+                                            <span className="text-xs text-muted-foreground">
+                                                （独立于开发计划，可多次导出）
+                                            </span>
+                                        </div>
+                                        <div className="text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto max-h-96 overflow-y-auto">
+                                            <MarkdownContent content={plan.taskBreakdown}/>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
 
                             {/* 回复输入区域：与Claude对话交互 */}
                             {!editing && (
