@@ -12,7 +12,7 @@ const mockDelete = vi.fn();
 const mockExecuteCommand = vi.fn();
 const mockRefreshData = vi.fn();
 
-vi.mock('@daytonaio/sdk', () => ({
+vi.mock('@daytona/sdk', () => ({
     Daytona: vi.fn().mockImplementation(() => ({
         create: mockCreate,
         list: mockList,

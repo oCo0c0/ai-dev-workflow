@@ -10,7 +10,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SandboxService = void 0;
-const sdk_1 = require("@daytonaio/sdk");
+const sdk_1 = require("@daytona/sdk");
 const child_process_1 = require("child_process");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
@@ -231,8 +231,10 @@ class SandboxService {
         if (!this.isEnabled() || !this.client)
             return [];
         try {
-            const result = await this.client.list();
-            const items = result.items ?? [];
+            const iterator = await this.client.list();
+            const items = [];
+            for await (const s of iterator)
+                items.push(s);
             return items
                 .filter((s) => s.state === sdk_1.SandboxState.STARTED)
                 .map((s) => ({

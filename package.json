@@ -40,7 +40,7 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.196",
-    "@daytonaio/sdk": "^0.173.0",
+    "@daytona/sdk": "^0.192.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex-sdk": "^0.130.0",
     "@types/adm-zip": "^0.5.8",

@@ -5,7 +5,7 @@
  *   沙箱按 workspacePath 复用，避免重复创建。
  */
 
-import {Daytona, Sandbox, SandboxState} from '@daytonaio/sdk';
+import {Daytona, Sandbox, SandboxState} from '@daytona/sdk';
 import {execSync} from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -271,8 +271,9 @@ export class SandboxService {
         if (!this.isEnabled() || !this.client) return [];
 
         try {
-            const result = await this.client.list();
-            const items = result.items ?? [];
+            const iterator = await this.client.list();
+            const items: Sandbox[] = [];
+            for await (const s of iterator) items.push(s);
             return items
                 .filter((s: Sandbox) => s.state === SandboxState.STARTED)
                 .map((s: Sandbox) => ({

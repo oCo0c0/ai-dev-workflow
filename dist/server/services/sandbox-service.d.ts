@@ -4,7 +4,7 @@
  *   当 Daytona 未配置时，所有方法返回 null/false，上层服务透明回退到本地执行。
  *   沙箱按 workspacePath 复用，避免重复创建。
  */
-import { Sandbox } from '@daytonaio/sdk';
+import { Sandbox } from '@daytona/sdk';
 /** Daytona 沙箱配置（从 AppConfig['daytona'] 提取） */
 export interface DaytonaConfig {
     apiKey?: string;
