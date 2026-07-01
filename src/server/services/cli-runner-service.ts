@@ -10,7 +10,7 @@
 
 import {getErrorMessage} from '../utils/error-utils.js';
 import {getProvider} from './cli-providers/index.js';
-import type {CLIProvider} from './cli-providers/types.js';
+import type {CLIProvider, McpStdioMap} from './cli-providers/types.js';
 import {ConfigService} from './config-service.js';
 
 // === 数据模型（保持原有接口不变，向后兼容） ===
@@ -160,7 +160,7 @@ export class CLIRunnerService {
      * @returns 执行结果
      */
     async runBridge(
-        input: { prompt: string; cwd?: string; sessionId?: string; maxTurns?: number; skills?: string[] | 'all' },
+        input: { prompt: string; cwd?: string; sessionId?: string; maxTurns?: number; skills?: string[] | 'all'; mcpServers?: McpStdioMap },
         options?: CLIRunnerOptions
     ): Promise<CLIExecutionResult> {
         // 从配置文件读取当前 Provider 的模型配置并注入到 options
@@ -197,6 +197,7 @@ export class CLIRunnerService {
                 sessionId: input.sessionId,
                 maxTurns: input.maxTurns,
                 skills: input.skills,
+                mcpServers: input.mcpServers,
             },
             {
                 workspacePath: options?.workspacePath,

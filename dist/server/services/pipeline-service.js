@@ -225,6 +225,34 @@ class PipelineService {
                 }
             }
         }
+        // 验证新模型阶段配置（plan/execution/test）：结构为数组 + 引用的 MCP 服务器存在
+        const phases = ['plan', 'execution', 'test'];
+        for (const phase of phases) {
+            const phaseCfg = pipeline.steps[phase];
+            if (!phaseCfg)
+                continue;
+            if (!Array.isArray(phaseCfg.skills)) {
+                errors.push({
+                    field: `steps.${phase}.skills`,
+                    message: `${phase}.skills must be an array of skill names`,
+                });
+            }
+            if (!Array.isArray(phaseCfg.mcpServers)) {
+                errors.push({
+                    field: `steps.${phase}.mcpServers`,
+                    message: `${phase}.mcpServers must be an array of MCP server names`,
+                });
+                continue;
+            }
+            for (const serverName of phaseCfg.mcpServers) {
+                if (!availableMCPServers.includes(serverName)) {
+                    errors.push({
+                        field: `steps.${phase}.mcpServers`,
+                        message: `Referenced MCP Server "${serverName}" does not exist`,
+                    });
+                }
+            }
+        }
         return { valid: errors.length === 0, errors };
     }
 }

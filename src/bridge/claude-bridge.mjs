@@ -22,10 +22,19 @@ delete process.env.CLAUDE_AGENT_SDK_VERSION;
 
 import {query} from '@anthropic-ai/claude-agent-sdk';
 import {createRequire} from 'module';
-import {existsSync} from 'fs';
+import {existsSync, appendFileSync} from 'fs';
 import {join} from 'path';
 import os from 'os';
 import readline from 'readline';
+
+// 轻量诊断日志（529/异常复发时排查用，正常无影响；不需要可删）
+const DBG_FILE = 'D:\\bridge-debug.log';
+function dbg(tag, data) {
+    try {
+        const text = typeof data === 'string' ? data : JSON.stringify(data).slice(0, 1200);
+        appendFileSync(DBG_FILE, `[${new Date().toISOString()}] ${tag}: ${text}\n`);
+    } catch { /* ignore */ }
+}
 
 /**
  * 解析 Claude CLI 可执行文件路径
@@ -84,70 +93,110 @@ function emit(obj) {
  * @param request.maxTurns - 最大交互轮数（默认 10）
  * @param request.skills - 可选，技能配置
  */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isOverloaded = (msg) => /529|overloaded|访问量过大|rate.?limit|too many requests/i.test(msg || '');
+
+/**
+ * 执行一次 SDK query（流式 emit output/session）。
+ * @returns {'done'|'overloaded'|'error'} done=成功；overloaded=529 限流（可重试）；error=其他错误
+ */
+async function runQueryOnce(prompt, requestId, options) {
+    for await (const msg of query({prompt, options})) {
+        if (msg.type === 'system' && msg.session_id) {
+            emit({requestId, type: 'session', sessionId: msg.session_id});
+        }
+        if (msg.type === 'assistant') {
+            const content = msg.message?.content;
+            if (Array.isArray(content)) {
+                for (const block of content) {
+                    if (block.type === 'text' && block.text) {
+                        emit({requestId, type: 'output', content: block.text});
+                    }
+                }
+            }
+        }
+        if (msg.type === 'result') {
+            dbg('result', {
+                is_error: msg.is_error,
+                subtype: msg.subtype,
+                result: msg.is_error ? msg.result : undefined,
+                totalMs: msg.duration_ms,
+                numTurns: msg.num_turns,
+            });
+            if (msg.is_error) {
+                return isOverloaded(msg.result) ? 'overloaded' : 'error';
+            }
+        }
+    }
+    return 'done';
+}
+
+/**
+ * 处理单个 AI 查询请求（含 529 限流自动重试）
+ *
+ * 中转 API（如 open.bigmodel.cn）高峰期对 claude agent 多轮密集调用限流，
+ * 529 是临时错误。此处指数退避重试，对调用方透明。
+ */
 async function handleRequest(request) {
-    const {requestId, prompt, cwd, sessionId, maxTurns = 10, skills, model, reasoningEffort, extendedThinking} = request;
+    const {requestId, prompt, cwd, sessionId, maxTurns = 10, skills, mcpServers, model, reasoningEffort, extendedThinking} = request;
+
+    dbg('req-start', {requestId, model, extendedThinking, maxTurns, sessionId: !!sessionId, promptLen: prompt?.length, cwd, skills, mcpServers: mcpServers ? Object.keys(mcpServers) : undefined});
 
     if (!prompt) {
         emit({requestId, type: 'error', message: 'prompt is required'});
         return;
     }
 
-    try {
-        const options = {
-            cwd: cwd || process.cwd(),
-            maxTurns,
-            permissionMode: 'acceptEdits',
-            ...(sessionId ? {resume: sessionId} : {}),
-            ...(skills ? {skills} : {}),
-        };
+    const options = {
+        cwd: cwd || process.cwd(),
+        maxTurns,
+        permissionMode: 'acceptEdits',
+        ...(sessionId ? {resume: sessionId} : {}),
+        ...(skills ? {skills} : {}),
+        ...(mcpServers ? {mcpServers} : {}),
+    };
 
-        // 应用模型配置（来自 config.json）
-        if (model) {
-            options.model = model;
-        }
-        if (extendedThinking) {
-            // 扩展思考：通过 additionalArgs 传递 thinking 预算
-            options.additionalArgs = [...(options.additionalArgs || []), '--thinking'];
-        }
-        if (reasoningEffort) {
-            // 推理强度：映射为 --model-fast / 默认行为由 model 决定
-            // Claude Code CLI 通过 --model 选择，effort 通过 thinking budget 体现
-        }
+    if (model) {
+        options.model = model;
+    }
+    if (extendedThinking) {
+        options.additionalArgs = [...(options.additionalArgs || []), '--thinking'];
+    }
+    if (CLI_PATH) {
+        options.pathToClaudeCodeExecutable = CLI_PATH;
+    }
 
-        if (CLI_PATH) {
-            options.pathToClaudeCodeExecutable = CLI_PATH;
-        }
-
-        // 流式处理 SDK 响应
-        for await (const msg of query({prompt, options})) {
-            // 提取会话 ID
-            if (msg.type === 'system' && msg.session_id) {
-                emit({requestId, type: 'session', sessionId: msg.session_id});
-            }
-
-            // 提取 AI 输出
-            if (msg.type === 'assistant') {
-                const content = msg.message?.content;
-                if (Array.isArray(content)) {
-                    for (const block of content) {
-                        if (block.type === 'text' && block.text) {
-                            emit({requestId, type: 'output', content: block.text});
-                        }
-                    }
-                }
-            }
-
-            // 处理错误结果
-            if (msg.type === 'result' && msg.is_error) {
-                emit({requestId, type: 'error', message: msg.result || 'Claude returned an error'});
+    // 529 限流指数退避重试：1s/2s/4s（封顶 8s），最多 3 次。
+    // 次数不宜多：每次重试 claude CLI 重新启动 + MCP 重连，开销大（多时数十秒）。
+    const maxRetries = 3;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const status = await runQueryOnce(prompt, requestId, options);
+            if (status === 'done') {
+                emit({requestId, type: 'done', exitCode: 0});
                 return;
             }
+            if (status === 'overloaded' && attempt < maxRetries) {
+                const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
+                emit({requestId, type: 'output', content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`});
+                dbg('retry-529', {attempt: attempt + 1, wait});
+                await sleep(wait);
+                continue;
+            }
+            emit({requestId, type: 'error', message: 'Claude returned an error (529 重试耗尽)'});
+            return;
+        } catch (err) {
+            dbg('catch', {attempt, message: err.message});
+            if (isOverloaded(err.message) && attempt < maxRetries) {
+                const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
+                emit({requestId, type: 'output', content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`});
+                dbg('retry-529-catch', {attempt: attempt + 1, wait});
+                await sleep(wait);
+                continue;
+            }
+            emit({requestId, type: 'error', message: err.message});
+            return;
         }
-
-        emit({requestId, type: 'done', exitCode: 0});
-
-    } catch (err) {
-        emit({requestId, type: 'error', message: err.message});
     }
 }
 

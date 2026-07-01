@@ -16,6 +16,7 @@ const claude_provider_js_1 = require("./cli-providers/claude-provider.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
 const prompt_enrichment_js_1 = require("../utils/prompt-enrichment.js");
 const skill_utils_js_1 = require("../utils/skill-utils.js");
+const mcp_config_service_js_1 = require("./mcp-config-service.js");
 const websocket_js_1 = require("../websocket.js");
 /** 计划生成 prompt 模板 */
 const PLAN_PROMPT_TEMPLATE = `Analyze the following requirement and generate a structured development plan.\n\n## Requirement\n{title}\n\n{description}\n\n## Instructions\nGenerate a development plan. Respond in the same language as the requirement.`;
@@ -26,6 +27,8 @@ class TaskScheduler {
     tasks = new Map();
     maxConcurrent;
     deps = null;
+    /** MCP 配置服务（无状态，按名解析为 stdio 配置注入执行阶段） */
+    mcpConfigService = new mcp_config_service_js_1.MCPConfigService();
     /** 持久化回调：状态变更时同步写入磁盘 */
     onPersist;
     /** 确认等待：taskId → resolve 回调 */
@@ -322,6 +325,10 @@ class TaskScheduler {
             .replace('{title}', title)
             .replace('{description}', description);
         const planSkills = (0, skill_utils_js_1.getPhaseSkills)(pipelineService.get(task.pipelineId)?.steps ?? {}, 'plan');
+        const { map: planMcpServers, missing: planMcpMissing } = (0, skill_utils_js_1.resolveMcpServerMap)((0, skill_utils_js_1.getPhaseMcpServers)(pipelineService.get(task.pipelineId)?.steps ?? {}, 'plan'), this.mcpConfigService);
+        if (planMcpMissing.length > 0) {
+            this.addLog(taskId, 'plan', 'warning', `MCP servers not found, skipped: ${planMcpMissing.join(', ')}`);
+        }
         const planPrompt = (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, cwd);
         let planOutput = '';
         const planResult = await provider.run({
@@ -329,6 +336,7 @@ class TaskScheduler {
             cwd: cwd,
             maxTurns: 20,
             skills: planSkills,
+            mcpServers: planMcpServers,
         }, {
             signal,
             onOutput: (data) => {
@@ -351,6 +359,10 @@ class TaskScheduler {
         this.updateTaskState(taskId, { phase: 'execution' });
         this.addLog(taskId, 'execution', 'info', '用户已确认，开始执行...');
         const executionSkills = (0, skill_utils_js_1.getPhaseSkills)(pipelineService.get(task.pipelineId)?.steps ?? {}, 'execution');
+        const { map: executionMcpServers, missing: executionMcpMissing } = (0, skill_utils_js_1.resolveMcpServerMap)((0, skill_utils_js_1.getPhaseMcpServers)(pipelineService.get(task.pipelineId)?.steps ?? {}, 'execution'), this.mcpConfigService);
+        if (executionMcpMissing.length > 0) {
+            this.addLog(taskId, 'execution', 'warning', `MCP servers not found, skipped: ${executionMcpMissing.join(', ')}`);
+        }
         const executionPrompt = (0, prompt_enrichment_js_1.enrichPrompt)(planOutput, memoryService, cwd);
         const execResult = await provider.run({
             prompt: executionPrompt,
@@ -358,6 +370,7 @@ class TaskScheduler {
             sessionId: task.sessionId,
             maxTurns: 50,
             skills: executionSkills,
+            mcpServers: executionMcpServers,
         }, {
             signal,
             onOutput: (data) => {

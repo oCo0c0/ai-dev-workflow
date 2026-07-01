@@ -231,18 +231,8 @@ export default function ExecutionPage() {
                         completedAt: data.completedAt,
                     });
 
-                    // 将新增的日志追加到 store 中，用于实时日志展示
-                    if (data.logs && data.logs.length > storeLogs.length) {
-                        const newLogs = data.logs.slice(storeLogs.length);
-                        for (const log of newLogs) {
-                            addExecutionLog({
-                                timestamp: new Date().toISOString(),
-                                stepIndex: data.currentStep,
-                                type: 'output',
-                                content: log,
-                            });
-                        }
-                    }
+                    // 日志不在此追加——实时日志由 WebSocket execution:output 推送（useWebSocket → addExecutionLog）。
+                    // poll 只更新 detail（执行状态 + 历史日志），避免与 WebSocket 双源重复追加导致回复显示两遍。
                 }
 
                 // 执行结束时停止轮询，刷新历史列表，并自动聚焦回复输入框
@@ -273,7 +263,7 @@ export default function ExecutionPage() {
         return () => {
             if (pollRef.current) clearInterval(pollRef.current);
         };
-    }, [activeId, storeExecutionId, storeLogs.length, setExecutionStatus, addExecutionLog, loadHistory, pollKey]);
+    }, [activeId, storeExecutionId, setExecutionStatus, loadHistory, pollKey]);
 
     // 组件卸载时确保清理轮询定时器，防止内存泄漏
     useEffect(() => {
@@ -571,7 +561,7 @@ export default function ExecutionPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold">{t('pageTitle.execution')}</h1>
+                            <h1 className="text-xl font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{t('pageTitle.execution')}</h1>
                             <p className="mt-0.5 text-sm text-muted-foreground">
                                 {isRunning ? t('execution.subtitleRunning') :
                                     isDone ? t('execution.subtitleDone', {status: execStatus}) :

@@ -41,8 +41,8 @@ const badgeVariants = cva(
     {
         variants: {
             variant: {
-                /** 默认变体：主色调背景 + 前景色 + 阴影 */
-                default: 'border-transparent bg-primary text-primary-foreground shadow',
+                /** 默认变体：indigo→purple 渐变背景 + 阴影 */
+                default: 'border-transparent bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow',
                 /** 次要变体：次要色调背景 + 前景色，无边框阴影 */
                 secondary: 'border-transparent bg-secondary text-secondary-foreground',
                 /** 危险变体：破坏性色调背景 + 前景色 + 阴影，用于警告/错误场景 */

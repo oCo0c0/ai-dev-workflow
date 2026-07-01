@@ -54,6 +54,21 @@ export interface MCPToolSetConfig {
 }
 
 /**
+ * 阶段工具配置接口（新模型）
+ * @description 按流水线阶段（plan/execution/test）独立配置技能和 MCP 服务器。
+ *   取代旧的 SkillSetConfig + 全局 MCPToolSetConfig 组合：每个阶段一份配置，
+ *   技能和 MCP 同处一体。空数组表示该阶段不启用对应工具——无 all/selected mode 概念。
+ *   向后兼容：旧字段（planSkills/executionSkills/testSkills/mcpToolSet）仍保留，
+ *   当新阶段字段缺失时由 skill-utils 回退解析。
+ */
+export interface PhaseToolsConfig {
+    /** 该阶段启用的技能名称列表，空数组 = 不启用任何技能 */
+    skills: string[];
+    /** 该阶段启用的 MCP 服务器名称列表，空数组 = 不启用任何 MCP（claude 走全局默认） */
+    mcpServers: string[];
+}
+
+/**
  * 测试策略配置接口
  * @description 定义工作流中测试阶段的执行策略，包括执行环境配置
  */
@@ -93,12 +108,18 @@ export interface DocumentParsingConfig {
  * @description 定义管线中所有步骤的配置集合，是管线的核心配置单元
  */
 export interface PipelineStepConfig {
-    /** 需求来源配置 */
-    requirementSource: RequirementSourceConfig;
+    /** 需求来源配置（可选——需求获取方式现由运行时向导决定，保留以兼容旧配置） */
+    requirementSource?: RequirementSourceConfig;
     /** 工作空间配置 */
     workspace: WorkspaceStepConfig;
     /** 文档解析配置（MinerU） */
     documentParsing?: DocumentParsingConfig;
+    /** 规划阶段工具配置（新模型：技能 + MCP 按阶段独立） */
+    plan?: PhaseToolsConfig;
+    /** 代码执行阶段工具配置（新模型：技能 + MCP 按阶段独立） */
+    execution?: PhaseToolsConfig;
+    /** 测试阶段工具配置（新模型：技能 + MCP 按阶段独立） */
+    test?: PhaseToolsConfig;
     /** 规划阶段使用的技能配置（推荐使用，按阶段细分） */
     planSkills?: SkillSetConfig;
     /** 代码执行阶段使用的技能配置 */
@@ -388,6 +409,34 @@ export class PipelineService {
                 if (!availableMCPServers.includes(serverName)) {
                     errors.push({
                         field: 'steps.mcpToolSet.selectedServers',
+                        message: `Referenced MCP Server "${serverName}" does not exist`,
+                    });
+                }
+            }
+        }
+
+        // 验证新模型阶段配置（plan/execution/test）：结构为数组 + 引用的 MCP 服务器存在
+        const phases = ['plan', 'execution', 'test'] as const;
+        for (const phase of phases) {
+            const phaseCfg = pipeline.steps[phase];
+            if (!phaseCfg) continue;
+            if (!Array.isArray(phaseCfg.skills)) {
+                errors.push({
+                    field: `steps.${phase}.skills`,
+                    message: `${phase}.skills must be an array of skill names`,
+                });
+            }
+            if (!Array.isArray(phaseCfg.mcpServers)) {
+                errors.push({
+                    field: `steps.${phase}.mcpServers`,
+                    message: `${phase}.mcpServers must be an array of MCP server names`,
+                });
+                continue;
+            }
+            for (const serverName of phaseCfg.mcpServers) {
+                if (!availableMCPServers.includes(serverName)) {
+                    errors.push({
+                        field: `steps.${phase}.mcpServers`,
                         message: `Referenced MCP Server "${serverName}" does not exist`,
                     });
                 }

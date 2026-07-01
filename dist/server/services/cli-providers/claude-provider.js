@@ -31,6 +31,27 @@ const INSTALLED_PLUGINS_FILE = path_1.default.join(CLAUDE_DIR, 'plugins', 'insta
 /** Claude 设置文件 */
 const SETTINGS_FILE = path_1.default.join(CLAUDE_DIR, 'settings.json');
 /**
+ * 读取 ~/.claude/settings.json 的 env 块（CLI 注入环境变量的来源）
+ *
+ * adw 进程本身不读 settings.json，导致其 process.env 缺失 ANTHROPIC_BASE_URL /
+ * ANTHROPIC_API_KEY / ANTHROPIC_DEFAULT_*_MODEL。bridge 子进程继承 adw 的空 env，
+ * SDK 只能改走 claude.exe 间接读取 settings.json 的路径，该路径下模型解析与 CLI
+ * 直读 env 不一致，会触发中转 API 限流（529）。注入此 env 块使 bridge 与 CLI 对齐。
+ *
+ * @returns settings.json 中 env 对象，读取失败返回空对象
+ */
+function loadClaudeSettingsEnv() {
+    try {
+        if (!fs_1.default.existsSync(SETTINGS_FILE))
+            return {};
+        const settings = JSON.parse(fs_1.default.readFileSync(SETTINGS_FILE, 'utf-8'));
+        return (settings.env && typeof settings.env === 'object') ? settings.env : {};
+    }
+    catch {
+        return {};
+    }
+}
+/**
  * Claude Code CLI Provider
  * @description 通过持久化桥接子进程与 Claude Agent SDK 通信
  */
@@ -175,7 +196,7 @@ class ClaudeProvider {
         return new Promise((resolve, reject) => {
             console.log(`[claude-provider] spawning: node ${BRIDGE_SCRIPT}`);
             // 清除 NODE_OPTIONS 中的 inspector 参数，避免子进程启动 debugger
-            const env = { ...process.env };
+            const env = { ...process.env, ...loadClaudeSettingsEnv() };
             if (env.NODE_OPTIONS) {
                 env.NODE_OPTIONS = env.NODE_OPTIONS
                     .split(/\s+/)

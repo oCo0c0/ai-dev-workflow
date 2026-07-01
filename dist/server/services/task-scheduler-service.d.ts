@@ -55,6 +55,8 @@ export declare class TaskScheduler {
     private tasks;
     private maxConcurrent;
     private deps;
+    /** MCP 配置服务（无状态，按名解析为 stdio 配置注入执行阶段） */
+    private mcpConfigService;
     /** 持久化回调：状态变更时同步写入磁盘 */
     onPersist?: (task: TaskInfo) => void;
     /** 确认等待：taskId → resolve 回调 */

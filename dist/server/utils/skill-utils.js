@@ -23,6 +23,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveSkills = resolveSkills;
 exports.getPhaseSkills = getPhaseSkills;
+exports.getPhaseMcpServers = getPhaseMcpServers;
+exports.resolveMcpServerMap = resolveMcpServerMap;
 /**
  * 将 SkillSetConfig 配置对象解析为 Claude Bridge 可直接使用的技能参数。
  *
@@ -50,50 +52,79 @@ function resolveSkills(skillConfig) {
 /**
  * 获取指定流水线阶段的有效技能配置。
  *
- * 支持新旧两种配置方式的兼容：
- * - 新方式：按阶段独立配置（planSkills / executionSkills / testSkills）
- * - 旧方式：统一的 skillSet 字段作为所有阶段的回退默认值
+ * 支持新旧两种配置方式兼容（新模型优先）：
+ * - 新方式：按阶段独立的 PhaseToolsConfig（plan/execution/test），skills 为数组，空数组 = 不启用
+ * - 旧方式：阶段专属 SkillSetConfig（planSkills 等）→ 通用 skillSet，按 mode 解析
  *
- * 优先级：阶段专属配置 > 通用 skillSet 配置
+ * 优先级：新阶段配置（steps[phase]）> 旧阶段 SkillSetConfig > 通用 skillSet
  *
- * @param {Object} steps - 包含各阶段技能配置的对象
- * @param {SkillSetConfig} [steps.planSkills] - 规划阶段（plan）的技能配置
- * @param {SkillSetConfig} [steps.executionSkills] - 执行阶段（execution）的技能配置
- * @param {SkillSetConfig} [steps.testSkills] - 测试阶段（test）的技能配置
- * @param {SkillSetConfig} [steps.skillSet] - 旧版通用技能配置（向后兼容回退）
- * @param {'plan'|'execution'|'test'} phase - 流水线阶段名称
- * @returns {string[] | 'all' | undefined} 该阶段的有效技能参数
- *
- * @example
- * ```typescript
- * const steps = {
- *   planSkills: { mode: 'selected', selectedSkills: ['research', 'analyze'] },
- *   executionSkills: { mode: 'all' },
- *   skillSet: { mode: 'selected', selectedSkills: ['default'] },  // 旧版回退配置
- * };
- *
- * getPhaseSkills(steps, 'plan');       // => ['research', 'analyze']
- * getPhaseSkills(steps, 'execution');  // => 'all'
- * getPhaseSkills(steps, 'test');       // => ['default']（回退到 skillSet）
- * ```
+ * @param steps - 包含各阶段配置的对象
+ * @param phase - 流水线阶段名称
+ * @returns 该阶段的有效技能参数：string[] | 'all' | undefined（undefined = 不启用）
  */
 function getPhaseSkills(steps, phase) {
-    let config;
-    switch (phase) {
-        case 'plan':
-            // 规划阶段：优先使用 planSkills，不存在时回退到通用 skillSet
-            config = steps.planSkills ?? steps.skillSet;
-            break;
-        case 'execution':
-            // 执行阶段：优先使用 executionSkills，不存在时回退到通用 skillSet
-            config = steps.executionSkills ?? steps.skillSet;
-            break;
-        case 'test':
-            // 测试阶段：优先使用 testSkills，不存在时回退到通用 skillSet
-            config = steps.testSkills ?? steps.skillSet;
-            break;
+    // 新模型优先：该阶段存在 PhaseToolsConfig 时，直接用其 skills（空数组 → undefined 不启用）
+    const phaseCfg = steps[phase];
+    if (phaseCfg !== undefined) {
+        return phaseCfg.skills.length > 0 ? phaseCfg.skills : undefined;
     }
-    // 将解析后的 SkillSetConfig 转换为最终的技能参数格式
-    return resolveSkills(config);
+    // 旧模型回退：阶段专属 SkillSetConfig → 通用 skillSet，按 mode 解析
+    const legacyField = phase === 'plan' ? steps.planSkills
+        : phase === 'execution' ? steps.executionSkills
+            : steps.testSkills;
+    return resolveSkills(legacyField ?? steps.skillSet);
+}
+/**
+ * 获取指定流水线阶段的有效 MCP 服务器名列表。
+ *
+ * 新旧兼容（新模型优先）：
+ * - 新方式：steps[phase].mcpServers，空数组 = 不启用（undefined）
+ * - 旧方式：全局 mcpToolSet，'selected' → selectedServers，'all' → undefined（新模型无"全部"概念）
+ *
+ * @param steps - 包含各阶段配置的对象
+ * @param phase - 流水线阶段名称
+ * @returns 该阶段启用的 MCP 服务器名数组，undefined = 不约束（claude 走全局默认）
+ */
+function getPhaseMcpServers(steps, phase) {
+    // 新模型优先
+    const phaseCfg = steps[phase];
+    if (phaseCfg !== undefined) {
+        return phaseCfg.mcpServers.length > 0 ? phaseCfg.mcpServers : undefined;
+    }
+    // 旧全局 mcpToolSet 回退：仅 'selected' 有具体名单，'all' 无对应（新模型逐个列名）
+    if (steps.mcpToolSet && steps.mcpToolSet.mode === 'selected') {
+        return steps.mcpToolSet.selectedServers.length > 0
+            ? steps.mcpToolSet.selectedServers
+            : undefined;
+    }
+    return undefined;
+}
+/**
+ * 将 MCP 服务器名数组解析为 SDK 可用的 stdio 配置 map（McpStdioMap 类型见 cli-providers/types）。
+ *
+ * 主进程用 MCPConfigService.get 权威解析（合并 ~/.claude.json + settings.json），
+ * 不让 bridge 子进程重读文件——避免重写解析逻辑引入二次 bug。
+ * 找不到的服务器名收集到 missing，由调用方记 warning 跳过。
+ *
+ * @param names - MCP 服务器名数组（undefined/空 → 不约束，返回 undefined）
+ * @param mcpService - MCP 配置服务实例（调用方注入）
+ * @returns { map, missing }：map 为 SDK 注入用配置，undefined 表示不注入；missing 为未找到的服务器名
+ */
+function resolveMcpServerMap(names, mcpService) {
+    if (!names || names.length === 0)
+        return { map: undefined, missing: [] };
+    const map = {};
+    const missing = [];
+    for (const name of names) {
+        const cfg = mcpService.get(name);
+        if (cfg) {
+            // 固定 'stdio' 传输协议；绝不透传 MCPServerConfig.type（运行时推断）
+            map[name] = { type: 'stdio', command: cfg.command, args: cfg.args, env: cfg.env };
+        }
+        else {
+            missing.push(name);
+        }
+    }
+    return { map: Object.keys(map).length > 0 ? map : undefined, missing };
 }
 //# sourceMappingURL=skill-utils.js.map

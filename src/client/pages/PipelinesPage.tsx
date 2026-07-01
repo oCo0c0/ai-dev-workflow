@@ -56,11 +56,24 @@ import {
  * - mcpToolSet: MCP工具服务器选择配置
  * - testStrategy: 测试策略配置（AI自动生成测试或运行已有测试）
  */
+interface PhaseToolsConfig {
+    /** 该阶段启用的技能名列表，空 = 不启用 */
+    skills: string[];
+    /** 该阶段启用的 MCP 服务器名列表，空 = 不启用 */
+    mcpServers: string[];
+}
+
 interface PipelineStepConfig {
-    /** 需求来源配置，支持多种来源类型 */
-    requirementSource: { type: string; mcpServerName?: string };
+    /** 需求来源配置（可选——需求获取方式现由运行时向导决定，保留兼容旧配置） */
+    requirementSource?: { type: string; mcpServerName?: string };
     /** 工作空间配置，支持预绑定路径 */
     workspace: { boundPath?: string };
+    /** 规划阶段工具配置（技能 + MCP，新模型，空数组 = 不启用） */
+    plan?: PhaseToolsConfig;
+    /** 执行阶段工具配置（技能 + MCP，新模型，空数组 = 不启用） */
+    execution?: PhaseToolsConfig;
+    /** 测试阶段工具配置（技能 + MCP，新模型，空数组 = 不启用） */
+    test?: PhaseToolsConfig;
     /** 规划阶段技能配置 */
     planSkills?: { mode: string; selectedSkills: string[] };
     /** 执行阶段技能配置 */
@@ -122,6 +135,8 @@ interface Pipeline {
 interface MCPServerConfig {
     /** MCP服务器名称 */
     name: string;
+    /** 运行时类型（node/python/docker/custom） */
+    type?: string;
     /** 是否已启用 */
     enabled: boolean;
 }
@@ -133,6 +148,8 @@ interface MCPServerConfig {
 interface Skill {
     /** 技能名称 */
     name: string;
+    /** 技能描述 */
+    description?: string;
 }
 
 /**
@@ -179,6 +196,10 @@ interface WizardState {
     /** 当前步骤（1: 选择需求, 2: 确认工作空间, 3: 审核并启动） */
     step: 1 | 2 | 3;
     // Step 1 相关状态
+    /** 需求获取方式：fetch 通过 MCP 拉取（调 MCP） / saved 选择已保存（本地，不调 MCP） */
+    reqMode: 'fetch' | 'saved';
+    /** MCP 模式下选用的 MCP 服务器名（拉取需求用） */
+    selectedMcpServer: string;
     /** 已选择的需求 */
     selectedRequirement: StoredRequirement | null;
     /** 手动输入的需求文本 */
@@ -220,6 +241,8 @@ interface ExecutionWizardProps {
     onClose: () => void;
     /** 已保存的工作空间列表，用于下拉选择 */
     savedWorkspaces: { id: string; name: string; path: string }[];
+    /** 可用 MCP 服务器列表，用于需求拉取时选择 */
+    mcpServers: MCPServerConfig[];
 }
 
 /**
@@ -238,7 +261,7 @@ interface ExecutionWizardProps {
  * @param props.onClose - 关闭回调
  * @param props.savedWorkspaces - 可用工作空间列表
  */
-function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardProps) {
+function ExecutionWizard({pipeline, onClose, savedWorkspaces, mcpServers}: ExecutionWizardProps) {
     const {t} = useTranslation();
     const navigate = useNavigate();
     // 从全局状态获取更新方法，用于设置选中的需求和计划状态
@@ -246,15 +269,15 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
     const setPlanTaskId = useAppStore((s) => s.setPlanTaskId);
     const setPlanStatus = useAppStore((s) => s.setPlanStatus);
 
-    // 从流水线配置中提取关键信息，决定向导的行为模式
-    const isManual = pipeline.steps?.requirementSource?.type === 'manual';
+    // 工作空间绑定路径（绑定是流水线级配置，仍从配置读）
     const boundPath = pipeline.steps?.workspace?.boundPath;
-    const mcpServerName = pipeline.steps?.requirementSource?.mcpServerName;
 
-    // 初始化向导状态，如果工作空间已绑定则预填路径
+    // 初始化向导状态：默认 MCP 获取模式，预选第一个可用 MCP 服务器
     const [state, setState] = useState<WizardState>({
         pipeline,
         step: 1,
+        reqMode: 'fetch',
+        selectedMcpServer: mcpServers[0]?.name ?? '',
         selectedRequirement: null,
         manualRequirementText: '',
         fetchId: '',
@@ -277,15 +300,15 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
     const update = (patch: Partial<WizardState>) =>
         setState((prev) => ({...prev, ...patch}));
 
-    // 组件挂载时，如果不是手动输入模式，则加载已保存的需求列表
+    // 已保存模式加载需求列表（fetch 模式只拉新，不需预加载）
     useEffect(() => {
-        if (!isManual) {
+        if (state.reqMode === 'saved') {
             update({loadingSaved: true});
             apiGet<StoredRequirement[]>('/requirements/saved')
                 .then((data) => update({savedRequirements: data, loadingSaved: false}))
                 .catch(() => update({loadingSaved: false}));
         }
-    }, [isManual]);
+    }, [state.reqMode]);
 
     // 进入步骤2时，如果工作空间未绑定，则加载工作空间历史记录供选择
     useEffect(() => {
@@ -309,7 +332,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
             const req = await apiPost<StoredRequirement>('/requirements/fetch', {
                 id: state.fetchId.trim(),
                 parseDocuments: state.parseDocuments,
-                ...(mcpServerName ? {mcpServerName} : {}),
+                ...(state.selectedMcpServer ? {mcpServerName: state.selectedMcpServer} : {}),
             });
             // 获取成功后更新状态：选中新需求，将其插入列表顶部，并去重
             update({
@@ -336,10 +359,8 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
         }
     };
 
-    // 计算步骤1的前置条件：手动模式需要有文本，非手动模式需要已选择需求
-    const canProceedStep1 = isManual
-        ? state.manualRequirementText.trim().length > 0
-        : state.selectedRequirement !== null;
+    // 步骤1前置条件：两种模式都需选中需求（fetch 拉到 / saved 选到）
+    const canProceedStep1 = state.selectedRequirement !== null;
 
     // 计算步骤2的前置条件：需要有工作空间路径
     const canProceedStep2 = state.workspacePath.trim().length > 0;
@@ -374,14 +395,13 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
     const handleStart = async () => {
         update({starting: true, startError: null});
         try {
-            const requirementId = isManual ? undefined : state.selectedRequirement?.id;
+            const requirementId = state.selectedRequirement?.id;
 
             // 调用计划生成API，携带流水线ID用于技能解析
             const result = await apiPost<{ taskId: string }>('/plan/generate', {
                 requirementId,
                 workspacePath: state.workspacePath,
                 pipelineId: pipeline.id,  // 传递流水线ID，服务端据此解析技能配置
-                ...(isManual ? {requirementText: state.manualRequirementText} : {}),
             });
 
             // 将taskId和状态存入全局store，供计划页面使用
@@ -389,7 +409,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
             setPlanStatus('generating');
 
             // 如果不是手动模式，将选中的需求保存到全局状态
-            if (!isManual && state.selectedRequirement) {
+            if (state.selectedRequirement) {
                 const req = state.selectedRequirement;
                 setSelectedRequirement({
                     id: req.id,
@@ -453,7 +473,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                     <div
                                         className={cn(
                                             'flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0 transition-colors',
-                                            isActive && 'bg-primary text-primary-foreground',
+                                            isActive && 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-md shadow-indigo-500/30',
                                             isDone && 'bg-emerald-500 text-white',
                                             !isActive && !isDone && 'bg-muted text-muted-foreground'
                                         )}
@@ -483,22 +503,45 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                     {/* ── 步骤1：选择需求 ── */}
                     {state.step === 1 && (
                         <div className="space-y-4">
-                            {/* 手动输入模式：直接输入需求描述文本 */}
-                            {isManual ? (
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('pipelines.wizardReqText')}
-                                    </label>
-                                    <textarea
-                                        value={state.manualRequirementText}
-                                        onChange={(e) => update({manualRequirementText: e.target.value})}
-                                        placeholder={t('pipelines.wizardReqTextPlaceholder')}
-                                        rows={8}
-                                        className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                                    />
-                                </div>
-                            ) : (
+                            {/* 需求获取方式切换 */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={() => update({reqMode: 'fetch'})}
+                                    className={cn('flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-all',
+                                        state.reqMode === 'fetch' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-accent/30')}
+                                >
+                                    <Download className="h-3.5 w-3.5"/>
+                                    {t('pipelines.wizardModeFetch')}
+                                </button>
+                                <button
+                                    onClick={() => update({reqMode: 'saved'})}
+                                    className={cn('flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-all',
+                                        state.reqMode === 'saved' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-accent/30')}
+                                >
+                                    <FolderOpen className="h-3.5 w-3.5"/>
+                                    {t('pipelines.wizardModeSaved')}
+                                </button>
+                            </div>
+
+                            {/* 通过 MCP 获取：选 server + 输入 ID 拉取（调 MCP） */}
+                            {state.reqMode === 'fetch' ? (
                                 <>
+                                    {/* MCP 服务器选择（拉取需求用） */}
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                            {t('pipelines.mcpServer')}
+                                        </label>
+                                        <select
+                                            value={state.selectedMcpServer}
+                                            onChange={(e) => update({selectedMcpServer: e.target.value})}
+                                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                        >
+                                            <option value="">{t('pipelines.selectPlaceholder')}</option>
+                                            {mcpServers.map((s) => (
+                                                <option key={s.name} value={s.name}>{s.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     {/* 通过ID/编号从需求管理系统获取需求 */}
                                     <div>
                                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
@@ -547,7 +590,9 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                             {t('pipelines.wizardParseDocs')}
                                         </label>
                                     </div>
-
+                                </>
+                            ) : (
+                                <>
                                     {/* 已保存的需求列表，支持单选 */}
                                     <div>
                                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
@@ -670,11 +715,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                                 {/* 需求摘要 */}
                                 <div className="px-4 py-3">
                                     <p className="text-xs font-medium text-muted-foreground mb-1">{t('pipelines.reviewRequirement')}</p>
-                                    {isManual ? (
-                                        <p className="text-sm text-foreground line-clamp-3 whitespace-pre-wrap">
-                                            {state.manualRequirementText}
-                                        </p>
-                                    ) : state.selectedRequirement ? (
+                                    {state.selectedRequirement ? (
                                         <div>
                                             <p className="text-sm font-medium">{state.selectedRequirement.number ? `${state.selectedRequirement.number} ` : ''}{state.selectedRequirement.title}</p>
                                         </div>
@@ -764,6 +805,262 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
     );
 }
 
+// ─── 阶段工具选择（技能 + MCP 卡片网格 + 弹窗） ─────────────────────────────
+
+interface SelectableItem {
+    name: string;
+    description?: string;
+    type?: string;
+}
+
+interface MultiSelectModalProps {
+    title: string;
+    items: SelectableItem[];
+    selected: string[];
+    onConfirm: (selected: string[]) => void;
+    onClose: () => void;
+}
+
+/**
+ * 多选弹窗：卡片网格点选高亮 + 搜索。技能显 name+description，MCP 显 name+type。
+ */
+function MultiSelectModal({title, items, selected, onConfirm, onClose}: MultiSelectModalProps) {
+    const {t} = useTranslation();
+    const [query, setQuery] = useState('');
+    const [draft, setDraft] = useState<string[]>(selected);
+
+    const filtered = items.filter((i) =>
+        i.name.toLowerCase().includes(query.toLowerCase())
+        || (i.description ?? '').toLowerCase().includes(query.toLowerCase())
+    );
+
+    const toggle = (name: string) => {
+        setDraft((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
+            <div
+                className="relative z-10 w-full max-w-lg mx-4 bg-background border border-border rounded-xl shadow-2xl flex flex-col max-h-[80vh]">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-gradient-to-r from-indigo-500/10 to-purple-600/10">
+                    <h3 className="text-sm font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{title}</h3>
+                    <button
+                        onClick={onClose}
+                        className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    >
+                        <X className="h-4 w-4"/>
+                    </button>
+                </div>
+                <div className="p-3 border-b border-border">
+                    <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder={t('pipelines.phaseTools.search')}
+                    />
+                </div>
+                <div className="flex-1 overflow-y-auto p-3">
+                    {filtered.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-6">
+                            {t('pipelines.noSkillsAvailable')}
+                        </p>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                            {filtered.map((item) => {
+                                const checked = draft.includes(item.name);
+                                return (
+                                    <div
+                                        key={item.name}
+                                        onClick={() => toggle(item.name)}
+                                        className={cn(
+                                            'rounded-md border p-2.5 cursor-pointer transition-all',
+                                            checked
+                                                ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                                                : 'border-border hover:border-primary/40 hover:bg-accent/30'
+                                        )}
+                                    >
+                                        <div className="flex items-start justify-between gap-1">
+                                            <p className="text-xs font-medium truncate flex-1">{item.name}</p>
+                                            {checked && <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0"/>}
+                                        </div>
+                                        {item.description && (
+                                            <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2">
+                                                {item.description}
+                                            </p>
+                                        )}
+                                        {item.type && (
+                                            <Badge variant="outline" className="text-[9px] mt-1">{item.type}</Badge>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+                <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/10">
+                    <span className="text-xs text-muted-foreground">
+                        {t('pipelines.phaseTools.selected', {count: draft.length})}
+                    </span>
+                    <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={onClose}>
+                            {t('pipelines.phaseTools.cancel')}
+                        </Button>
+                        <Button size="sm" onClick={() => onConfirm(draft)}>
+                            {t('pipelines.phaseTools.confirm')}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+interface PhaseToolsCardProps {
+    phaseLabel: string;
+    config: PhaseToolsConfig;
+    skills: Skill[];
+    mcpServers: MCPServerConfig[];
+    onChange: (config: PhaseToolsConfig) => void;
+}
+
+/**
+ * 阶段工具卡片：展示该阶段已添加的技能和 MCP（卡片网格），点按钮弹窗多选。
+ * 空数组显示"未配置"占位。技能卡片显 name+description，MCP 卡片显 name+type。
+ */
+function PhaseToolsCard({phaseLabel, config, skills, mcpServers, onChange}: PhaseToolsCardProps) {
+    const {t} = useTranslation();
+    const [modal, setModal] = useState<null | 'skill' | 'mcp'>(null);
+
+    const removeSkill = (name: string) =>
+        onChange({...config, skills: config.skills.filter((s) => s !== name)});
+    const removeMcp = (name: string) =>
+        onChange({...config, mcpServers: config.mcpServers.filter((s) => s !== name)});
+
+    return (
+        <div className="mb-3 rounded-md border border-border p-3">
+            <div className="flex items-center gap-2 mb-2">
+                <div className="w-1 h-4 rounded-full bg-gradient-to-b from-indigo-500 to-purple-600"/>
+                <p className="text-xs font-semibold text-foreground">{phaseLabel}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+                {/* 技能列 */}
+                <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-muted-foreground">{t('pipelines.phaseTools.skillLabel')}</span>
+                        <button
+                            onClick={() => setModal('skill')}
+                            className="text-xs text-primary hover:bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-0.5 transition-colors"
+                        >
+                            <Plus className="h-3 w-3"/>
+                            {t('pipelines.phaseTools.addSkill')}
+                        </button>
+                    </div>
+                    {config.skills.length === 0 ? (
+                        <p className="text-xs text-muted-foreground/50 italic py-2 text-center rounded border border-dashed border-border">
+                            {t('pipelines.phaseTools.noSkills')}
+                        </p>
+                    ) : (
+                        <div className="space-y-1">
+                            {config.skills.map((name) => {
+                                const skill = skills.find((s) => s.name === name);
+                                return (
+                                    <div
+                                        key={name}
+                                        className="group flex items-start gap-1.5 rounded border border-border bg-muted/20 px-2 py-1.5"
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-medium truncate">{name}</p>
+                                            {skill?.description && (
+                                                <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">
+                                                    {skill.description}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => removeSkill(name)}
+                                            className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+                                        >
+                                            <X className="h-3 w-3"/>
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+                {/* MCP 列 */}
+                <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-muted-foreground">{t('pipelines.phaseTools.mcpLabel')}</span>
+                        <button
+                            onClick={() => setModal('mcp')}
+                            className="text-xs text-primary hover:bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-0.5 transition-colors"
+                        >
+                            <Plus className="h-3 w-3"/>
+                            {t('pipelines.phaseTools.addMcp')}
+                        </button>
+                    </div>
+                    {config.mcpServers.length === 0 ? (
+                        <p className="text-xs text-muted-foreground/50 italic py-2 text-center rounded border border-dashed border-border">
+                            {t('pipelines.phaseTools.noMcp')}
+                        </p>
+                    ) : (
+                        <div className="space-y-1">
+                            {config.mcpServers.map((name) => {
+                                const srv = mcpServers.find((s) => s.name === name);
+                                return (
+                                    <div
+                                        key={name}
+                                        className="group flex items-center gap-1.5 rounded border border-border bg-muted/20 px-2 py-1.5"
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-medium truncate">{name}</p>
+                                            {srv?.type && (
+                                                <Badge variant="outline" className="text-[9px] mt-0.5">{srv.type}</Badge>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => removeMcp(name)}
+                                            className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+                                        >
+                                            <X className="h-3 w-3"/>
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {modal === 'skill' && (
+                <MultiSelectModal
+                    title={t('pipelines.phaseTools.selectSkills')}
+                    items={skills}
+                    selected={config.skills}
+                    onClose={() => setModal(null)}
+                    onConfirm={(sel) => {
+                        onChange({...config, skills: sel});
+                        setModal(null);
+                    }}
+                />
+            )}
+            {modal === 'mcp' && (
+                <MultiSelectModal
+                    title={t('pipelines.phaseTools.selectMcp')}
+                    items={mcpServers.map((s) => ({name: s.name, type: s.type}))}
+                    selected={config.mcpServers}
+                    onClose={() => setModal(null)}
+                    onConfirm={(sel) => {
+                        onChange({...config, mcpServers: sel});
+                        setModal(null);
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
 /**
  * @function getDefaultCommand
  * @description 根据测试框架返回默认的测试执行命令
@@ -797,11 +1094,10 @@ function getDefaultCommand(framework: string): string {
  * - 测试策略默认为AI自动生成，执行后自动运行测试
  */
 const defaultSteps: PipelineStepConfig = {
-    requirementSource: {type: 'ones'},
     workspace: {},
-    planSkills: {mode: 'all', selectedSkills: []},
-    executionSkills: {mode: 'all', selectedSkills: []},
-    testSkills: {mode: 'all', selectedSkills: []},
+    plan: {skills: [], mcpServers: []},
+    execution: {skills: [], mcpServers: []},
+    test: {skills: [], mcpServers: []},
     mcpToolSet: {mode: 'all', selectedServers: []},
     testStrategy: {mode: 'ai_generate', autoRunAfterExecution: true, changedFilesOnly: false, environment: 'local'},
 };
@@ -1006,9 +1302,10 @@ export default function PipelinesPage() {
     const getMissingDeps = (steps: PipelineStepConfig) => {
         const missing: string[] = [];
         // 检查需求来源中配置的MCP服务器是否存在
-        if (steps.requirementSource.mcpServerName) {
-            const exists = mcpServers.some((s) => s.name === steps.requirementSource.mcpServerName);
-            if (!exists) missing.push(steps.requirementSource.mcpServerName);
+        const reqMcp = steps.requirementSource?.mcpServerName;
+        if (reqMcp) {
+            const exists = mcpServers.some((s) => s.name === reqMcp);
+            if (!exists) missing.push(reqMcp);
         }
         // 检查MCP工具集中选中的服务器是否存在
         if (steps.mcpToolSet.mode === 'selected') {
@@ -1023,6 +1320,19 @@ export default function PipelinesPage() {
     // @ts-ignore
     return (
         <div className="p-6 h-full flex flex-col">
+            {/* 页面标题 */}
+            <div className="mb-4 flex items-center gap-3">
+                <div
+                    className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md shadow-indigo-500/30">
+                    <Workflow className="h-5 w-5 text-white"/>
+                </div>
+                <div>
+                    <h1 className="text-base font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent leading-tight">
+                        {t('pipelines.title')}
+                    </h1>
+                    <p className="text-xs text-muted-foreground">{t('pipelines.subtitle')}</p>
+                </div>
+            </div>
             {/* 全局错误提示条 */}
             {error && (
                 <div
@@ -1036,7 +1346,9 @@ export default function PipelinesPage() {
                 <div className="w-72 flex flex-col flex-shrink-0">
                     {/* 新建流水线按钮 + 刷新依赖数据 */}
                     <div className="flex gap-2 mb-3">
-                        <Button onClick={startCreate} className="flex-1" size="sm" data-tour="pipe-new-btn">
+                        <Button onClick={startCreate}
+                                className="flex-1 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-md shadow-indigo-500/20 border-0"
+                                size="sm" data-tour="pipe-new-btn">
                             <Plus className="h-4 w-4 mr-1"/>
                             {t('pipelines.newPipeline')}
                         </Button>
@@ -1071,13 +1383,22 @@ export default function PipelinesPage() {
                                 <Card
                                     key={pipeline.id}
                                     className={cn(
-                                        'cursor-pointer transition-all duration-150 hover:border-primary/50',
-                                        selected?.id === pipeline.id && 'border-primary ring-1 ring-primary/20'
+                                        'relative cursor-pointer transition-all duration-200 overflow-hidden hover:shadow-lg hover:-translate-y-0.5',
+                                        selected?.id === pipeline.id
+                                            ? 'border-primary ring-1 ring-primary/30 shadow-md'
+                                            : 'hover:border-primary/50'
                                     )}
                                     // 点击卡片进入编辑模式
                                     onClick={() => startEdit(pipeline)}
                                 >
-                                    <CardContent className="p-3">
+                                    {/* 左侧渐变色条 */}
+                                    <div className={cn(
+                                        'absolute left-0 top-0 bottom-0 w-1 transition-all',
+                                        selected?.id === pipeline.id
+                                            ? 'bg-gradient-to-b from-indigo-500 to-purple-600'
+                                            : 'bg-gradient-to-b from-indigo-500/30 to-purple-600/30'
+                                    )}/>
+                                    <CardContent className="p-3 pl-4">
                                         {/* 流水线名称和默认标记 */}
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm font-medium flex-1 truncate">{pipeline.name}</span>
@@ -1100,9 +1421,8 @@ export default function PipelinesPage() {
                                         {/* 操作按钮组：运行、设为默认、删除 */}
                                         <div className="mt-2.5 flex gap-2 flex-wrap">
                                             <Button
-                                                variant="default"
                                                 size="sm"
-                                                className="h-7 text-xs"
+                                                className="h-7 text-xs bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 border-0"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     setWizardPipeline(pipeline);
@@ -1168,48 +1488,6 @@ export default function PipelinesPage() {
                                            onChange={(e) => setFormDescription(e.target.value)}/>
                                 </div>
 
-                                {/* ─── 需求来源配置 ─── */}
-                                <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.requirementSource')}</h4>
-                                    {/* 需求来源类型选择：ONES/Jira/GitLab/手动 */}
-                                    <select
-                                        value={formSteps.requirementSource.type}
-                                        onChange={(e) => setFormSteps({
-                                            ...formSteps,
-                                            requirementSource: {...formSteps.requirementSource, type: e.target.value},
-                                        })}
-                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    >
-                                        <option value="ones">ONES</option>
-                                        <option value="jira">Jira</option>
-                                        <option value="gitlab">GitLab</option>
-                                        <option value="manual">Manual</option>
-                                    </select>
-                                    {/* 非手动模式下，显示MCP服务器选择下拉框 */}
-                                    {formSteps.requirementSource.type !== 'manual' && (
-                                        <div className="mt-2">
-                                            <label
-                                                className="block text-xs text-muted-foreground mb-1">{t('pipelines.mcpServer')}</label>
-                                            <select
-                                                value={formSteps.requirementSource.mcpServerName || ''}
-                                                onChange={(e) => setFormSteps({
-                                                    ...formSteps,
-                                                    requirementSource: {
-                                                        ...formSteps.requirementSource,
-                                                        mcpServerName: e.target.value || undefined
-                                                    },
-                                                })}
-                                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                            >
-                                                <option value="">{t('pipelines.selectPlaceholder')}</option>
-                                                {mcpServers.map((s) => (
-                                                    <option key={s.name} value={s.name}>{s.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    )}
-                                </div>
-
                                 {/* ─── 工作空间绑定配置 ─── */}
                                 <div className="border-t border-border pt-4">
                                     <h4 className="text-xs font-medium mb-2">{t('pipelines.workspaceTitle')}</h4>
@@ -1231,113 +1509,34 @@ export default function PipelinesPage() {
                                     </p>
                                 </div>
 
-                                {/* ─── 各阶段技能配置 ─── */}
+                                {/* ─── 各阶段工具配置（技能 + MCP 按阶段独立） ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-3">{t('pipelines.skillsPerPhase')}</h4>
+                                    <h4 className="text-xs font-medium mb-1">{t('pipelines.skillsPerPhase')}</h4>
                                     <p className="text-xs text-muted-foreground mb-3">
                                         {t('pipelines.skillsDescription')}
                                     </p>
-
-                                    {/* 为每个阶段（规划/执行/测试）渲染独立的技能选择器 */}
                                     {(['plan', 'execution', 'test'] as const).map((phase) => {
-                                        const phaseKey = `${phase}Skills` as 'planSkills' | 'executionSkills' | 'testSkills';
-                                        const phaseConfig = formSteps[phaseKey] ?? {mode: 'all', selectedSkills: []};
-                                        const phaseLabel = phase === 'plan' ? t('pipelines.planGeneration') : phase === 'execution' ? t('pipelines.codeExecution') : t('pipelines.testing');
+                                        const phaseKey = phase as 'plan' | 'execution' | 'test';
+                                        const phaseConfig: PhaseToolsConfig = formSteps[phaseKey] ?? {skills: [], mcpServers: []};
+                                        const phaseLabel = phase === 'plan'
+                                            ? t('pipelines.phaseTools.planPhase')
+                                            : phase === 'execution'
+                                                ? t('pipelines.phaseTools.executionPhase')
+                                                : t('pipelines.phaseTools.testPhase');
                                         return (
-                                            <div key={phase} className="mb-4 rounded-md border border-border p-3">
-                                                <p className="text-xs font-medium text-muted-foreground mb-2">{phaseLabel}</p>
-                                                {/* 技能模式选择：全部/已选/无 */}
-                                                <select
-                                                    value={phaseConfig.mode}
-                                                    onChange={(e) => setFormSteps({
-                                                        ...formSteps,
-                                                        [phaseKey]: {...phaseConfig, mode: e.target.value},
-                                                    })}
-                                                    className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring mb-2"
-                                                >
-                                                    <option value="all">{t('pipelines.allSkills')}</option>
-                                                    <option value="selected">{t('pipelines.selectedSkills')}</option>
-                                                    <option value="none">{t('pipelines.noSkills')}</option>
-                                                </select>
-                                                {/* "已选"模式下显示技能复选框列表 */}
-                                                {phaseConfig.mode === 'selected' && (
-                                                    <div className="space-y-1 max-h-28 overflow-y-auto">
-                                                        {skills.length === 0 && (
-                                                            <p className="text-xs text-muted-foreground">{t('pipelines.noSkillsAvailable')}</p>
-                                                        )}
-                                                        {skills.map((skill) => (
-                                                            <label key={skill.name}
-                                                                   className="flex items-center gap-2 text-sm">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={phaseConfig.selectedSkills.includes(skill.name)}
-                                                                    onChange={(e) => {
-                                                                        // 切换技能选中状态：添加或移除
-                                                                        const sel = e.target.checked
-                                                                            ? [...phaseConfig.selectedSkills, skill.name]
-                                                                            : phaseConfig.selectedSkills.filter((s) => s !== skill.name);
-                                                                        setFormSteps({
-                                                                            ...formSteps,
-                                                                            [phaseKey]: {
-                                                                                ...phaseConfig,
-                                                                                selectedSkills: sel
-                                                                            },
-                                                                        });
-                                                                    }}
-                                                                    className="rounded border-input"
-                                                                />
-                                                                {skill.name}
-                                                            </label>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
+                                            <PhaseToolsCard
+                                                key={phase}
+                                                phaseLabel={phaseLabel}
+                                                config={phaseConfig}
+                                                skills={skills}
+                                                mcpServers={mcpServers}
+                                                onChange={(cfg) => setFormSteps({
+                                                    ...formSteps,
+                                                    [phaseKey]: cfg,
+                                                })}
+                                            />
                                         );
                                     })}
-                                </div>
-
-                                {/* ─── MCP工具集配置 ─── */}
-                                <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.mcpTools')}</h4>
-                                    <select
-                                        value={formSteps.mcpToolSet.mode}
-                                        onChange={(e) => setFormSteps({
-                                            ...formSteps,
-                                            mcpToolSet: {...formSteps.mcpToolSet, mode: e.target.value},
-                                        })}
-                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    >
-                                        <option value="all">{t('pipelines.allServers')}</option>
-                                        <option value="selected">{t('pipelines.selectedServers')}</option>
-                                    </select>
-                                    {/* "已选"模式下显示MCP服务器复选框列表 */}
-                                    {formSteps.mcpToolSet.mode === 'selected' && (
-                                        <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                                            {mcpServers.map((server) => (
-                                                <label key={server.name} className="flex items-center gap-2 text-sm">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={formSteps.mcpToolSet.selectedServers.includes(server.name)}
-                                                        onChange={(e) => {
-                                                            // 切换服务器选中状态
-                                                            const sel = e.target.checked
-                                                                ? [...formSteps.mcpToolSet.selectedServers, server.name]
-                                                                : formSteps.mcpToolSet.selectedServers.filter((s) => s !== server.name);
-                                                            setFormSteps({
-                                                                ...formSteps,
-                                                                mcpToolSet: {
-                                                                    ...formSteps.mcpToolSet,
-                                                                    selectedServers: sel
-                                                                },
-                                                            });
-                                                        }}
-                                                        className="rounded border-input"
-                                                    />
-                                                    {server.name}
-                                                </label>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
 
                                 {/* ─── 文档解析配置（MinerU 额外文件） ─── */}
@@ -1647,6 +1846,7 @@ export default function PipelinesPage() {
                     pipeline={wizardPipeline}
                     onClose={() => setWizardPipeline(null)}
                     savedWorkspaces={savedWorkspaces}
+                    mcpServers={mcpServers}
                 />
             )}
             <Joyride

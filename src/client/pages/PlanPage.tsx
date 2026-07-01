@@ -698,7 +698,7 @@ export default function PlanPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold">{t('pageTitle.plan')}</h1>
+                            <h1 className="text-xl font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{t('pageTitle.plan')}</h1>
                             {/* 根据当前状态显示不同的描述文本 */}
                             <p className="mt-0.5 text-sm text-muted-foreground">
                                 {generating ? t('plan.generating') :

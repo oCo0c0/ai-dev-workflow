@@ -21,6 +21,7 @@ const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const adm_zip_1 = __importDefault(require("adm-zip"));
 const xlsx_1 = __importDefault(require("xlsx"));
+const mcp_config_service_js_1 = require("../services/mcp-config-service.js");
 const validation_js_1 = require("../middleware/validation.js");
 const websocket_js_1 = require("../websocket.js");
 const plan_store_service_js_1 = require("../services/plan-store-service.js");
@@ -427,6 +428,30 @@ function resolvePlanSkills(pipelineId, pipelineService) {
     return pipeline?.steps ? (0, skill_utils_js_1.getPhaseSkills)(pipeline.steps, 'plan') : undefined;
 }
 /**
+ * 从 Pipeline 配置中解析计划阶段的 MCP 服务器，转成 SDK 可用的 stdio map。
+ * @returns mcpServers（undefined = 不注入，claude 走全局默认）+ missing（未找到的服务器名，调用方记 warning）
+ */
+function resolvePlanMcpServers(pipelineId, pipelineService, mcpConfigService) {
+    if (!pipelineId || !pipelineService)
+        return { mcpServers: undefined, missing: [] };
+    const pipeline = pipelineService.get(pipelineId);
+    if (!pipeline?.steps)
+        return { mcpServers: undefined, missing: [] };
+    const names = (0, skill_utils_js_1.getPhaseMcpServers)(pipeline.steps, 'plan');
+    const { map, missing } = (0, skill_utils_js_1.resolveMcpServerMap)(names, mcpConfigService);
+    return { mcpServers: map, missing };
+}
+/**
+ * 解析 plan 阶段 MCP 配置并广播缺失服务器警告。返回 mcpServers map（undefined = 不注入）。
+ */
+function resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService) {
+    const { mcpServers, missing } = resolvePlanMcpServers(plan.pipelineId, pipelineService, mcpConfigService);
+    if (missing.length > 0) {
+        (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `MCP servers not found, skipped: ${missing.join(', ')}` } });
+    }
+    return mcpServers;
+}
+/**
  * 获取需求详情：优先从本地 store 读取已保存的版本，避免重新获取导致内容不一致
  * @param requirementId - 需求ID
  * @param reqStore - 本地需求存储服务
@@ -463,6 +488,7 @@ async function runBridgeWithTimeout(plan, bridgeOptions, planStore, errorPrefix)
                 sessionId: bridgeOptions.sessionId,
                 maxTurns: 20,
                 skills: bridgeOptions.skills,
+                mcpServers: bridgeOptions.mcpServers,
             }, {
                 workspacePath: bridgeOptions.cwd,
                 signal: bridgeOptions.signal,
@@ -482,24 +508,24 @@ async function runBridgeWithTimeout(plan, bridgeOptions, planStore, errorPrefix)
  * - skills 为 'all' / undefined / 空数组时，单次执行（兼容旧行为）。
  */
 async function runPlanSkillsSequentially(plan, opts, planStore) {
-    const { cliRunner, prompt, cwd, skills, signal } = opts;
+    const { cliRunner, prompt, cwd, skills, mcpServers, signal } = opts;
     // 非数组或空数组：单次执行（保持旧行为）
     if (!Array.isArray(skills) || skills.length === 0) {
-        await runBridgeWithTimeout(plan, { cliRunner, prompt, cwd, skills, signal }, planStore, 'Plan generation');
+        await runBridgeWithTimeout(plan, { cliRunner, prompt, cwd, skills, mcpServers, signal }, planStore, 'Plan generation');
         return;
     }
     // 数组：初始化技能队列
     plan.pendingSkills = [...skills];
     plan.executedSkills = [];
     persistPlan(plan, planStore);
-    await runNextPlanSkill(plan, { cliRunner, prompt, cwd, signal }, planStore);
+    await runNextPlanSkill(plan, { cliRunner, prompt, cwd, mcpServers, signal }, planStore);
 }
 /**
  * 执行队列中下一个技能。队列空 → 完成。
  * 完成 1 个技能后进入 waiting_skill_confirm，等用户 continue-skill 路由触发下一个。
  */
 async function runNextPlanSkill(plan, opts, planStore) {
-    const { cliRunner, prompt, cwd, signal } = opts;
+    const { cliRunner, prompt, cwd, mcpServers, signal } = opts;
     const pending = plan.pendingSkills ?? [];
     if (pending.length === 0) {
         // 全部技能执行完，标记 ready
@@ -527,6 +553,7 @@ async function runNextPlanSkill(plan, opts, planStore) {
                 sessionId: plan.sessionId,
                 maxTurns: 20,
                 skills: [skill],
+                mcpServers,
             }, {
                 workspacePath: cwd,
                 signal,
@@ -578,6 +605,7 @@ async function runNextPlanSkill(plan, opts, planStore) {
 function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService) {
     const planStore = new plan_store_service_js_1.PlanStoreService();
     const reqStore = new requirement_store_service_js_1.RequirementStoreService();
+    const mcpConfigService = new mcp_config_service_js_1.MCPConfigService();
     const router = (0, express_1.Router)();
     // POST /api/plan/generate - 基于需求生成开发计划
     router.post('/generate', (0, validation_js_1.validateBody)([
@@ -636,11 +664,13 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
             const promptText = PLAN_PROMPT_TEMPLATE
                 .replace('{title}', title)
                 .replace('{description}', enrichedDescription);
+            const planMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
             await runPlanSkillsSequentially(plan, {
                 cliRunner: cliRunnerService,
                 prompt: (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, workspacePath),
                 cwd: workspacePath,
                 skills: planSkills,
+                mcpServers: planMcpServers,
                 signal: abortController.signal,
             }, planStore);
         }
@@ -748,11 +778,13 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
         plan.updatedAt = new Date().toISOString();
         persistPlan(plan, planStore);
         (0, websocket_js_1.broadcast)({ type: 'plan:progress', data: { taskId: plan.id, content: `\n\n**User:** ${message}\n\n` } });
+        const replyMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
         await runBridgeWithTimeout(plan, {
             cliRunner: cliRunnerService,
             prompt: message,
             cwd: plan.workspacePath,
             sessionId: plan.sessionId,
+            mcpServers: replyMcpServers,
             accumulatedOutput: plan.rawOutput || '',
         }, planStore, 'Reply');
     });
@@ -815,11 +847,13 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
         persistPlan(plan, planStore);
         (0, websocket_js_1.broadcast)({ type: 'plan:progress', data: { taskId: plan.id, content: '\n\n[Resuming generation...]\n\n' } });
         res.json({ ok: true });
+        const resumeMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
         await runBridgeWithTimeout(plan, {
             cliRunner: cliRunnerService,
             prompt: 'Continue generating the development plan from where you left off.',
             cwd: plan.workspacePath,
             sessionId: plan.sessionId,
+            mcpServers: resumeMcpServers,
             signal: abortController.signal,
             accumulatedOutput: plan.rawOutput || '',
         }, planStore, 'Resume');
@@ -837,6 +871,7 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
             return;
         }
         const planSkills = resolvePlanSkills(plan.pipelineId, pipelineService);
+        const planMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
         // 重置状态
         plan.status = 'generating';
         plan.rawOutput = undefined;
@@ -858,6 +893,7 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
                 prompt: (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, plan.workspacePath),
                 cwd: plan.workspacePath,
                 skills: planSkills,
+                mcpServers: planMcpServers,
                 signal: abortController.signal,
             }, planStore, 'Plan regeneration');
         }
@@ -920,12 +956,14 @@ ${planContent}
 立即输出完整表格，不要追问。`;
                     // 任务拆分使用空输出开始，不污染rawOutput
                     const prevOutput = '';
+                    const exportMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
                     await runBridgeWithTimeout(plan, {
                         cliRunner: cliRunnerService,
                         prompt: (0, prompt_enrichment_js_1.enrichPrompt)(skillPrompt, memoryService, plan.workspacePath),
                         cwd: plan.workspacePath,
                         sessionId: plan.sessionId,
                         skills: [skillName],
+                        mcpServers: exportMcpServers,
                         signal: abortController.signal,
                         accumulatedOutput: prevOutput,
                     }, planStore, 'Task export skill');
@@ -1016,10 +1054,12 @@ ${planContent}
             const promptText = PLAN_PROMPT_TEMPLATE
                 .replace('{title}', title)
                 .replace('{description}', description);
+            const continueMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
             await runNextPlanSkill(plan, {
                 cliRunner: cliRunnerService,
                 prompt: (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, plan.workspacePath),
                 cwd: plan.workspacePath,
+                mcpServers: continueMcpServers,
                 signal: abortController.signal,
             }, planStore);
         }
@@ -1056,10 +1096,12 @@ ${planContent}
                 const promptText = PLAN_PROMPT_TEMPLATE
                     .replace('{title}', title)
                     .replace('{description}', description);
+                const skipMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
                 await runNextPlanSkill(plan, {
                     cliRunner: cliRunnerService,
                     prompt: (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, plan.workspacePath),
                     cwd: plan.workspacePath,
+                    mcpServers: skipMcpServers,
                     signal: abortController.signal,
                 }, planStore);
             }

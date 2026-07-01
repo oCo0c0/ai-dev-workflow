@@ -132,6 +132,7 @@ class CLIRunnerService {
             sessionId: input.sessionId,
             maxTurns: input.maxTurns,
             skills: input.skills,
+            mcpServers: input.mcpServers,
         }, {
             workspacePath: options?.workspacePath,
             signal: options?.signal,

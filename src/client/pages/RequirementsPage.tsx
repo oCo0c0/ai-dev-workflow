@@ -423,7 +423,7 @@ export default function RequirementsPage(): JSX.Element {
             <div className="border-b border-border px-6 py-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-xl font-semibold">{t('pageTitle.requirements')}</h1>
+                        <h1 className="text-xl font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{t('pageTitle.requirements')}</h1>
                         <p className="mt-0.5 text-sm text-muted-foreground">
                             {t('requirements.subtitle')}
                         </p>

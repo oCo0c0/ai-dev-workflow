@@ -144,7 +144,7 @@ export default function Layout() {
                             <img
                                 src="https://blogsite.site/upload/logo.png"
                                 alt="logo"
-                                className="h-7 w-7 rounded-xl object-cover shrink-0"
+                                className="h-7 w-7 rounded-xl object-cover shrink-0 ring-2 ring-indigo-500/40 shadow-md shadow-indigo-500/20"
                             />
                             <span className="text-sm font-semibold tracking-tight">{t('common.appTitle')}</span>
                         </div>
@@ -169,16 +169,24 @@ export default function Layout() {
                                 end={item.path === '/'}
                                 className={({isActive}) =>
                                     cn(
-                                        'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
+                                        'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
                                         isActive
-                                            ? 'bg-primary/10 text-primary'
+                                            ? 'bg-gradient-to-r from-indigo-500/15 to-purple-600/15 text-primary'
                                             : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
                                     )
                                 }
                                 title={sidebarCollapsed ? label : undefined}
                             >
-                                <Icon className="h-4 w-4 flex-shrink-0"/>
-                                {!sidebarCollapsed && <span className="truncate">{label}</span>}
+                                {({isActive}) => (
+                                    <>
+                                        {isActive && (
+                                            <span
+                                                className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-gradient-to-b from-indigo-500 to-purple-600"/>
+                                        )}
+                                        <Icon className={cn('h-4 w-4 flex-shrink-0 transition-colors', isActive && 'text-indigo-500')}/>
+                                        {!sidebarCollapsed && <span className="truncate">{label}</span>}
+                                    </>
+                                )}
                             </NavLink>
                         );
                     })}
@@ -217,7 +225,7 @@ export default function Layout() {
                             )}
                         </button>
                         <div className="h-4 w-px bg-border"/>
-                        <h1 className="text-sm font-medium">{currentTitle}</h1>
+                        <h1 className="text-sm font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{currentTitle}</h1>
                     </div>
                     <div className="flex items-center gap-2">
                         {/* CLI Provider 切换 */}

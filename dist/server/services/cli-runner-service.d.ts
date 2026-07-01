@@ -7,7 +7,7 @@
  *
  * 支持运行时切换 Provider，首次启动时通过引导流程选择。
  */
-import type { CLIProvider } from './cli-providers/types.js';
+import type { CLIProvider, McpStdioMap } from './cli-providers/types.js';
 /**
  * CLI 运行器的配置选项接口
  * @interface CLIRunnerOptions
@@ -99,6 +99,7 @@ export declare class CLIRunnerService {
         sessionId?: string;
         maxTurns?: number;
         skills?: string[] | 'all';
+        mcpServers?: McpStdioMap;
     }, options?: CLIRunnerOptions): Promise<CLIExecutionResult>;
     /**
      * 释放资源

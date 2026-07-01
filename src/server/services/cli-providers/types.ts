@@ -69,6 +69,18 @@ export interface CLIProviderStatus {
 }
 
 /**
+ * SDK query options.mcpServers 的 stdio 配置 map。
+ * key 为服务器名，value 为 stdio 启动配置。type 固定 'stdio'（传输协议），
+ * 与 McpServerInfo.type（运行时推断 node/python/docker）语义不同，不可混用。
+ */
+export type McpStdioMap = Record<string, {
+    type: 'stdio';
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+}>;
+
+/**
  * CLI Provider 对话输入
  */
 export interface CLIProviderInput {
@@ -82,6 +94,8 @@ export interface CLIProviderInput {
     maxTurns?: number;
     /** 技能列表 */
     skills?: string[] | 'all';
+    /** MCP 服务器 stdio 配置 map，undefined = 不注入（claude 走全局默认 MCP） */
+    mcpServers?: McpStdioMap;
 }
 
 /**
