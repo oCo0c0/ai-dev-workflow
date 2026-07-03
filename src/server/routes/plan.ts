@@ -242,8 +242,8 @@ function buildExportRow(
         const aliases = HEADER_ALIASES[h] ?? [];
         let value = pick(task, aliases);
 
-        // 上下文覆盖
-        if (h === '需求号ID' && !value) value = ctx.requirementId;
+        // 上下文覆盖（任务的来源需求 = 新模板第1列，语义同需求号ID）
+        if ((h === '需求号ID' || h === '任务的来源需求') && !value) value = ctx.requirementId;
         if (h === '所属项目' && !value) value = ctx.project;
         if (h === '需求开发主程' && !value) value = ctx.devLead;
         if (h === '需求测试主程' && !value) value = ctx.testLead;
@@ -1142,7 +1142,7 @@ export function createPlanRoutes(
                     const planContent = plan.rawOutput ?? plan.summary ?? description ?? '';
                     const skillPrompt = `使用 ${skillName} 技能完成需求任务拆分 + 工时评估，按技能 SKILL.md 要求输出完整 17 列 markdown 表格 + 工时汇总 + 风险说明。
 
-【重要】所有输入已提供，禁止追问用户。未知字段填 "—"（除必填：标题、描述、工作项类型="开发"、预估工时、任务拆解类型）。
+【重要】所有输入已提供，禁止追问用户。未知字段填 "—"（除必填：标题、描述、状态="未开始"、工作项类型="任务"、预估工时、任务拆解类型、任务复杂度填"简单/中等/复杂"）。
 
 输入参数：
 - 需求号ID：${reqId}
