@@ -98,6 +98,7 @@ export declare class CLIRunnerService {
         cwd?: string;
         sessionId?: string;
         maxTurns?: number;
+        maxHistoryMessages?: number;
         skills?: string[] | 'all';
         mcpServers?: McpStdioMap;
     }, options?: CLIRunnerOptions): Promise<CLIExecutionResult>;

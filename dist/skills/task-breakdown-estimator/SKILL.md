@@ -115,18 +115,17 @@ Estimates must account for ALL work a developer performs before handing off to Q
 Read `references/estimation_guide.md` for detailed per-category multipliers. Key principles:
 
 - **Minimum granularity**: 0.5 hour (30 min). Anything smaller merges into a related task.
-- **Typical ranges** per complexity:
-  - **Low** (simple config, field addition, minor UI tweak): 0.5 – 2 h
-  - **Medium** (new CRUD, API with 3–5 fields, standard form): 2 – 8 h
-  - **High** (complex business logic, multi-table operations, workflow): 8 – 24 h
-  - **Very High** (new module from scratch, system integration): 24 – 40 h
+- **Typical ranges** per complexity（任务复杂度列填对应中文档位）:
+  - **简单** (simple config, field addition, minor UI tweak): 0.5 – 2 h
+  - **中等** (new CRUD, API with 3–5 fields, standard form): 2 – 8 h
+  - **复杂** (complex business logic, multi-table operations, workflow, new module, system integration): 8 – 40 h
 - **Self-test overhead**: add 20–30% on top of pure coding time.
 - **Integration overhead**: add 15–25% if cross-module or cross-system interaction.
 - **Unknowns**: if a task has >30% uncertainty, flag it and add a 50% buffer.
 
 ### Complexity Assessment
 
-Rate each task: `Low` | `Medium` | `High` | `Very High`.
+Rate each task and write the **中文** label to the 任务复杂度 column: `简单` | `中等` | `复杂`.
 
 Factors:
 - Number of database tables touched
@@ -167,16 +166,16 @@ Factors:
 | 3 | 标题 | Skill generates | Concise, action-oriented |
 | 4 | 描述 | Skill generates | 1–2 sentences, scope + acceptance |
 | 5 | 负责人 | User input | Fill `—` if unknown |
-| 6 | 状态 | Auto | `待开发` |
+| 6 | 状态 | Auto | `未开始` |
 | 7 | 所属项目 | Skill auto-matches | MUST pick closest value from `所属项目` enum below based on requirement analysis. If truly unknown, fill `—` |
 | 8 | 所属产品 | Skill auto-matches | MUST pick closest value from `所属产品` enum below based on requirement analysis. If truly unknown, fill `—` |
-| 9 | 工作项类型 | Auto | `开发` |
+| 9 | 工作项类型 | Auto | `任务` |
 | 10 | 优先级 | Skill assigns | `P0` / `P1` / `P2` / `P3` |
 | 11 | 预估工时(h) | Skill estimates | Number, 0.5h minimum, round to 0.5h |
 | 12 | 计划开始 | User input or derived | `YYYY-MM-DD` format |
 | 13 | 计划完成 | User input or derived | `YYYY-MM-DD` format |
 | 14 | 任务拆解类型 | Skill assigns | MUST use ZH label from category table |
-| 15 | 任务复杂度 | Skill assesses | `Low` / `Medium` / `High` / `Very High` |
+| 15 | 任务复杂度 | Skill assesses | `简单` / `中等` / `复杂` |
 | 16 | 开发主程 | User input | Fill `—` if unknown |
 | 17 | 测试主程 | User input | Fill `—` if unknown |
 
@@ -187,17 +186,17 @@ Skill MUST analyze requirement content (title, description, change points) and p
 - Wondersign
 - 数据分析支持
 - NOBLE HOME系统（NH)
-- 质检系统（QC)
+- 质检系统（QC）
 - 公共服务项目
-- 车队系统（LM Lastmile)
-- 核算系统（FAS)
+- 车队系统（LM Lastmile）
+- 核算系统（FAS）
 - 自营产品ERP
 - 客服邮件系统(CSMS)
 - 财务系统
-- 海运系统（MMS)
+- 海运系统（MMS）
 - 报销系统(FNS)
 - B2B gigacloudlogistics
-- 单点登录系统（CAS)
+- 单点登录系统（CAS）
 - 第三方物流系统（3PL)
 - 仓储作业系统（WMS)
 - 订单发货系统（DRP)
@@ -284,8 +283,8 @@ Skill MUST analyze requirement content and pick the closest matching product fro
 
 | 需求号ID | 任务ID | 标题 | 描述 | 负责人 | 状态 | 所属项目 | 所属产品 | 工作项类型 | 优先级 | 预估工时(h) | 计划开始 | 计划完成 | 任务拆解类型 | 任务复杂度 | 开发主程 | 测试主程 |
 |---------|--------|------|------|--------|------|---------|---------|-----------|--------|------------|---------|---------|------------|-----------|---------|---------|
-| {{req_id}} | — | Task title here | Task description here | {{assignee}} | 待开发 | {{project}} | {{product}} | 开发 | P1 | 2.0 | {{start}} | {{end}} | 后端-新增接口（提供方） | Medium | {{lead_dev}} | {{lead_tester}} |
-| {{req_id}} | — | Next task title | Next description | {{assignee}} | 待开发 | {{project}} | {{product}} | 开发 | P2 | 1.0 | {{start}} | {{end}} | 前端-界面修改 | Low | {{lead_dev}} | {{lead_tester}} |
+| {{req_id}} | — | Task title here | Task description here | {{assignee}} | 未开始 | {{project}} | {{product}} | 任务 | P1 | 2.0 | {{start}} | {{end}} | 后端-新增接口（提供方） | 中等 | {{lead_dev}} | {{lead_tester}} |
+| {{req_id}} | — | Next task title | Next description | {{assignee}} | 未开始 | {{project}} | {{product}} | 任务 | P2 | 1.0 | {{start}} | {{end}} | 前端-界面修改 | 简单 | {{lead_dev}} | {{lead_tester}} |
 
 ### 工时汇总
 
@@ -321,7 +320,7 @@ For each change point, create one or more atomic tasks:
 ### Step 3 — Estimate Effort
 
 For each task:
-1. Assess complexity (Low / Medium / High / Very High).
+1. Assess complexity (简单 / 中等 / 复杂).
 2. Apply estimation heuristics from `references/estimation_guide.md`.
 3. Include self-test + integration overhead.
 4. Round to nearest 0.5h.

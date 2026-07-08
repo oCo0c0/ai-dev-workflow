@@ -73,11 +73,17 @@ class PipelineService {
         fs_1.default.writeFileSync(this.pipelinesFile, JSON.stringify(pipelines, null, 2), 'utf-8');
     }
     /**
-     * 列出所有管线
+     * 列出所有管线（按创建时间倒序，新创建的在最前面）
      * @returns 管线数组
      */
     list() {
-        return this.loadPipelines();
+        const pipelines = this.loadPipelines();
+        // 按创建时间倒序排列（新创建的在最前面）
+        return pipelines.sort((a, b) => {
+            const dateA = new Date(a.createdAt).getTime();
+            const dateB = new Date(b.createdAt).getTime();
+            return dateB - dateA; // 倒序
+        });
     }
     /**
      * 根据 ID 获取指定管线

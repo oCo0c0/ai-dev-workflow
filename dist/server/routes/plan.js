@@ -609,10 +609,10 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
     const router = (0, express_1.Router)();
     // POST /api/plan/generate - 基于需求生成开发计划
     router.post('/generate', (0, validation_js_1.validateBody)([
-        { field: 'requirementId', required: true, type: 'string' },
+        { field: 'requirementId', required: false, type: 'string' }, // 改为可选：支持 requirementText 时无需 ID
         { field: 'workspacePath', required: true, type: 'string' },
     ]), async (req, res) => {
-        const { requirementId, workspacePath, pipelineId, requirementTitle, requirementNumber } = req.body;
+        const { requirementId, workspacePath, pipelineId, requirementTitle, requirementNumber, requirementDescription } = req.body;
         const wsCheck = (0, validation_js_1.validateWorkspacePath)(workspacePath);
         if (!wsCheck.valid) {
             res.status(400).json({ code: 'VALIDATION_ERROR', message: wsCheck.error });
@@ -637,7 +637,15 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
         activeGenerations.set(taskId, abortController);
         // 异步生成
         try {
-            const { title, description } = await getRequirementContent(requirementId, reqStore, mcpBridgeService);
+            // 优先使用前端传递的需求快照（避免重复从 ONES 获取）
+            let title = requirementTitle || '';
+            let description = requirementDescription || '';
+            if (!title || !description) {
+                // 如果没有提供快照，从本地 store 或 MCP 获取
+                const content = await getRequirementContent(requirementId, reqStore, mcpBridgeService);
+                title = title || content.title;
+                description = description || content.description;
+            }
             // 如果 Pipeline 配置了额外文件路径，通过 MinerU 解析后追加到 description
             let enrichedDescription = description;
             if (pipelineId && mineruService?.isEnabled()) {
@@ -769,24 +777,52 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
             res.status(400).json({ code: 'VALIDATION_ERROR', message: 'message is required' });
             return;
         }
-        if (!plan.sessionId) {
-            res.status(400).json({ code: 'INVALID_STATE', message: 'No active session to reply to' });
-            return;
+        // 如果没有活跃会话（用户调用了 /new-session），创建新会话
+        const isNewSession = !plan.sessionId;
+        if (isNewSession) {
+            console.log(`[plan] 创建新会话: taskId=${req.params.taskId}`);
         }
-        res.json({ ok: true });
+        res.json({ ok: true, isNewSession });
         plan.status = 'generating';
         plan.updatedAt = new Date().toISOString();
         persistPlan(plan, planStore);
         (0, websocket_js_1.broadcast)({ type: 'plan:progress', data: { taskId: plan.id, content: `\n\n**User:** ${message}\n\n` } });
         const replyMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
-        await runBridgeWithTimeout(plan, {
+        // 继续对话：如果有 sessionId 则复用（旧会话），否则创建新会话
+        const bridgeOptions = {
             cliRunner: cliRunnerService,
-            prompt: message,
+            prompt: (0, prompt_enrichment_js_1.enrichPrompt)(message, memoryService, plan.workspacePath),
             cwd: plan.workspacePath,
-            sessionId: plan.sessionId,
             mcpServers: replyMcpServers,
-            accumulatedOutput: plan.rawOutput || '',
-        }, planStore, 'Reply');
+        };
+        // 仅在有 sessionId 时传递（继续旧会话）
+        if (plan.sessionId) {
+            bridgeOptions.sessionId = plan.sessionId;
+        }
+        await runBridgeWithTimeout(plan, bridgeOptions, planStore, 'Reply');
+    });
+    // POST /api/plan/:taskId/new-session
+    // 开始新会话（保留历史显示，清空后端上下文）
+    router.post('/:taskId/new-session', async (req, res) => {
+        const plan = planCache.get(req.params.taskId) ?? planStore.get(req.params.taskId);
+        if (!plan) {
+            res.status(404).json({ code: 'NOT_FOUND', message: 'Plan not found' });
+            return;
+        }
+        // 清空 sessionId，下次 /reply 调用时将创建新会话
+        const oldSessionId = plan.sessionId;
+        plan.sessionId = undefined;
+        plan.updatedAt = new Date().toISOString();
+        // 持久化更新
+        persistPlan(plan, planStore);
+        if (planCache.get(plan.id)) {
+            planCache.set(plan.id, { ...plan });
+        }
+        console.log(`[plan] 新会话: taskId=${plan.id}, oldSessionId=${oldSessionId?.slice(0, 8)}...`);
+        res.json({
+            ok: true,
+            message: '新会话已创建，历史消息保留在页面显示中'
+        });
     });
     // POST /api/plan/:taskId/abort - 取消生成
     router.post('/:taskId/abort', (req, res) => {

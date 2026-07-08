@@ -19,6 +19,7 @@ export declare class ClaudeProvider implements CLIProvider {
     private pendingRequests;
     private readyCallbacks;
     private startPromise;
+    private healthCheckTimer;
     detect(): Promise<CLIProviderStatus>;
     initialize(): Promise<void>;
     run(input: CLIProviderInput, options?: CLIProviderOptions): Promise<CLIProviderResult>;
@@ -27,6 +28,11 @@ export declare class ClaudeProvider implements CLIProvider {
     dispose(): Promise<void>;
     private ensureStarted;
     private start;
+    /**
+     * 启动健康检测定时器
+     * 每 30 秒检查进程是否存活，异常退出时清理 pending 请求
+     */
+    private startHealthCheck;
     private handleMessage;
 }
 //# sourceMappingURL=claude-provider.d.ts.map

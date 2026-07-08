@@ -11,11 +11,12 @@
  * - 与全局状态管理（Zustand store）集成，支持从计划页面触发的实时执行同步
  */
 
-import {useEffect, useRef, useState, useCallback} from 'react';
+import {useEffect, useRef, useState, useCallback, useMemo} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost} from '../api';
 import {useAppStore} from '../stores/app-store';
+import type {ExecutionLogEntry} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
 import {
     Pause,
@@ -32,12 +33,17 @@ import {
     MessageSquare,
     Play,
     Clock,
+    Layers,
+    User,
     FolderOpen,
+    ChevronDown,
+    ChevronUp,
     TestTube,
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
+import ContextIndicator from '../components/ContextIndicator';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
 
@@ -126,6 +132,7 @@ export default function ExecutionPage() {
     const addExecutionLog = useAppStore((s) => s.addExecutionLog);
     const clearExecutionLogs = useAppStore((s) => s.clearExecutionLogs);
     const setExecutionId = useAppStore((s) => s.setExecutionId);
+    const theme = useAppStore((s) => s.ui.theme); // 获取当前主题
 
     // 执行历史列表相关状态
     const [history, setHistory] = useState<ExecutionSummary[]>([]);
@@ -137,7 +144,14 @@ export default function ExecutionPage() {
     const [detail, setDetail] = useState<ExecutionDetail | null>(null);
     const [replyText, setReplyText] = useState('');
     const [replying, setReplying] = useState(false);
-    const [skillConfirm, setSkillConfirm] = useState<{open: boolean; nextSkill?: string; completedSkill?: string}>({open: false});
+    const [skillConfirm, setSkillConfirm] = useState<{
+        open: boolean;
+        nextSkill?: string;
+        completedSkill?: string
+    }>({open: false});
+    // 对话折叠状态：记录每个消息组是否展开（每10条一组）
+    const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+    const MESSAGES_PER_GROUP = 10;
 
     // DOM 引用：用于日志自动滚动、轮询清理和回复输入框聚焦
     const logEndRef = useRef<HTMLDivElement>(null);
@@ -155,15 +169,44 @@ export default function ExecutionPage() {
     const isAborted = execStatus === 'aborted';
     const isDone = isCompleted || isFailed || isAborted;
 
-    // 合并日志来源：实时执行时使用 store 中的日志（实时推送），历史执行使用详情中的日志
-    const displayLogs = activeId === storeExecutionId && storeLogs.length > 0
-        ? storeLogs
-        : (detail?.logs ?? []);
+    // 合并日志来源：WebSocket 推送的实时日志 + 轮询返回的历史日志
+    // 优先使用 detail.logs 作为基础，追加 storeLogs 中的新增内容
+    // 支持折叠功能：超过阈值自动折叠，可手动展开/折叠
+    const displayLogs = useMemo(() => {
+        const baseLogs = detail?.logs ?? [];
+
+        // 如果是实时执行且有 WebSocket 推送，合并日志
+        let combined: Array<string | ExecutionLogEntry> = [...baseLogs];
+        if (activeId === storeExecutionId && storeLogs.length > 0) {
+            // 去重合并：避免重复显示（通过内容比对）
+            for (const newLog of storeLogs) {
+                const newContent = (newLog as ExecutionLogEntry).content;
+                const exists = combined.some(existing => {
+                    const existingContent = typeof existing === 'string' ? existing : (existing as ExecutionLogEntry).content;
+                    return existingContent === newContent;
+                });
+                if (!exists) {
+                    combined.push(newLog);
+                }
+            }
+        }
+
+        // 不截断：返回所有消息（用于分组折叠显示）
+        return combined;
+    }, [detail?.logs, storeLogs, activeId, storeExecutionId]);
 
     // 日志自动滚动到底部效果
     useEffect(() => {
         logEndRef.current?.scrollIntoView({behavior: 'smooth'});
     }, [displayLogs]);
+
+    // 自动展开最后一组（新消息到达时）
+    useEffect(() => {
+        if (displayLogs.length > 0) {
+            const totalGroups = Math.ceil(displayLogs.length / MESSAGES_PER_GROUP);
+            setExpandedGroups(prev => new Set([...prev, totalGroups - 1]));
+        }
+    }, [displayLogs.length]);
 
     /**
      * 加载执行历史列表
@@ -246,8 +289,8 @@ export default function ExecutionPage() {
                     if (pollRef.current) clearInterval(pollRef.current);
                     setSkillConfirm({
                         open: true,
-                        nextSkill: (data as {pendingSkills?: string[]}).pendingSkills?.[0],
-                        completedSkill: (data as {executedSkills?: string[]}).executedSkills?.slice(-1)[0],
+                        nextSkill: (data as { pendingSkills?: string[] }).pendingSkills?.[0],
+                        completedSkill: (data as { executedSkills?: string[] }).executedSkills?.slice(-1)[0],
                     });
                 }
             } catch {
@@ -295,12 +338,16 @@ export default function ExecutionPage() {
     /** 重试当前失败或暂停的步骤 */
     const handleRetry = async () => {
         if (!activeId) return;
+        // 乐观更新：立即在本地反映运行中状态
+        if (detail) setDetail({...detail, status: 'running'});
         try {
             await apiPost(`/execution/${activeId}/retry-step`);
-            // retry 后端已将状态改为 running，立即刷新 detail 并重启轮询
+            // 立即刷新状态并重启轮询
             const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
             setDetail(data);
             setPollKey(k => k + 1);
+            // 刷新历史列表以更新状态标识
+            loadHistory();
         } catch { /* 通过轮询处理状态更新 */
         }
     };
@@ -308,12 +355,16 @@ export default function ExecutionPage() {
     /** 跳过当前暂停或失败的步骤，继续执行下一步 */
     const handleSkip = async () => {
         if (!activeId) return;
+        // 乐观更新：立即在本地反映运行中状态
+        if (detail) setDetail({...detail, status: 'running'});
         try {
             await apiPost(`/execution/${activeId}/skip-step`);
-            // skip 后端已将状态改为 running，立即刷新 detail 并重启轮询
+            // 立即刷新状态并重启轮询
             const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
             setDetail(data);
             setPollKey(k => k + 1);
+            // 刷新历史列表以更新状态标识
+            loadHistory();
         } catch { /* 通过轮询处理状态更新 */
         }
     };
@@ -350,11 +401,12 @@ export default function ExecutionPage() {
                         if (pollRef.current) clearInterval(pollRef.current);
                         setSkillConfirm({
                             open: true,
-                            nextSkill: (data as {pendingSkills?: string[]}).pendingSkills?.[0],
-                            completedSkill: (data as {executedSkills?: string[]}).executedSkills?.slice(-1)[0],
+                            nextSkill: (data as { pendingSkills?: string[] }).pendingSkills?.[0],
+                            completedSkill: (data as { executedSkills?: string[] }).executedSkills?.slice(-1)[0],
                         });
                     }
-                } catch { /* continue */ }
+                } catch { /* continue */
+                }
             }, 2000);
         } catch (err) {
             console.error('Continue skill failed:', err);
@@ -367,7 +419,7 @@ export default function ExecutionPage() {
         setSkillConfirm({open: false});
         if (detail) setDetail({...detail, status: 'running'});
         try {
-            const res = await apiPost<{completed?: boolean}>(`/execution/${activeId}/skip-skill`);
+            const res = await apiPost<{ completed?: boolean }>(`/execution/${activeId}/skip-skill`);
             if (res.completed) {
                 const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
                 setDetail(data);
@@ -387,11 +439,12 @@ export default function ExecutionPage() {
                         if (pollRef.current) clearInterval(pollRef.current);
                         setSkillConfirm({
                             open: true,
-                            nextSkill: (data as {pendingSkills?: string[]}).pendingSkills?.[0],
-                            completedSkill: (data as {executedSkills?: string[]}).executedSkills?.slice(-1)[0],
+                            nextSkill: (data as { pendingSkills?: string[] }).pendingSkills?.[0],
+                            completedSkill: (data as { executedSkills?: string[] }).executedSkills?.slice(-1)[0],
                         });
                     }
-                } catch { /* continue */ }
+                } catch { /* continue */
+                }
             }, 2000);
         } catch (err) {
             console.error('Skip skill failed:', err);
@@ -422,6 +475,22 @@ export default function ExecutionPage() {
     };
 
     /**
+     * 开始新会话（清空后端上下文，保留前端历史显示）
+     * 当上下文即将满时（>80%）调用，避免 529 错误
+     */
+    const handleNewSession = async () => {
+        if (!activeId) return;
+
+        try {
+            await apiPost(`/execution/${activeId}/new-session`, {});
+            // 新会话创建成功，历史消息仍保留在 displayLogs 中
+            // 下次发送消息时将使用新 sessionId
+        } catch (err) {
+            console.error('新会话创建失败:', err);
+        }
+    };
+
+    /**
      * 向当前执行中的 Claude 发送回复消息
      * 当 Claude 在执行过程中需要用户确认或提出问题时使用
      * 发送后 Claude 将根据回复内容继续执行
@@ -431,6 +500,20 @@ export default function ExecutionPage() {
         const message = replyText.trim();
         setReplying(true);
         setReplyText(''); // 清空输入框
+
+        // 设置状态为 running（图标转动）
+        setExecutionStatus({
+            executionId: activeId,
+            planId: detail?.planId,
+            currentStep: detail?.currentStep ?? 0,
+            totalSteps: detail?.totalSteps ?? 1,
+            status: 'running',
+            startedAt: detail?.startedAt,
+        });
+
+        // WebSocket 会自动推送 execution:output，轮询会更新 detail.logs
+        // 这样可以保留完整的历史日志，新内容追加显示
+
         try {
             await apiPost(`/execution/${activeId}/reply`, {message});
         } catch (err) {
@@ -440,6 +523,15 @@ export default function ExecutionPage() {
                 stepIndex: 0,
                 type: 'error',
                 content: t('execution.replyFailed', {error: err instanceof Error ? err.message : 'Unknown error'}),
+            });
+            // 恢复状态为 idle
+            setExecutionStatus({
+                executionId: activeId,
+                planId: detail?.planId,
+                currentStep: detail?.currentStep ?? 0,
+                totalSteps: detail?.totalSteps ?? 1,
+                status: 'idle',
+                startedAt: detail?.startedAt,
             });
         } finally {
             setReplying(false);
@@ -464,7 +556,11 @@ export default function ExecutionPage() {
         completed: {label: t('execution.statusCompleted'), color: 'text-emerald-500', bg: 'bg-emerald-500/10'},
         failed: {label: t('execution.statusFailed'), color: 'text-destructive', bg: 'bg-destructive/10'},
         aborted: {label: t('execution.statusAborted'), color: 'text-muted-foreground', bg: 'bg-muted'},
-        waiting_skill_confirm: {label: t('execution.statusSkillConfirm'), color: 'text-purple-500', bg: 'bg-purple-500/10'},
+        waiting_skill_confirm: {
+            label: t('execution.statusSkillConfirm'),
+            color: 'text-purple-500',
+            bg: 'bg-purple-500/10'
+        },
     };
 
     const cfg = statusConfig[execStatus] ?? statusConfig.idle;
@@ -606,18 +702,18 @@ export default function ExecutionPage() {
                   <span className="text-sm font-medium">
                     {t('execution.stepProgress', {current: detail.currentStep, total: detail.totalSteps || '?'})}
                   </span>
-                                    {detail.totalSteps > 0 && (
+                                    {detail.totalSteps > 1 && (
                                         <span className="text-sm text-muted-foreground">
                       {Math.round((detail.currentStep / detail.totalSteps) * 100)}%
                     </span>
                                     )}
                                 </div>
-                                {detail.totalSteps > 0 && (
+                                {detail.totalSteps > 1 && (
                                     <div className="h-2 bg-muted rounded-full overflow-hidden">
                                         <div
                                             className={cn(
                                                 'h-full rounded-full transition-all duration-500',
-                                                isCompleted ? 'bg-emerald-500' : isFailed ? 'bg-destructive' : 'bg-primary'
+                                                isCompleted ? 'bg-emend-500' : isFailed ? 'bg-destructive' : 'bg-primary'
                                             )}
                                             style={{
                                                 width: `${(detail.currentStep / detail.totalSteps) * 100}%`,
@@ -697,12 +793,19 @@ export default function ExecutionPage() {
                     {activeId && (
                         <Card className="border-primary/20 bg-primary/5" data-tour="exec-reply">
                             <CardContent className="p-3">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <MessageSquare className="h-4 w-4 text-primary"/>
-                                    <span className="text-sm font-semibold">{t('execution.replyTitle')}</span>
-                                    <span className="text-xs text-muted-foreground">
-                    {t('execution.replySubtitle')}
-                  </span>
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <MessageSquare className="h-4 w-4 text-primary"/>
+                                        <span className="text-sm font-semibold">{t('execution.replyTitle')}</span>
+                                        <span className="text-xs text-muted-foreground">
+                        {t('execution.replySubtitle')}
+                      </span>
+                                    </div>
+                                    {/* 上下文指示器 */}
+                                    <ContextIndicator
+                                        logs={displayLogs.map(l => typeof l === 'string' ? l : JSON.stringify(l))}
+                                        onSuggestNewSession={handleNewSession}
+                                    />
                                 </div>
                                 <div className="flex gap-2">
                   <textarea
@@ -719,7 +822,7 @@ export default function ExecutionPage() {
                       placeholder={t('execution.replyPlaceholder')}
                       rows={2}
                       disabled={isRunning} // Claude 运行时禁用回复输入
-                      className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+                      className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
                   />
                                     <Button
                                         onClick={handleReply}
@@ -754,51 +857,176 @@ export default function ExecutionPage() {
                     {activeId && (
                         <div
                             data-tour="exec-output"
-                            className="flex-1 min-h-0 rounded-lg border border-border bg-gray-950 dark:bg-gray-950 overflow-hidden flex flex-col">
-                            {/* 终端标题栏 */}
-                            <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
-                                <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
-                                <span className="text-xs text-muted-foreground font-mono">{t('execution.output')}</span>
+                            className={cn(
+                                "flex-1 min-h-0 rounded-lg border border-border/50 overflow-hidden flex flex-col shadow-lg",
+                                theme === 'dark' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
+                            )}>
+                            {/* 终端标题栏 - 渐变装饰 */}
+                            <div className={cn(
+                                "flex items-center gap-2 px-4 py-2.5 border-b border-border/50 backdrop-blur-sm",
+                                theme === 'dark' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
+                            )}>
+                                <Terminal className="h-3.5 w-3.5 text-emerald-400"/>
+                                <span
+                                    className="text-xs text-emerald-400 font-mono font-medium">{t('execution.output')}</span>
                                 {/* 实时运行指示器 */}
                                 {isRunning && (
                                     <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
+                    <span className="relative flex h-2 w-2">
+                      <span
+                          className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
                                         {t('execution.live')}
                   </span>
                                 )}
                             </div>
-                            {/* 日志内容区域 */}
-                            <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
+                            {/* 日志内容区域 - 优化对话气泡样式 + 折叠功能 */}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-2">
                                 {displayLogs.length === 0 ? (
-                                    <div className="text-gray-500 text-center py-8">
+                                    <div className="text-muted-foreground text-center py-8">
                                         {activeId ? t('execution.waitingOutput') : t('execution.noOutput')}
                                     </div>
                                 ) : (
-                                    displayLogs.map((entry, i) => {
-                                        // 兼容两种日志格式：字符串和结构化日志对象（ExecutionLogEntry）
-                                        const isObj = typeof entry === 'object' && 'content' in entry;
-                                        const content = isObj ? (entry as { content: string }).content : String(entry);
-                                        const type = isObj ? (entry as { type: string }).type : 'output';
-                                        const stepIndex = isObj ? (entry as { stepIndex: number }).stepIndex : 0;
-                                        const timestamp = isObj ? (entry as { timestamp: string }).timestamp : '';
+                                    <>
+                                        {/* 分组折叠消息列表：每10条一组，可折叠/展开 */}
+                                        {(() => {
+                                            // 按每10条分组
+                                            const groups: Array<{
+                                                logs: typeof displayLogs;
+                                                groupIndex: number;
+                                                startIdx: number;
+                                                endIdx: number
+                                            }> = [];
+                                            for (let i = 0; i < displayLogs.length; i += MESSAGES_PER_GROUP) {
+                                                const groupLogs = displayLogs.slice(i, i + MESSAGES_PER_GROUP);
+                                                groups.push({
+                                                    logs: groupLogs,
+                                                    groupIndex: groups.length,
+                                                    startIdx: i,
+                                                    endIdx: Math.min(i + MESSAGES_PER_GROUP, displayLogs.length)
+                                                });
+                                            }
 
-                                        return (
-                                            <div key={i} className={cn('py-0.5 leading-relaxed', logTypeColor(type))}>
-                                                {/* 显示时间戳 */}
-                                                {timestamp && (
-                                                    <span className="text-gray-600 mr-2 select-none">
-                            {new Date(timestamp).toLocaleTimeString()}
-                          </span>
-                                                )}
-                                                {/* 显示步骤编号 */}
-                                                {stepIndex > 0 && (
-                                                    <span
-                                                        className="text-gray-500 mr-2 select-none">[Step {stepIndex}]</span>
-                                                )}
-                                                <span>{content}</span>
-                                            </div>
-                                        );
-                                    })
+                                            return groups.map((group) => {
+                                                const isExpanded = expandedGroups.has(group.groupIndex);
+                                                const isLastGroup = group.groupIndex === groups.length - 1;
+
+                                                return (
+                                                    <div key={group.groupIndex} className="mb-2">
+                                                        {/* 折叠按钮 */}
+                                                        <button
+                                                            onClick={() => setExpandedGroups(prev => {
+                                                                const next = new Set(prev);
+                                                                if (next.has(group.groupIndex)) {
+                                                                    next.delete(group.groupIndex);
+                                                                } else {
+                                                                    next.add(group.groupIndex);
+                                                                }
+                                                                return next;
+                                                            })}
+                                                            className={cn(
+                                                                'w-full py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200 flex items-center justify-between mb-2',
+                                                                isExpanded
+                                                                    ? cn('border text-blue-300', theme === 'dark' ? 'bg-blue-500/20 border-blue-400/30' : 'bg-blue-100 border-blue-300')
+                                                                    : cn('border text-gray-400 hover:opacity-80', theme === 'dark' ? 'bg-gray-800/50 border-gray-700/50 hover:bg-gray-800/70' : 'bg-gray-100 border-gray-300 hover:bg-gray-200')
+                                                            )}
+                                                        >
+                                                            <span className="flex items-center gap-2">
+                                                                {isExpanded ? (
+                                                                    <ChevronUp className="h-3.5 w-3.5"/>
+                                                                ) : (
+                                                                    <ChevronDown className="h-3.5 w-3.5"/>
+                                                                )}
+                                                                消息组 {group.groupIndex + 1} ({group.startIdx + 1}-{group.endIdx})
+                                                            </span>
+                                                            <span className="text-[10px] opacity-70">
+                                                                {group.logs.length} 条
+                                                            </span>
+                                                        </button>
+
+                                                        {/* 消息内容（展开时显示） */}
+                                                        {isExpanded && (
+                                                            <div className="space-y-2">
+                                                                {group.logs.map((entry, i) => {
+                                                                    const globalIndex = group.startIdx + i;
+                                                                    // 兼容两种日志格式：字符串和结构化日志对象（ExecutionLogEntry）
+                                                                    const isObj = typeof entry === 'object' && 'content' in entry;
+                                                                    const content = isObj ? (entry as {
+                                                                        content: string
+                                                                    }).content : String(entry);
+                                                                    const type = isObj ? (entry as {
+                                                                        type: string
+                                                                    }).type : 'output';
+                                                                    const stepIndex = isObj ? (entry as {
+                                                                        stepIndex: number
+                                                                    }).stepIndex : 0;
+                                                                    const timestamp = isObj ? (entry as {
+                                                                        timestamp: string
+                                                                    }).timestamp : '';
+
+                                                                    // 检测用户消息（以 **User:** 开头）
+                                                                    const isUserMessage = typeof content === 'string' && content.includes('**User:**');
+
+                                                                    return (
+                                                                        <div key={globalIndex} className={cn(
+                                                                            'rounded-lg transition-all duration-200',
+                                                                            'animate-in fade-in slide-in-from-bottom-2 duration-300',
+                                                                            isUserMessage
+                                                                                ? cn('ml-10 pl-4 pr-4 py-2.5 shadow-sm border-l-3 border-blue-500',
+                                                                                    theme === 'dark' ? 'bg-gradient-to-br from-blue-500/10 to-blue-600/5' : 'bg-gradient-to-br from-blue-100 to-blue-50')
+                                                                                : cn('pl-4 pr-4 py-2.5 border border-gray-700/50',
+                                                                                    theme === 'dark' ? 'bg-gradient-to-br from-gray-800/50 to-gray-900/30' : 'bg-gradient-to-br from-gray-50 to-white')
+                                                                        )}>
+                                                                            <div className={cn(
+                                                                                'font-mono text-xs leading-relaxed',
+                                                                                'text-foreground' // 明亮主题黑色，黑暗主题白色
+                                                                            )}>
+                                                                                {/* 消息头部装饰 */}
+                                                                                <div
+                                                                                    className="flex items-center gap-2 mb-1.5">
+                                                                                    {/* 时间戳装饰 */}
+                                                                                    {timestamp && (
+                                                                                        <span
+                                                                                            className="text-muted-foreground text-[10px] select-none flex items-center gap-1 px-1.5 py-0.5 rounded">
+                                                                                            <Clock
+                                                                                                className="h-2.5 w-2.5"/>
+                                                                                            {new Date(timestamp).toLocaleTimeString()}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {/* 步骤编号装饰 */}
+                                                                                    {stepIndex > 0 && (
+                                                                                        <span
+                                                                                            className="text-muted-foreground text-[10px] select-none flex items-center gap-1 px-1.5 py-0.5 rounded">
+                                                                                            <Layers
+                                                                                                className="h-2.5 w-2.5"/>
+                                                                                            Step {stepIndex}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {/* 用户/AI 标识 */}
+                                                                                    {isUserMessage && (
+                                                                                        <span
+                                                                                            className="text-primary text-[10px] select-none flex items-center gap-1 font-medium px-1.5 py-0.5 rounded bg-primary/10">
+                                                                                            <User
+                                                                                                className="h-2.5 w-2.5"/>
+                                                                                            You
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                                {/* 消息内容 */}
+                                                                                <span
+                                                                                    className="break-words">{content}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
+                                    </>
                                 )}
                                 {/* 日志滚动锚点元素 */}
                                 <div ref={logEndRef}/>
@@ -828,13 +1056,7 @@ export default function ExecutionPage() {
                                     </h3>
                                 </div>
                                 {/* 执行统计信息：步骤数、开始时间、完成时间 */}
-                                <div className="grid grid-cols-3 gap-4 text-sm">
-                                    <div>
-                                        <p className="text-xs text-muted-foreground">{t('execution.steps')}</p>
-                                        <p className="font-medium">
-                                            {detail.currentStep} / {detail.totalSteps}
-                                        </p>
-                                    </div>
+                                <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                         <p className="text-xs text-muted-foreground">{t('execution.started')}</p>
                                         <p className="font-medium text-xs">
@@ -874,7 +1096,8 @@ export default function ExecutionPage() {
                     <div className="bg-background rounded-lg border border-border shadow-xl p-6 max-w-md w-full mx-4">
                         <h3 className="text-base font-semibold mb-2">技能执行确认</h3>
                         <p className="text-sm text-muted-foreground mb-1">
-                            已完成技能：<span className="font-medium text-foreground">{skillConfirm.completedSkill}</span>
+                            已完成技能：<span
+                            className="font-medium text-foreground">{skillConfirm.completedSkill}</span>
                         </p>
                         <p className="text-sm text-muted-foreground mb-4">
                             下一个技能：<span className="font-medium text-foreground">{skillConfirm.nextSkill}</span>

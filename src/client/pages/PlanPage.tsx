@@ -27,6 +27,7 @@ import {cn, formatRelativeTime} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {MarkdownContent} from '../components/MarkdownContent';
+import ContextIndicator from '../components/ContextIndicator';
 import {
     Sparkles,
     Pencil,
@@ -48,6 +49,10 @@ import {
     RotateCcw,
     Ban,
     Download,
+    User,
+    Layers,
+    ChevronDown,
+    ChevronUp,
 } from 'lucide-react';
 
 /**
@@ -133,6 +138,7 @@ export default function PlanPage() {
     const requirementList = useAppStore((s) => s.requirements.list);           // 已保存需求列表
     const currentWorkspace = useAppStore((s) => s.workspace.current);          // 当前工作空间
     const setPlanStatus = useAppStore((s) => s.setPlanStatus);                // 设置计划状态
+    const theme = useAppStore((s) => s.ui.theme);                           // 获取当前主题
     const planPhase = useAppStore((s) => s.plan.status);                      // 当前计划阶段状态
     const setPlanTaskId = useAppStore((s) => s.setPlanTaskId);                // 设置计划任务ID
     const setExecutionId = useAppStore((s) => s.setExecutionId);              // 设置执行ID（用于执行页面）
@@ -150,6 +156,12 @@ export default function PlanPage() {
     const [generatingElapsed, setGeneratingElapsed] = useState(0);            // 生成已耗时（秒）
     const [editing, setEditing] = useState(false);                            // 是否处于编辑模式
     const [editedSummary, setEditedSummary] = useState('');                   // 编辑中的计划内容
+    // 对话折叠状态：超过10条消息自动折叠（降低阈值便于测试）
+    const [isPlanLogsExpanded, setIsPlanLogsExpanded] = useState(false);
+    const AUTO_FOLD_THRESHOLD = 10;
+    // 计划摘要折叠状态
+    const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
+    const SUMMARY_PREVIEW_LINES = 20; // 默认显示20行
     const [error, setError] = useState<string | null>(null);                  // 错误信息
     const [executing, setExecuting] = useState(false);                        // 是否正在启动执行
     const [replyText, setReplyText] = useState('');                           // 回复输入框文本
@@ -521,12 +533,29 @@ export default function PlanPage() {
         }
     };
 
+    /**
+     * 开始新会话（清空后端上下文，保留前端历史显示）
+     * 当上下文即将满时（>80%）调用，避免 529 错误
+     */
+    const handleNewSession = async () => {
+        if (!activePlanId) return;
+
+        try {
+            await apiPost(`/plan/${activePlanId}/new-session`, {});
+            // 新会话创建成功，历史消息仍保留在 planLogs 中
+            // 下次发送消息时将使用新 sessionId
+        } catch (err) {
+            console.error('新会话创建失败:', err);
+        }
+    };
+
     const handleReply = async () => {
         if (!replyText.trim() || !activePlanId || replying) return;
         const message = replyText.trim();
         setReplying(true);
         setGenerating(true);
-        clearPlanLogs();
+        setPlanStatus('generating'); // 立即更新全局状态（图标转动）
+        // 移除 clearPlanLogs() - 保留历史对话，新内容追加而非覆盖
         setReplyText('');
 
         try {
@@ -554,9 +583,14 @@ export default function PlanPage() {
                         setGenerating(false);
                         setPlanStatus('idle');
                         if (pollRef.current) clearInterval(pollRef.current);
+                    } else if (result.status === 'generating') {
+                        // 正在生成中——确保 UI 状态正确
+                        setPlan(result);
+                        setGenerating(true);
+                        setPlanStatus('generating');
                     } else {
-                        // 仍在处理中——仅在有新输出时更新计划数据
-                        if (result.rawOutput) setPlan(result);
+                        // 其他状态（如 paused）——仅在有新输出时更新计划数据
+                        setPlan(result);
                     }
                 } catch {
                     // 请求失败时继续轮询
@@ -568,6 +602,7 @@ export default function PlanPage() {
         } catch (err) {
             setError(err instanceof Error ? err.message : t('plan.failedSendReply'));
             setGenerating(false);
+            setPlanStatus('idle'); // 错误时恢复状态
         } finally {
             setReplying(false);
         }
@@ -890,20 +925,81 @@ export default function PlanPage() {
 
                                 {/* Claude实时输出日志面板 */}
                                 {planLogs.length > 0 && (
-                                    <div className="rounded-md bg-gray-950 border border-border overflow-hidden">
-                                        {/* 日志面板标题栏 */}
+                                    <div className={cn(
+                                        "rounded-lg border border-border/50 overflow-hidden shadow-lg",
+                                        theme === 'dark' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
+                                    )}>
+                                        {/* 日志面板标题栏 - 渐变装饰 */}
                                         <div
-                                            className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-gray-900/50">
-                                            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
+                                            className={cn(
+                                                "flex items-center gap-2 px-3 py-2 border-b border-border/50 backdrop-blur-sm",
+                                                theme === 'dark' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
+                                            )}>
+                                            <div
+                                                className="h-2 w-2 rounded-full bg-gradient-to-r from-emerald-400 to-green-500 animate-pulse shadow-sm"/>
                                             <span
-                                                className="text-xs text-muted-foreground font-mono">{t('plan.claudeOutput')}</span>
+                                                className="text-xs text-emerald-400 font-mono font-medium">{t('plan.claudeOutput')}</span>
                                         </div>
-                                        {/* 日志内容区域（等宽字体，自动滚动到底部） */}
+                                        {/* 日志内容区域 - 优化为流式气泡样式 + 折叠功能 */}
                                         <div
-                                            className="max-h-64 overflow-y-auto p-3 font-mono text-xs text-gray-300 leading-relaxed">
-                                            {planLogs.map((log, i) => (
-                                                <span key={i}>{log}</span>
+                                            className="max-h-64 overflow-y-auto p-3 space-y-2">
+                                            {/* 折叠提示按钮 */}
+                                            {planLogs.length > AUTO_FOLD_THRESHOLD && !isPlanLogsExpanded && (
+                                                <div className="relative mb-2">
+                                                    <div
+                                                        className="absolute inset-0 bg-gradient-to-b from-transparent via-background/50 to-background pointer-events-none rounded-lg"/>
+                                                    <button
+                                                        onClick={() => setIsPlanLogsExpanded(true)}
+                                                        className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-500/25 to-blue-600/15 hover:from-blue-500/35 hover:to-blue-600/25 border border-blue-400/40 text-blue-300 text-xs font-medium transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                                                    >
+                                                        <ChevronDown className="h-3.5 w-3.5"/>
+                                                        查看更多消息 ({planLogs.length} 条)
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* 显示日志（根据折叠状态） */}
+                                            {(isPlanLogsExpanded || planLogs.length <= AUTO_FOLD_THRESHOLD ? planLogs : planLogs.slice(-AUTO_FOLD_THRESHOLD)).map((log, i) => (
+                                                <div
+                                                    key={i}
+                                                    className="animate-in fade-in slide-in-from-left-1 duration-200"
+                                                >
+                                                    {/* 检测用户消息 */}
+                                                    {log.includes('**User:**') ? (
+                                                        <div className={cn(
+                                                            "bg-gradient-to-br border-l-3 border-blue-500 rounded-r-lg ml-10 pl-4 pr-4 py-2.5 shadow-sm",
+                                                            theme === 'dark' ? "from-blue-500/10 to-blue-600/5" : "from-blue-100 to-blue-50"
+                                                        )}>
+                                                            <div className="flex items-center gap-2 mb-1.5">
+                                                                <User className="h-3 w-3 text-blue-400"/>
+                                                                <span
+                                                                    className="text-primary text-[10px] font-medium bg-primary/10 px-1.5 py-0.5 rounded">You</span>
+                                                            </div>
+                                                            <span
+                                                                className="font-mono text-xs text-foreground">{log.replace('**User:**', '')}</span>
+                                                        </div>
+                                                    ) : (
+                                                        <div className={cn(
+                                                            "border rounded-lg pl-4 pr-4 py-2.5",
+                                                            theme === 'dark' ? "bg-gradient-to-br from-gray-800/50 to-gray-900/30 border-gray-700/50" : "bg-gradient-to-br from-gray-50 to-white border-gray-200"
+                                                        )}>
+                                                            <span
+                                                                className="font-mono text-xs text-foreground">{log}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             ))}
+
+                                            {/* 折叠后的折叠按钮 */}
+                                            {isPlanLogsExpanded && planLogs.length > AUTO_FOLD_THRESHOLD && (
+                                                <button
+                                                    onClick={() => setIsPlanLogsExpanded(false)}
+                                                    className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-gray-800/50 to-gray-900/30 hover:from-gray-800/70 hover:to-gray-900/50 border border-gray-700/50 text-gray-400 text-xs font-medium transition-all duration-200 flex items-center justify-center gap-2 mt-2"
+                                                >
+                                                    <ChevronUp className="h-3.5 w-3.5"/>
+                                                    折叠消息
+                                                </button>
+                                            )}
                                             <div ref={logEndRef}/>
                                         </div>
                                     </div>
@@ -938,6 +1034,7 @@ export default function PlanPage() {
                                                         await apiPost(`/plan/${activePlanId}/pause`, {});
                                                         setGenerating(false);
                                                         setPlanStatus('paused');
+                                                        loadHistory(); // 刷新历史列表状态
                                                     } catch (err) {
                                                         setError(err instanceof Error ? err.message : t('plan.failedPause'));
                                                     }
@@ -955,8 +1052,9 @@ export default function PlanPage() {
                                                     try {
                                                         await apiPost(`/plan/${activePlanId}/abort`, {});
                                                         setGenerating(false);
-                                                        setPlanStatus('idle');
+                                                        setPlanStatus('failed'); // 设置为 failed 而非 idle
                                                         setError(t('plan.generationCancelled'));
+                                                        loadHistory(); // 刷新历史列表状态
                                                     } catch (err) {
                                                         setError(err instanceof Error ? err.message : t('plan.failedAbort'));
                                                     }
@@ -1061,32 +1159,31 @@ export default function PlanPage() {
                                 </CardContent>
                             </Card>
 
-                            {/* Claude继续处理中的流式输出面板（当有计划数据且仍在生成时显示） */}
-                            {generating && planLogs.length > 0 && (
-                                <Card>
-                                    <CardContent className="p-4">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0"/>
-                                            <span
-                                                className="text-sm font-medium text-primary">{t('plan.claudeContinuing')}</span>
-                                        </div>
-                                        <div className="rounded-md bg-gray-950 border border-border overflow-hidden">
-                                            <div
-                                                className="max-h-48 overflow-y-auto p-3 font-mono text-xs text-gray-300 leading-relaxed">
-                                                {planLogs.map((log, i) => (
-                                                    <span key={i}>{log}</span>
-                                                ))}
-                                                <div ref={logEndRef}/>
-                                            </div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            )}
-
                             {/* 计划输出内容卡片：编辑模式显示textarea，查看模式显示格式化文本 */}
                             <Card>
                                 <CardContent className="p-4">
-                                    <h3 className="text-sm font-semibold mb-3">{t('plan.generatedPlan')}</h3>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="text-sm font-semibold">{t('plan.generatedPlan')}</h3>
+                                        {/* 折叠控制按钮：内容超过20行时显示 */}
+                                        {!editing && (plan.rawOutput || plan.summary) && (plan.rawOutput || plan.summary || '').split('\n').length > SUMMARY_PREVIEW_LINES && (
+                                            <button
+                                                onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                                                className="text-xs text-primary hover:underline flex items-center gap-1"
+                                            >
+                                                {isSummaryExpanded ? (
+                                                    <>
+                                                        <ChevronUp className="h-3 w-3"/>
+                                                        折叠
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <ChevronDown className="h-3 w-3"/>
+                                                        展开全部
+                                                    </>
+                                                )}
+                                            </button>
+                                        )}
+                                    </div>
                                     {editing ? (
                                         /* 编辑模式：可编辑的文本区域 */
                                         <textarea
@@ -1095,15 +1192,27 @@ export default function PlanPage() {
                                             className="w-full min-h-[400px] bg-muted/30 border border-input rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring resize-y"
                                         />
                                     ) : (
-                                        /* 查看模式：Markdown 渲染 */
-                                        <div
-                                            className="text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto"
-                                            data-tour="plan-content"
-                                        >
-                                            <MarkdownContent
-                                                content={plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
-                                            />
-                                        </div>
+                                        /* 查看模式：Markdown 渲染 + 折叠功能 */
+                                        <>
+                                            <div
+                                                className={cn(
+                                                    "text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto transition-all duration-200",
+                                                    !isSummaryExpanded && "max-h-96 overflow-y-auto"
+                                                )}
+                                                data-tour="plan-content"
+                                            >
+                                                <MarkdownContent
+                                                    content={plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
+                                                />
+                                            </div>
+                                            {/* 折叠提示遮罩：未展开时显示渐变遮罩 */}
+                                            {!isSummaryExpanded && (plan.rawOutput || plan.summary || '').split('\n').length > SUMMARY_PREVIEW_LINES && (
+                                                <div className="relative mt-2">
+                                                    <div
+                                                        className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none rounded-md h-8"/>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </CardContent>
                             </Card>
@@ -1121,7 +1230,8 @@ export default function PlanPage() {
                                                 （独立于开发计划，可多次导出）
                                             </span>
                                         </div>
-                                        <div className="text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto max-h-96 overflow-y-auto">
+                                        <div
+                                            className="text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto max-h-96 overflow-y-auto">
                                             <MarkdownContent content={plan.taskBreakdown}/>
                                         </div>
                                     </CardContent>
@@ -1132,12 +1242,19 @@ export default function PlanPage() {
                             {!editing && (
                                 <Card className="border-primary/20 bg-primary/5" data-tour="plan-reply-area">
                                     <CardContent className="p-4">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <MessageSquare className="h-4 w-4 text-primary"/>
-                                            <h3 className="text-sm font-semibold">{t('plan.replyTitle')}</h3>
-                                            <span className="text-xs text-muted-foreground">
-                        {t('plan.replySubtitle')}
-                      </span>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <MessageSquare className="h-4 w-4 text-primary"/>
+                                                <h3 className="text-sm font-semibold">{t('plan.replyTitle')}</h3>
+                                                <span className="text-xs text-muted-foreground">
+                            {t('plan.replySubtitle')}
+                          </span>
+                                            </div>
+                                            {/* 上下文指示器 */}
+                                            <ContextIndicator
+                                                logs={planLogs.map(l => typeof l === 'string' ? l : JSON.stringify(l))}
+                                                onSuggestNewSession={handleNewSession}
+                                            />
                                         </div>
                                         <div className="flex gap-2">
                                             {/* 回复输入框：支持Ctrl+Enter快捷发送 */}

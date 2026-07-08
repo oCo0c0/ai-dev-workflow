@@ -293,7 +293,9 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         catch (err) {
             execution.status = 'failed';
             execution.completedAt = new Date().toISOString();
+            executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
+            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: 'failed' } });
             (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `Execution failed: ${(0, error_utils_js_1.getErrorMessage)(err)}` } });
         }
     });
@@ -400,7 +402,9 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         catch (err) {
             execution.status = 'failed';
             execution.completedAt = new Date().toISOString();
+            executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
+            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: 'failed' } });
             (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `Execution retry failed: ${(0, error_utils_js_1.getErrorMessage)(err)}` } });
         }
     });
@@ -471,7 +475,9 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         catch (err) {
             execution.status = 'failed';
             execution.completedAt = new Date().toISOString();
+            executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
+            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: 'failed' } });
             (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `Execution skip-continue failed: ${(0, error_utils_js_1.getErrorMessage)(err)}` } });
         }
     });
@@ -513,6 +519,8 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         // 优先检查内存中的活跃执行（状态更实时）
         const active = executionStore.get(req.params.id);
         if (active) {
+            // 只返回最近 200 条日志，避免数据量过大
+            const recentLogs = active.logs.slice(-200);
             res.json({
                 id: active.id,
                 planId: active.planId,
@@ -521,7 +529,8 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 totalSteps: active.totalSteps,
                 startedAt: active.startedAt,
                 completedAt: active.completedAt,
-                logs: active.logs,
+                logs: recentLogs,
+                totalLogs: active.logs.length, // 添加总日志数供前端参考
             });
             return;
         }
@@ -531,7 +540,13 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             res.status(404).json({ code: 'NOT_FOUND', message: 'Execution not found' });
             return;
         }
-        res.json(persisted);
+        // 持久化数据同样限制返回数量
+        const recentLogs = (persisted.logs || []).slice(-200);
+        res.json({
+            ...persisted,
+            logs: recentLogs,
+            totalLogs: (persisted.logs || []).length,
+        });
     });
     /**
      * DELETE /api/execution/:id
@@ -574,13 +589,13 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             res.status(400).json({ code: 'VALIDATION_ERROR', message: 'message is required' });
             return;
         }
-        // 必须存在活跃的会话才能进行多轮对话
-        if (!execution.sessionId) {
-            res.status(400).json({ code: 'INVALID_STATE', message: 'No active session to reply to' });
-            return;
+        // 如果没有活跃会话（用户调用了 /new-session），创建新会话
+        const isNewSession = !execution.sessionId;
+        if (isNewSession) {
+            console.log(`[execution] 创建新会话: executionId=${execution.id}`);
         }
         // 先确认收到请求，异步执行回复处理
-        res.json({ ok: true });
+        res.json({ ok: true, isNewSession });
         // 重建 abortController（旧的在 pause 时已 aborted）
         execution.abortController = new AbortController();
         // 将执行状态恢复为运行中，并广播用户消息
@@ -591,13 +606,17 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             data: { executionId: execution.id, stepIndex: execution.currentStep, content: `\n**User:** ${message}\n` }
         });
         try {
-            // 在同一会话中继续对话，复用 sessionId 保持上下文连续性
-            const result = await cliRunnerService.runBridge({
+            // 继续对话：如果有 sessionId 则复用（旧会话），否则创建新会话
+            const bridgeOptions = {
                 prompt: (0, prompt_enrichment_js_1.enrichPrompt)(message, memoryService, execution.workspacePath || process.cwd()),
                 cwd: execution.workspacePath || process.cwd(),
-                sessionId: execution.sessionId,
                 maxTurns: 50,
-            }, {
+            };
+            // 仅在有 sessionId 时传递（继续旧会话）
+            if (execution.sessionId) {
+                bridgeOptions.sessionId = execution.sessionId;
+            }
+            const result = await cliRunnerService.runBridge(bridgeOptions, {
                 workspacePath: execution.workspacePath || process.cwd(),
                 onOutput: (data) => {
                     execution.logs.push(data);
@@ -613,7 +632,9 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         catch (err) {
             execution.status = 'failed';
             execution.completedAt = new Date().toISOString();
+            executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
+            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: 'failed' } });
             (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `Execution reply failed: ${(0, error_utils_js_1.getErrorMessage)(err)}` } });
         }
     });
@@ -650,7 +671,9 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         catch (err) {
             execution.status = 'failed';
             execution.completedAt = new Date().toISOString();
+            executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
+            (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: 'failed' } });
             (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `Continue skill failed: ${(0, error_utils_js_1.getErrorMessage)(err)}` } });
         }
     });
@@ -698,6 +721,30 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: execution.status } });
             res.json({ ok: true, skipped, completed: true });
         }
+    });
+    /**
+     * POST /api/execution/:id/new-session
+     * 开始新会话（保留历史显示，清空后端上下文）
+     *
+     * 用途：当上下文即将满时（>80%），允许用户开启新会话避免 529 错误，
+     * 同时保留前端历史消息显示。
+     */
+    router.post('/:id/new-session', async (req, res) => {
+        const execution = executionStore.get(req.params.id);
+        if (!execution) {
+            res.status(404).json({ code: 'NOT_FOUND', message: 'Execution not found' });
+            return;
+        }
+        // 清空 sessionId，下次 /reply 调用时将创建新会话
+        const oldSessionId = execution.sessionId;
+        execution.sessionId = undefined;
+        // 持久化更新
+        persistStore.upsert(toPersisted(execution));
+        console.log(`[execution] 新会话: executionId=${execution.id}, oldSessionId=${oldSessionId?.slice(0, 8)}...`);
+        res.json({
+            ok: true,
+            message: '新会话已创建，历史消息保留在页面显示中'
+        });
     });
     return router;
 }
@@ -790,7 +837,9 @@ async function runNextExecutionSkill(execution, plan, opts, persistStore) {
     catch (err) {
         execution.status = 'failed';
         execution.completedAt = new Date().toISOString();
+        executionStore.set(execution.id, execution); // 同步更新内存状态
         persistStore.upsert(toPersisted(execution));
+        (0, websocket_js_1.broadcast)({ type: 'execution:complete', data: { executionId: execution.id, status: 'failed' } });
         (0, websocket_js_1.broadcast)({ type: 'error', data: { message: `Skill "${skill}" failed: ${(0, error_utils_js_1.getErrorMessage)(err)}` } });
     }
 }

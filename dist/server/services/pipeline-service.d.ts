@@ -190,7 +190,7 @@ export declare class PipelineService {
      */
     private savePipelines;
     /**
-     * 列出所有管线
+     * 列出所有管线（按创建时间倒序，新创建的在最前面）
      * @returns 管线数组
      */
     list(): WorkflowPipeline[];

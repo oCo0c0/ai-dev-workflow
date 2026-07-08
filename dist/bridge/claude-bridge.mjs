@@ -29,11 +29,13 @@ import readline from 'readline';
 
 // 轻量诊断日志（529/异常复发时排查用，正常无影响；不需要可删）
 const DBG_FILE = 'D:\\bridge-debug.log';
+
 function dbg(tag, data) {
     try {
         const text = typeof data === 'string' ? data : JSON.stringify(data).slice(0, 1200);
         appendFileSync(DBG_FILE, `[${new Date().toISOString()}] ${tag}: ${text}\n`);
-    } catch { /* ignore */ }
+    } catch { /* ignore */
+    }
 }
 
 /**
@@ -138,9 +140,30 @@ async function runQueryOnce(prompt, requestId, options) {
  * 529 是临时错误。此处指数退避重试，对调用方透明。
  */
 async function handleRequest(request) {
-    const {requestId, prompt, cwd, sessionId, maxTurns = 10, skills, mcpServers, model, reasoningEffort, extendedThinking} = request;
+    const {
+        requestId,
+        prompt,
+        cwd,
+        sessionId,
+        maxTurns = 10,
+        skills,
+        mcpServers,
+        model,
+        reasoningEffort,
+        extendedThinking
+    } = request;
 
-    dbg('req-start', {requestId, model, extendedThinking, maxTurns, sessionId: !!sessionId, promptLen: prompt?.length, cwd, skills, mcpServers: mcpServers ? Object.keys(mcpServers) : undefined});
+    dbg('req-start', {
+        requestId,
+        model,
+        extendedThinking,
+        maxTurns,
+        sessionId: !!sessionId,
+        promptLen: prompt?.length,
+        cwd,
+        skills,
+        mcpServers: mcpServers ? Object.keys(mcpServers) : undefined
+    });
 
     if (!prompt) {
         emit({requestId, type: 'error', message: 'prompt is required'});
@@ -154,13 +177,35 @@ async function handleRequest(request) {
         ...(sessionId ? {resume: sessionId} : {}),
         ...(skills ? {skills} : {}),
         ...(mcpServers ? {mcpServers} : {}),
+        // 启用自动压缩：限制上下文窗口大小（从 env CLAUUDE_CODE_AUTO_COMPACT_WINDOW 读取）
+        compactWindow: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ? parseInt(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, 10) : undefined,
     };
 
     if (model) {
         options.model = model;
     }
+    // 通过 additionalArgs 传递高级参数给 CLI
+    const extraArgs = [];
     if (extendedThinking) {
-        options.additionalArgs = [...(options.additionalArgs || []), '--thinking'];
+        extraArgs.push('--thinking');
+    }
+    if (reasoningEffort) {
+        // reasoningEffort 映射到 CLI 参数（如果 CLI 支持）
+        const effortMap = {
+            low: '--reasoning-effort-low',
+            medium: '--reasoning-effort-medium',
+            high: '--reasoning-effort-high',
+            xhigh: '--reasoning-effort-xhigh',
+            max: '--reasoning-effort-max'
+        };
+        if (effortMap[reasoningEffort]) {
+            extraArgs.push(effortMap[reasoningEffort]);
+        } else {
+            dbg('warning', {message: `Unknown reasoningEffort value: ${reasoningEffort}`});
+        }
+    }
+    if (extraArgs.length > 0) {
+        options.additionalArgs = [...(options.additionalArgs || []), ...extraArgs];
     }
     if (CLI_PATH) {
         options.pathToClaudeCodeExecutable = CLI_PATH;
@@ -178,7 +223,11 @@ async function handleRequest(request) {
             }
             if (status === 'overloaded' && attempt < maxRetries) {
                 const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
-                emit({requestId, type: 'output', content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`});
+                emit({
+                    requestId,
+                    type: 'output',
+                    content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
+                });
                 dbg('retry-529', {attempt: attempt + 1, wait});
                 await sleep(wait);
                 continue;
@@ -189,7 +238,11 @@ async function handleRequest(request) {
             dbg('catch', {attempt, message: err.message});
             if (isOverloaded(err.message) && attempt < maxRetries) {
                 const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
-                emit({requestId, type: 'output', content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`});
+                emit({
+                    requestId,
+                    type: 'output',
+                    content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
+                });
                 dbg('retry-529-catch', {attempt: attempt + 1, wait});
                 await sleep(wait);
                 continue;

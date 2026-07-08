@@ -82,6 +82,8 @@ export interface CLIProviderInput {
     sessionId?: string;
     /** 最大对话轮次 */
     maxTurns?: number;
+    /** 历史消息数量限制（避免token爆炸导致529） */
+    maxHistoryMessages?: number;
     /** 技能列表 */
     skills?: string[] | 'all';
     /** MCP 服务器 stdio 配置 map，undefined = 不注入（claude 走全局默认 MCP） */

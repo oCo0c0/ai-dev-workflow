@@ -1,6 +1,6 @@
 {
   "name": "ai-dev-workbench",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "AI-powered development workbench integrating requirements, coding, and testing",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
@@ -18,7 +18,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "npm run build:frontend && npm run build:backend && npm run build:bridge",
+    "build": "pnpm run build:frontend && pnpm run build:backend && pnpm run build:bridge",
     "build:frontend": "vite build",
     "build:backend": "node -e \"const fs=require('fs');['dist/server','dist/cli'].forEach(d=>{try{fs.rmSync(d,{recursive:true})}catch{}})\" && tsc -p tsconfig.server.json",
     "build:bridge": "node -e \"const fs=require('fs');const p=require('path');const d=p.join('dist','bridge');fs.mkdirSync(d,{recursive:true});fs.copyFileSync(p.join('src','bridge','claude-bridge.mjs'),p.join(d,'claude-bridge.mjs'));const t=p.join('dist','templates');fs.mkdirSync(t,{recursive:true});fs.copyFileSync(p.join('templates','task-split-effort-template.xlsx'),p.join(t,'task-split-effort-template.xlsx'));const sk=p.join('dist','skills');fs.mkdirSync(sk,{recursive:true});const src=p.join('skills');if(fs.existsSync(src)){for(const e of fs.readdirSync(src,{withFileTypes:true})){if(e.isDirectory()){const sDir=p.join(src,e.name);const dDir=p.join(sk,e.name);fs.mkdirSync(dDir,{recursive:true});const md=p.join(sDir,'SKILL.md');if(fs.existsSync(md))fs.copyFileSync(md,p.join(dDir,'SKILL.md'))}}}\"",
@@ -26,7 +26,7 @@
     "dev:be": "tsx src/dev-server.ts",
     "start": "node dist/cli/index.js",
     "test": "vitest --run",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "keywords": [
     "ai",
@@ -39,7 +39,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.196",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.201",
     "@daytona/sdk": "^0.192.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex-sdk": "^0.130.0",
@@ -86,5 +86,6 @@
     "vite": "8.0.5",
     "vitest": "^1.6.0",
     "zustand": "^4.5.5"
-  }
+  },
+  "packageManager": "pnpm@11.10.0+sha512.0b7f8b98060031904c017e3a41eb187a16d40eeb829b95c4f8cb03681761fc4ab53dd219115b9b447f4dce1a05a214764461e7d3703392a9f32f9511ce8c86c8"
 }

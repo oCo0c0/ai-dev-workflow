@@ -121,8 +121,8 @@ interface PlanStep {
 interface ExecutionStatus {
     /** 执行实例唯一标识 */
     executionId: string;
-    /** 关联的计划 ID */
-    planId: string;
+    /** 关联的计划 ID（可能为空） */
+    planId?: string;
     /** 当前正在执行的步骤索引 */
     currentStep: number;
     /** 总步骤数 */
@@ -130,7 +130,7 @@ interface ExecutionStatus {
     /** 执行状态 */
     status: 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm';
     /** 开始时间（ISO 格式） */
-    startedAt: string;
+    startedAt?: string;
     /** 完成时间（ISO 格式），执行未完成时为 undefined */
     completedAt?: string;
 }
@@ -139,7 +139,7 @@ interface ExecutionStatus {
  * 执行日志条目
  * @description 执行过程中产生的单条日志记录
  */
-interface ExecutionLogEntry {
+export interface ExecutionLogEntry {
     /** 日志时间戳（ISO 格式） */
     timestamp: string;
     /** 关联的步骤索引 */

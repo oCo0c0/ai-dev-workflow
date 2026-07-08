@@ -50,7 +50,7 @@ const SETTINGS_FILE = path.join(CLAUDE_DIR, 'settings.json');
 function loadClaudeSettingsEnv(): Record<string, string> {
     try {
         if (!fs.existsSync(SETTINGS_FILE)) return {};
-        const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as {env?: Record<string, string>};
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as { env?: Record<string, string> };
         return (settings.env && typeof settings.env === 'object') ? settings.env : {};
     } catch {
         return {};
@@ -83,6 +83,7 @@ export class ClaudeProvider implements CLIProvider {
     private pendingRequests = new Map<string, PendingRequest>();
     private readyCallbacks: Array<() => void> = [];
     private startPromise: Promise<void> | null = null;
+    private healthCheckTimer: NodeJS.Timeout | null = null;
 
     async detect(): Promise<CLIProviderStatus> {
         try {
@@ -215,6 +216,10 @@ export class ClaudeProvider implements CLIProvider {
     }
 
     async dispose(): Promise<void> {
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+            this.healthCheckTimer = null;
+        }
         if (this.process) {
             this.process.kill();
             this.process = null;
@@ -290,12 +295,20 @@ export class ClaudeProvider implements CLIProvider {
                 reject(err);
             });
 
-            child.on('exit', (code) => {
-                console.error(`[claude-provider] process exited with code ${code}`);
+            child.on('exit', (code, signal) => {
+                console.error(`[claude-provider] process exited with code ${code}, signal ${signal}`);
                 clearTimeout(timeout);
                 this.ready = false;
                 this.process = null;
                 this.startPromise = null;
+
+                // 健止健康检测
+                if (this.healthCheckTimer) {
+                    clearInterval(this.healthCheckTimer);
+                    this.healthCheckTimer = null;
+                }
+
+                // Reject 所有 pending 请求（状态同步）
                 for (const [, req] of this.pendingRequests) {
                     req.reject(new Error(`Bridge process exited with code ${code}`));
                 }
@@ -304,9 +317,42 @@ export class ClaudeProvider implements CLIProvider {
 
             this.readyCallbacks.push(() => {
                 clearTimeout(timeout);
+                console.log('[claude-provider] bridge process ready');
+                // 启动健康检测（每 30 秒检查进程存活）
+                this.startHealthCheck(child);
                 resolve();
             });
         });
+    }
+
+    /**
+     * 启动健康检测定时器
+     * 每 30 秒检查进程是否存活，异常退出时清理 pending 请求
+     */
+    private startHealthCheck(proc: ChildProcess): void {
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+        }
+
+        this.healthCheckTimer = setInterval(() => {
+            if (!proc || proc.killed) {
+                console.error('[claude-provider] health check: process not alive, cleaning up');
+                this.ready = false;
+                this.process = null;
+                this.startPromise = null;
+
+                if (this.healthCheckTimer) {
+                    clearInterval(this.healthCheckTimer);
+                    this.healthCheckTimer = null;
+                }
+
+                // Reject 所有 pending 请求
+                for (const [, req] of this.pendingRequests) {
+                    req.reject(new Error('Bridge process not alive (health check)'));
+                }
+                this.pendingRequests.clear();
+            }
+        }, 30000); // 30 秒检查一次
     }
 
     private handleMessage(msg: Record<string, unknown>) {

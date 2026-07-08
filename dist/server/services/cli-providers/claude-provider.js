@@ -64,6 +64,7 @@ class ClaudeProvider {
     pendingRequests = new Map();
     readyCallbacks = [];
     startPromise = null;
+    healthCheckTimer = null;
     async detect() {
         try {
             // 检查桥接脚本是否存在
@@ -177,6 +178,10 @@ class ClaudeProvider {
         }
     }
     async dispose() {
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+            this.healthCheckTimer = null;
+        }
         if (this.process) {
             this.process.kill();
             this.process = null;
@@ -245,12 +250,18 @@ class ClaudeProvider {
                 this.pendingRequests.clear();
                 reject(err);
             });
-            child.on('exit', (code) => {
-                console.error(`[claude-provider] process exited with code ${code}`);
+            child.on('exit', (code, signal) => {
+                console.error(`[claude-provider] process exited with code ${code}, signal ${signal}`);
                 clearTimeout(timeout);
                 this.ready = false;
                 this.process = null;
                 this.startPromise = null;
+                // 健止健康检测
+                if (this.healthCheckTimer) {
+                    clearInterval(this.healthCheckTimer);
+                    this.healthCheckTimer = null;
+                }
+                // Reject 所有 pending 请求（状态同步）
                 for (const [, req] of this.pendingRequests) {
                     req.reject(new Error(`Bridge process exited with code ${code}`));
                 }
@@ -258,9 +269,38 @@ class ClaudeProvider {
             });
             this.readyCallbacks.push(() => {
                 clearTimeout(timeout);
+                console.log('[claude-provider] bridge process ready');
+                // 启动健康检测（每 30 秒检查进程存活）
+                this.startHealthCheck(child);
                 resolve();
             });
         });
+    }
+    /**
+     * 启动健康检测定时器
+     * 每 30 秒检查进程是否存活，异常退出时清理 pending 请求
+     */
+    startHealthCheck(proc) {
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+        }
+        this.healthCheckTimer = setInterval(() => {
+            if (!proc || proc.killed) {
+                console.error('[claude-provider] health check: process not alive, cleaning up');
+                this.ready = false;
+                this.process = null;
+                this.startPromise = null;
+                if (this.healthCheckTimer) {
+                    clearInterval(this.healthCheckTimer);
+                    this.healthCheckTimer = null;
+                }
+                // Reject 所有 pending 请求
+                for (const [, req] of this.pendingRequests) {
+                    req.reject(new Error('Bridge process not alive (health check)'));
+                }
+                this.pendingRequests.clear();
+            }
+        }, 30000); // 30 秒检查一次
     }
     handleMessage(msg) {
         if (msg.type === 'ready') {

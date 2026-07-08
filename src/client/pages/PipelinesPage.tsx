@@ -397,9 +397,11 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces, mcpServers}: Execu
         try {
             const requirementId = state.selectedRequirement?.id;
 
-            // 调用计划生成API，携带流水线ID用于技能解析
+            // 调用计划生成API，携带需求内容快照（避免重复从 ONES 获取）
             const result = await apiPost<{ taskId: string }>('/plan/generate', {
                 requirementId,
+                requirementTitle: state.selectedRequirement?.title,
+                requirementDescription: state.selectedRequirement?.description,
                 workspacePath: state.workspacePath,
                 pipelineId: pipeline.id,  // 传递流水线ID，服务端据此解析技能配置
             });
@@ -843,7 +845,8 @@ function MultiSelectModal({title, items, selected, onConfirm, onClose}: MultiSel
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
             <div
                 className="relative z-10 w-full max-w-lg mx-4 bg-background border border-border rounded-xl shadow-2xl flex flex-col max-h-[80vh]">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-gradient-to-r from-indigo-500/10 to-purple-600/10">
+                <div
+                    className="flex items-center justify-between px-4 py-3 border-b border-border bg-gradient-to-r from-indigo-500/10 to-purple-600/10">
                     <h3 className="text-sm font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{title}</h3>
                     <button
                         onClick={onClose}
@@ -1016,7 +1019,8 @@ function PhaseToolsCard({phaseLabel, config, skills, mcpServers, onChange}: Phas
                                         <div className="flex-1 min-w-0">
                                             <p className="text-xs font-medium truncate">{name}</p>
                                             {srv?.type && (
-                                                <Badge variant="outline" className="text-[9px] mt-0.5">{srv.type}</Badge>
+                                                <Badge variant="outline"
+                                                       className="text-[9px] mt-0.5">{srv.type}</Badge>
                                             )}
                                         </div>
                                         <button
@@ -1517,7 +1521,10 @@ export default function PipelinesPage() {
                                     </p>
                                     {(['plan', 'execution', 'test'] as const).map((phase) => {
                                         const phaseKey = phase as 'plan' | 'execution' | 'test';
-                                        const phaseConfig: PhaseToolsConfig = formSteps[phaseKey] ?? {skills: [], mcpServers: []};
+                                        const phaseConfig: PhaseToolsConfig = formSteps[phaseKey] ?? {
+                                            skills: [],
+                                            mcpServers: []
+                                        };
                                         const phaseLabel = phase === 'plan'
                                             ? t('pipelines.phaseTools.planPhase')
                                             : phase === 'execution'

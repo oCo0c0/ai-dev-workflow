@@ -160,7 +160,7 @@ export class CLIRunnerService {
      * @returns 执行结果
      */
     async runBridge(
-        input: { prompt: string; cwd?: string; sessionId?: string; maxTurns?: number; skills?: string[] | 'all'; mcpServers?: McpStdioMap },
+        input: { prompt: string; cwd?: string; sessionId?: string; maxTurns?: number; maxHistoryMessages?: number; skills?: string[] | 'all'; mcpServers?: McpStdioMap },
         options?: CLIRunnerOptions
     ): Promise<CLIExecutionResult> {
         // 从配置文件读取当前 Provider 的模型配置并注入到 options
