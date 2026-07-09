@@ -12,7 +12,7 @@ export declare const TIMEOUTS: {
     /** 测试执行超时 */
     readonly TEST_EXECUTION: 10000;
     /** HTTP 文件下载超时 */
-    readonly HTTP_DOWNLOAD: 15000;
+    readonly HTTP_DOWNLOAD: 8000;
     /** 桥接进程启动超时 */
     readonly BRIDGE_START: 30000;
 };

@@ -12,6 +12,7 @@ import {RequirementStoreService} from '../services/requirement-store-service.js'
 import {OnesImageService} from '../services/ones-image-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
+import {broadcast} from '../websocket.js';
 
 /**
  * 创建需求管理路由
@@ -217,9 +218,6 @@ export function createRequirementsRoutes(
                     );
                 }
 
-                // 下载图片到本地并替换 description 中的引用
-                await requirementStore.downloadImages(detail, onesImageService);
-
                 // 解析文档附件（PDF/DOCX/PPTX/XLSX）为 Markdown（需前端显式请求）
                 if (parseDocuments && mineruService?.isEnabled()) {
                     try {
@@ -235,11 +233,33 @@ export function createRequirementsRoutes(
                     }
                 }
 
+                // 下载图片到本地并替换 description 中的引用（后台异步进行）
+                // 先保存并返回文档，然后异步下载图片
                 const saved = requirementStore.upsert({
                     ...detail,
                     source: mcpBridgeService.getServerName(),
                 });
                 res.json(saved);
+
+                // 后台异步下载图片（不阻塞HTTP响应）
+                if (onesImageService) {
+                    // 使用 process.nextTick 确保HTTP响应已发送
+                    process.nextTick(async () => {
+                        try {
+                            await requirementStore.downloadImages(detail, onesImageService);
+                            // 下载完成后，通过WebSocket通知前端刷新
+                            const updated = requirementStore.get(detail.id);
+                            if (updated) {
+                                broadcast({
+                                    type: 'requirement:updated',
+                                    data: updated,
+                                });
+                            }
+                        } catch (err) {
+                            console.warn(`[requirements] Background image download failed: ${err instanceof Error ? err.message : err}`);
+                        }
+                    });
+                }
             } finally {
                 // 无论成功与否，恢复原始 MCP 服务器设置
                 if (mcpServerName) mcpBridgeService.setServerName(originalServer);

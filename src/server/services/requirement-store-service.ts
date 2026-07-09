@@ -202,7 +202,13 @@ export class RequirementStoreService {
         if (onesImageService && imageResources.size > 0) {
             try {
                 const resources = Array.from(imageResources.entries()).map(([name]) => ({name, url: urlMap.get(name)}));
-                const count = await onesImageService.downloadWikiImages(reqId, resources, imgDir);
+                // 设置 30 秒总体超时，避免卡住
+                const count = await Promise.race([
+                    onesImageService.downloadWikiImages(reqId, resources, imgDir),
+                    new Promise<number>((_, reject) =>
+                        setTimeout(() => reject(new Error('Image download timeout')), 30000)
+                    ),
+                ]);
                 console.log(`[ones-image] Wiki token download: ${count}/${imageResources.size} images`);
             } catch (err) {
                 console.warn(`[ones-image] Wiki token download failed, falling back: ${err instanceof Error ? err.message : err}`);

@@ -71,7 +71,7 @@ async function createServer(port) {
     const app = (0, express_1.default)();
     // 全局中间件
     app.use((0, cors_1.default)());
-    app.use(express_1.default.json());
+    app.use(express_1.default.json({ limit: '50mb' }));
     app.use(logger_js_1.requestLogger);
     // 加载应用配置（必须在服务实例化之前）
     const configService = new config_service_js_1.ConfigService();

@@ -375,7 +375,10 @@ export default function RequirementsPage(): JSX.Element {
             setSelected(updated);
             setSelectedRequirement(updated);
             setSaved(prev => prev.map(r => r.id === updated.id ? updated : r));
-            setEditing(false);
+            // 更新编辑状态为新值（保持编辑模式）
+            setEditTitle(updated.title);
+            setEditDescription(updated.description);
+            setEditing(false); // 退出编辑模式，用户可以重新进入查看新值
         } catch {
             // 静默处理保存失败
         } finally {

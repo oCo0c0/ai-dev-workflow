@@ -11,6 +11,7 @@ exports.createRequirementsRoutes = createRequirementsRoutes;
 const express_1 = require("express");
 const ones_image_service_js_1 = require("../services/ones-image-service.js");
 const error_utils_js_1 = require("../utils/error-utils.js");
+const websocket_js_1 = require("../websocket.js");
 /**
  * 创建需求管理路由
  * @param mcpBridgeService - MCP 桥接服务实例，用于与外部需求管理系统通信
@@ -192,8 +193,6 @@ function createRequirementsRoutes(mcpBridgeService, requirementStore, mineruServ
                 if (mcpConfig?.env?.ONES_API_BASE && mcpConfig?.env?.ONES_ACCOUNT && mcpConfig?.env?.ONES_PASSWORD) {
                     onesImageService = new ones_image_service_js_1.OnesImageService(mcpConfig.env.ONES_API_BASE, mcpConfig.env.ONES_ACCOUNT, mcpConfig.env.ONES_PASSWORD);
                 }
-                // 下载图片到本地并替换 description 中的引用
-                await requirementStore.downloadImages(detail, onesImageService);
                 // 解析文档附件（PDF/DOCX/PPTX/XLSX）为 Markdown（需前端显式请求）
                 if (parseDocuments && mineruService?.isEnabled()) {
                     try {
@@ -207,11 +206,33 @@ function createRequirementsRoutes(mcpBridgeService, requirementStore, mineruServ
                         console.warn(`[requirements] Document parsing failed: ${(0, error_utils_js_1.getErrorMessage)(err)}`);
                     }
                 }
+                // 下载图片到本地并替换 description 中的引用（后台异步进行）
+                // 先保存并返回文档，然后异步下载图片
                 const saved = requirementStore.upsert({
                     ...detail,
                     source: mcpBridgeService.getServerName(),
                 });
                 res.json(saved);
+                // 后台异步下载图片（不阻塞HTTP响应）
+                if (onesImageService) {
+                    // 使用 process.nextTick 确保HTTP响应已发送
+                    process.nextTick(async () => {
+                        try {
+                            await requirementStore.downloadImages(detail, onesImageService);
+                            // 下载完成后，通过WebSocket通知前端刷新
+                            const updated = requirementStore.get(detail.id);
+                            if (updated) {
+                                (0, websocket_js_1.broadcast)({
+                                    type: 'requirement:updated',
+                                    data: updated,
+                                });
+                            }
+                        }
+                        catch (err) {
+                            console.warn(`[requirements] Background image download failed: ${err instanceof Error ? err.message : err}`);
+                        }
+                    });
+                }
             }
             finally {
                 // 无论成功与否，恢复原始 MCP 服务器设置

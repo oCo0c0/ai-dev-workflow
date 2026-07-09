@@ -29,7 +29,7 @@ exports.TIMEOUTS = {
     /** 测试执行超时 */
     TEST_EXECUTION: 10_000,
     /** HTTP 文件下载超时 */
-    HTTP_DOWNLOAD: 15_000,
+    HTTP_DOWNLOAD: 8_000, // 降低到 8 秒，避免图片下载卡住
     /** 桥接进程启动超时 */
     BRIDGE_START: 30_000,
 };

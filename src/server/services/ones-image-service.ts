@@ -381,19 +381,27 @@ export class OnesImageService {
         }
 
         let downloaded = 0;
+        const downloadedSet = new Set<string>(); // 记录已成功下载的图片
 
         // 2. 对每个 wiki page，尝试下载所有图片
         for (const wikiPageUuid of wikiPageUuids) {
             for (const resource of resources) {
+                // 跳过已成功下载的图片（避免重复下载）
+                if (downloadedSet.has(resource.name)) {
+                    continue;
+                }
+
                 const localPath = `${imgDir}/${resource.name}`;
                 if (fs.existsSync(localPath)) {
                     downloaded++;
+                    downloadedSet.add(resource.name);
                     continue;
                 }
 
                 const success = await this.downloadWikiImage(wikiPageUuid, resource.name, localPath);
                 if (success) {
                     downloaded++;
+                    downloadedSet.add(resource.name); // 记录成功下载
                 }
             }
         }
