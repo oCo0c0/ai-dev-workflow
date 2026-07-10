@@ -60,6 +60,7 @@
     "source": "来源：",
     "saving": "保存中...",
     "descriptionPlaceholder": "输入需求描述（支持 Markdown）...",
+    "titlePlaceholder": "输入需求标题",
     "acceptanceCriteria": "验收标准",
     "relatedIssues": "关联缺陷",
     "noSelectionTitle": "选择一个需求查看详情",

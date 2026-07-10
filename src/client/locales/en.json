@@ -60,6 +60,7 @@
     "source": "Source:",
     "saving": "Saving...",
     "descriptionPlaceholder": "Enter requirement description (Markdown supported)...",
+    "titlePlaceholder": "Enter requirement title",
     "acceptanceCriteria": "Acceptance Criteria",
     "relatedIssues": "Related Issues",
     "noSelectionTitle": "Select a requirement to view details",

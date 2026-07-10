@@ -766,174 +766,195 @@ export default function RequirementsPage(): JSX.Element {
                 </div>
 
                 {/* 右侧：需求详情面板 */}
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 flex flex-col overflow-hidden">
                     {selected ? (
-                        <div className="p-6">
-                            {/* 标题栏：需求标题、编辑和关闭按钮 */}
-                            <div className="flex items-start justify-between gap-4">
-                                {editing ? (
-                                    <Input
-                                        value={editTitle}
-                                        onChange={(e) => setEditTitle(e.target.value)}
-                                        className="text-lg font-semibold"
-                                    />
-                                ) : (
-                                    <h2 className="text-lg font-semibold leading-tight">{selected.number ? `${selected.number} ` : ''}{selected.title}</h2>
-                                )}
-                                <div className="flex items-center gap-1">
-                                    {!editing && (
-                                        <button
-                                            onClick={startEdit}
-                                            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                                            title={t('common.edit')}
-                                        >
-                                            <Pencil className="h-4 w-4"/>
-                                        </button>
+                        <>
+                            {/* 固定头部：标题、编辑按钮、元信息 */}
+                            <div className="flex-shrink-0 border-b border-border bg-background/95 backdrop-blur-sm px-6 py-4 space-y-3">
+                                {/* 标题栏 */}
+                                <div className="flex items-start justify-between gap-4">
+                                    {editing ? (
+                                        <Input
+                                            value={editTitle}
+                                            onChange={(e) => setEditTitle(e.target.value)}
+                                            className="text-lg font-semibold border-primary/50 focus:border-primary"
+                                            placeholder={t('requirements.titlePlaceholder')}
+                                        />
+                                    ) : (
+                                        <h2 className="text-lg font-semibold leading-tight text-foreground">
+                                            {selected.number ? <span className="text-muted-foreground">{selected.number} </span> : ''}
+                                            {selected.title}
+                                        </h2>
                                     )}
-                                    <button
-                                        onClick={() => setSelected(null)}
-                                        className="p-1 rounded hover:bg-accent text-muted-foreground"
-                                    >
-                                        <X className="h-4 w-4"/>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* 编辑模式下的保存/取消按钮 */}
-                            {editing && (
-                                <div className="mt-3 flex gap-2">
-                                    <Button size="sm" onClick={saveEdit} disabled={saving}>
-                                        {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> :
-                                            <Save className="h-4 w-4 mr-1.5"/>}
-                                        {saving ? t('requirements.saving') : t('common.save')}
-                                    </Button>
-                                    <Button size="sm" variant="outline" onClick={cancelEdit} disabled={saving}>
-                                        {t('common.cancel')}
-                                    </Button>
-                                </div>
-                            )}
-
-                            {/* 元信息标签：状态、优先级、负责人、来源 */}
-                            <div className="mt-3 flex flex-wrap gap-2">
-                <span className={cn('text-xs px-2 py-1 rounded-full font-medium', statusColor(selected.status))}>
-                  {selected.status}
-                </span>
-                                <span
-                                    className={cn('text-xs px-2 py-1 rounded-full font-medium', priorityColor(selected.priority))}>
-                  {selected.priority}
-                </span>
-                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <User className="h-3 w-3"/>
-                                    {selected.assignee || t('requirements.unassigned')}
-                </span>
-                                <span className="text-xs text-muted-foreground">
-                  {t('requirements.source')} <code className="bg-muted px-1 rounded">{selected.source}</code>
-                </span>
-                            </div>
-
-                            {/* 需求描述 - 编辑模式用 textarea，查看模式用 Markdown 渲染 */}
-                            {editing ? (
-                                <div className="mt-5">
-                                    <textarea
-                                        value={editDescription}
-                                        onChange={(e) => setEditDescription(e.target.value)}
-                                        className="w-full min-h-[400px] p-3 rounded-lg border border-border bg-background text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
-                                        placeholder={t('requirements.descriptionPlaceholder')}
-                                    />
-                                    {/* 编辑模式：上传文件解析并插入描述 */}
-                                    <div className="mt-2 space-y-1">
-                                        <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1">
+                                        {!editing && (
                                             <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => editFileInputRef.current?.click()}
+                                                onClick={startEdit}
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors"
+                                                title={t('common.edit')}
                                             >
-                                                <FileUp className="h-4 w-4 mr-1.5"/>
-                                                {t('requirements.uploadFiles')}
-                                            </Button>
-                                            <input
-                                                ref={editFileInputRef}
-                                                type="file"
-                                                multiple
-                                                accept=".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg"
-                                                className="hidden"
-                                                onChange={(e) => {
-                                                    const newFiles = Array.from(e.target.files ?? []);
-                                                    setEditFiles(prev => [...prev, ...newFiles]);
-                                                    e.target.value = '';
-                                                }}
-                                            />
-                                        </div>
-                                        {editFiles.map((f, i) => (
-                                            <div key={i}
-                                                 className="flex items-center gap-2 text-xs text-muted-foreground bg-background rounded px-2 py-1">
-                                                <FileText className="h-3.5 w-3.5 shrink-0"/>
-                                                <span className="truncate flex-1">{f.name}</span>
-                                                <button
-                                                    onClick={() => setEditFiles(prev => prev.filter((_, idx) => idx !== i))}
-                                                    className="text-destructive hover:text-destructive/80">
-                                                    <X className="h-3.5 w-3.5"/>
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {editFiles.length > 0 && (
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={editParsing}
-                                                onClick={handleEditParseFiles}
-                                            >
-                                                {editParsing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5"/> :
-                                                    <Upload className="h-4 w-4 mr-1.5"/>}
-                                                {t('requirements.parseWithMinerU')}
+                                                <Pencil className="h-4 w-4"/>
                                             </Button>
                                         )}
+                                        <Button
+                                            onClick={() => setSelected(null)}
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                        >
+                                            <X className="h-4 w-4"/>
+                                        </Button>
                                     </div>
                                 </div>
-                            ) : (
-                                selected.description && (
-                                    <div className="mt-5">
-                                        <MarkdownContent content={selected.description}/>
+
+                                {/* 编辑模式：保存/取消按钮 */}
+                                {editing && (
+                                    <div className="flex items-center gap-2">
+                                        <Button size="sm" onClick={saveEdit} disabled={saving} className="gap-1.5">
+                                            {saving ? <Loader2 className="h-4 w-4 animate-spin"/> :
+                                                <Save className="h-4 w-4"/>}
+                                            {saving ? t('requirements.saving') : t('common.save')}
+                                        </Button>
+                                        <Button size="sm" variant="outline" onClick={cancelEdit} disabled={saving}>
+                                            {t('common.cancel')}
+                                        </Button>
                                     </div>
-                                )
-                            )}
+                                )}
 
-                            {/* 验收标准列表 */}
-                            {selected.acceptanceCriteria.length > 0 && (
-                                <div className="mt-5">
-                                    <h4 className="text-sm font-medium mb-2">{t('requirements.acceptanceCriteria')}</h4>
-                                    <ul className="space-y-2">
-                                        {selected.acceptanceCriteria.map((ac, i) => (
-                                            <li key={i}
-                                                className="flex items-start gap-2 text-sm text-muted-foreground">
-                                                <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0"/>
-                                                <span>{ac}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
+                                {/* 元信息标签 */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium border', statusColor(selected.status))}>
+                                        {selected.status}
+                                    </span>
+                                    <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium border', priorityColor(selected.priority))}>
+                                        {selected.priority}
+                                    </span>
+                                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                        <User className="h-3.5 w-3.5"/>
+                                        {selected.assignee || t('requirements.unassigned')}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                        {t('requirements.source')} <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{selected.source}</code>
+                                    </span>
                                 </div>
-                            )}
+                            </div>
 
-                            {/* 关联缺陷/问题列表 */}
-                            {selected.relatedIssues.length > 0 && (
-                                <div className="mt-5">
-                                    <h4 className="text-sm font-medium mb-2">{t('requirements.relatedIssues')}</h4>
-                                    <ul className="space-y-1.5">
-                                        {selected.relatedIssues.map(issue => (
-                                            <li key={issue.id}
-                                                className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                <Link2 className="h-3.5 w-3.5"/>
-                                                <span
-                                                    className={cn('text-xs px-1.5 py-0.5 rounded', statusColor(issue.status))}>
-                          {issue.status}
-                        </span>
-                                                <span>{issue.title}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
+                            {/* 可滚动内容区域：描述、验收标准、关联问题 */}
+                            <div className="flex-1 overflow-y-auto">
+                                <div className="p-6">
+                                    {/* 需求描述 */}
+                                    {editing ? (
+                                        <div className="space-y-3">
+                                            <textarea
+                                                value={editDescription}
+                                                onChange={(e) => setEditDescription(e.target.value)}
+                                                className="w-full min-h-[400px] p-4 rounded-xl border border-border bg-background/50 text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-shadow"
+                                                placeholder={t('requirements.descriptionPlaceholder')}
+                                            />
+                                            {/* 编辑模式：上传文件解析 */}
+                                            <div className="space-y-2">
+                                                <div className="flex items-center gap-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => editFileInputRef.current?.click()}
+                                                        className="gap-1.5"
+                                                    >
+                                                        <FileUp className="h-4 w-4"/>
+                                                        {t('requirements.uploadFiles')}
+                                                    </Button>
+                                                    <input
+                                                        ref={editFileInputRef}
+                                                        type="file"
+                                                        multiple
+                                                        accept=".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg"
+                                                        className="hidden"
+                                                        onChange={(e) => {
+                                                            const newFiles = Array.from(e.target.files ?? []);
+                                                            setEditFiles(prev => [...prev, ...newFiles]);
+                                                            e.target.value = '';
+                                                        }}
+                                                    />
+                                                </div>
+                                                {editFiles.map((f, i) => (
+                                                    <div key={i}
+                                                         className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg px-3 py-2">
+                                                        <FileText className="h-3.5 w-3.5 shrink-0"/>
+                                                        <span className="truncate flex-1">{f.name}</span>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-5 w-5 rounded"
+                                                            onClick={() => setEditFiles(prev => prev.filter((_, idx) => idx !== i))}
+                                                        >
+                                                            <X className="h-3 w-3"/>
+                                                        </Button>
+                                                    </div>
+                                                ))}
+                                                {editFiles.length > 0 && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={editParsing}
+                                                        onClick={handleEditParseFiles}
+                                                        className="gap-1.5"
+                                                    >
+                                                        {editParsing ? <Loader2 className="h-4 w-4 animate-spin"/> :
+                                                            <Upload className="h-4 w-4"/>}
+                                                        {t('requirements.parseWithMinerU')}
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : selected.description ? (
+                                        <div className="prose prose-sm max-w-none dark:prose-invert">
+                                            <MarkdownContent content={selected.description}/>
+                                        </div>
+                                    ) : null}
+
+                                    {/* 验收标准 */}
+                                    {selected.acceptanceCriteria.length > 0 && (
+                                        <div className="mt-6 rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                                            <h4 className="text-sm font-semibold flex items-center gap-2">
+                                                <CheckCircle2 className="h-4 w-4 text-emerald-500"/>
+                                                {t('requirements.acceptanceCriteria')}
+                                            </h4>
+                                            <ul className="space-y-2">
+                                                {selected.acceptanceCriteria.map((ac, i) => (
+                                                    <li key={i} className="flex items-start gap-2 text-sm">
+                                                        <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-primary mt-1.5"/>
+                                                        <span className="text-muted-foreground">{ac}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    {/* 关联问题 */}
+                                    {selected.relatedIssues.length > 0 && (
+                                        <div className="mt-6 rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                                            <h4 className="text-sm font-semibold flex items-center gap-2">
+                                                <Link2 className="h-4 w-4"/>
+                                                {t('requirements.relatedIssues')}
+                                            </h4>
+                                            <ul className="space-y-2">
+                                                {selected.relatedIssues.map(issue => (
+                                                    <li key={issue.id} className="flex items-center gap-2 text-sm">
+                                                        <Link2 className="h-3.5 w-3.5 text-muted-foreground"/>
+                                                        <span className={cn('text-xs px-2 py-0.5 rounded-md border', statusColor(issue.status))}>
+                                                            {issue.status}
+                                                        </span>
+                                                        <span className="text-muted-foreground">{issue.title}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        </>
                     ) : (
                         /* 未选中需求时的空状态提示 */
                         <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
