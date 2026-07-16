@@ -10,9 +10,8 @@
  * - 内部编排完整流水线：Plan → Execution → Test
  */
 
-import crypto from 'crypto';
 import {ClaudeProvider} from './cli-providers/claude-provider.js';
-import type {CLIProviderResult} from './cli-providers/types.js';
+import type {CLIProviderResult} from './cli-providers';
 import {getErrorMessage} from '../utils/error-utils.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {getPhaseSkills, getPhaseMcpServers, resolveMcpServerMap} from '../utils/skill-utils.js';
@@ -106,11 +105,6 @@ export class TaskScheduler {
 
     registerTask(task: TaskInfo): void { this.tasks.set(task.id, task); }
     getTask(taskId: string): TaskInfo | undefined { return this.tasks.get(taskId); }
-    getAllTasks(): TaskInfo[] { return Array.from(this.tasks.values()); }
-    getTasksByProject(projectId: string): TaskInfo[] {
-        return Array.from(this.tasks.values()).filter(t => t.projectId === projectId);
-    }
-
     /**
      * 启动任务（如果达到并行上限则排队，否则直接执行完整流水线）
      */
@@ -220,23 +214,6 @@ export class TaskScheduler {
             }
         );
     }
-
-    getTaskProvider(taskId: string): ClaudeProvider | undefined {
-        return this.running.get(taskId)?.provider;
-    }
-
-    getTaskSignal(taskId: string): AbortSignal | undefined {
-        return this.running.get(taskId)?.abortController.signal;
-    }
-
-    setTaskSessionId(taskId: string, sessionId: string): void {
-        const task = this.tasks.get(taskId);
-        if (task) {
-            task.sessionId = sessionId;
-            task.updatedAt = new Date().toISOString();
-        }
-    }
-
     updateTaskState(taskId: string, updates: Partial<Pick<TaskInfo, 'status' | 'phase' | 'name'>>): void {
         const task = this.tasks.get(taskId);
         if (task) {
@@ -426,12 +403,16 @@ export class TaskScheduler {
         const planPrompt = enrichPrompt(promptText, memoryService, cwd);
 
         let planOutput = '';
+        // ponytail: 过滤掉Agent模式
+        const filteredPlanSkills = (planSkills && typeof planSkills === 'object' && 'mode' in planSkills && planSkills.mode === 'agent')
+            ? undefined
+            : planSkills as string[] | 'all' | undefined;
         const planResult = await provider.run(
             {
                 prompt: planPrompt,
                 cwd: cwd,
                 maxTurns: 20,
-                skills: planSkills,
+                skills: filteredPlanSkills,
                 mcpServers: planMcpServers,
             },
             {
@@ -474,13 +455,17 @@ export class TaskScheduler {
 
         const executionPrompt = enrichPrompt(planOutput, memoryService, cwd);
 
+        // ponytail: 过滤掉Agent模式
+        const filteredExecutionSkills = (executionSkills && typeof executionSkills === 'object' && 'mode' in executionSkills && executionSkills.mode === 'agent')
+            ? undefined
+            : executionSkills as string[] | 'all' | undefined;
         const execResult = await provider.run(
             {
                 prompt: executionPrompt,
                 cwd: cwd,
                 sessionId: task.sessionId,
                 maxTurns: 50,
-                skills: executionSkills,
+                skills: filteredExecutionSkills,
                 mcpServers: executionMcpServers,
             },
             {

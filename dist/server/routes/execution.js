@@ -225,7 +225,11 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
         if (plan.pipelineId && pipelineService) {
             const pipeline = pipelineService.get(plan.pipelineId);
             if (pipeline?.steps) {
-                executionSkills = (0, skill_utils_js_1.getPhaseSkills)(pipeline.steps, 'execution');
+                const phaseConfig = (0, skill_utils_js_1.getPhaseSkills)(pipeline.steps, 'execution');
+                // ponytail: 过滤掉Agent模式，execution暂时不支持Agent
+                executionSkills = (phaseConfig && typeof phaseConfig === 'object' && 'mode' in phaseConfig && phaseConfig.mode === 'agent')
+                    ? undefined
+                    : phaseConfig;
             }
         }
         // 初始化执行对象
@@ -665,7 +669,14 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             return;
         }
         try {
-            const args = buildSkillArgs(execution, plan, { cliRunnerService, memoryService, pipelineService, testExecutorService, testPersistStore, sandboxService });
+            const args = buildSkillArgs(execution, plan, {
+                cliRunnerService,
+                memoryService,
+                pipelineService,
+                testExecutorService,
+                testPersistStore,
+                sandboxService
+            });
             await runNextExecutionSkill(execution, plan, args, persistStore);
         }
         catch (err) {
@@ -705,7 +716,14 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 return;
             }
             try {
-                const args = buildSkillArgs(execution, plan, { cliRunnerService, memoryService, pipelineService, testExecutorService, testPersistStore, sandboxService });
+                const args = buildSkillArgs(execution, plan, {
+                    cliRunnerService,
+                    memoryService,
+                    pipelineService,
+                    testExecutorService,
+                    testPersistStore,
+                    sandboxService
+                });
                 await runNextExecutionSkill(execution, plan, args, persistStore);
             }
             catch (err) {
@@ -869,7 +887,11 @@ async function triggerTestPhase(execution, plan, pipelineService, cliRunnerServi
         return;
     const testRunId = crypto_1.default.randomUUID();
     // 从 Pipeline 配置中解析测试阶段的技能列表
-    const testSkills = (0, skill_utils_js_1.getPhaseSkills)(pipeline.steps, 'test');
+    const phaseConfig = (0, skill_utils_js_1.getPhaseSkills)(pipeline.steps, 'test');
+    // ponytail: 过滤掉Agent模式
+    const testSkills = (phaseConfig && typeof phaseConfig === 'object' && 'mode' in phaseConfig && phaseConfig.mode === 'agent')
+        ? undefined
+        : phaseConfig;
     // 如果配置了 changedFilesOnly，通过 git 命令获取变更文件列表
     // 包含已修改、已暂存和未跟踪的新文件
     let changedFiles;

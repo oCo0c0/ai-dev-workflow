@@ -66,6 +66,8 @@ export interface PhaseToolsConfig {
     skills: string[];
     /** 该阶段启用的 MCP 服务器名称列表，空数组 = 不启用任何 MCP（claude 走全局默认） */
     mcpServers: string[];
+    /** Agent模式：'skill' 传统技能模式（默认），'agent' Agent自主决策模式（不需要指定agentId） */
+    agentMode?: 'agent' | 'skill';
 }
 
 /**
@@ -147,11 +149,13 @@ export interface WorkflowPipeline {
     description: string;
     /** 是否为默认管线 */
     isDefault: boolean;
+    /** Agent自主决策模式：开启后不需要配置steps中的工具细节 */
+    agentMode?: boolean;
     /** 创建时间（ISO 8601 格式） */
     createdAt: string;
     /** 最后更新时间（ISO 8601 格式） */
     updatedAt: string;
-    /** 管线步骤配置 */
+    /** 管线步骤配置（agentMode=false时需要配置） */
     steps: PipelineStepConfig;
 }
 

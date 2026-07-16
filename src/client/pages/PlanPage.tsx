@@ -50,7 +50,6 @@ import {
     Ban,
     Download,
     User,
-    Layers,
     ChevronDown,
     ChevronUp,
 } from 'lucide-react';
@@ -401,7 +400,8 @@ export default function PlanPage() {
         e.stopPropagation(); // 阻止冒泡到父级的点击事件（避免触发loadPlan）
         try {
             await apiDelete(`/plan/${id}`);
-            setPlanHistory(prev => prev.filter(p => p.id !== id));
+            // 重新加载列表
+            await loadHistory();
             // 如果删除的是当前查看的计划，清空相关状态
             if (activePlanId === id) {
                 setPlan(null);

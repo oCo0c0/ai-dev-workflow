@@ -247,6 +247,31 @@ interface TaskInfo {
     updatedAt: string;
 }
 
+// === Agent 模型 ===
+
+/** Agent执行摘要 */
+export interface AgentExecutionSummary {
+    id: string;
+    agentId: string;
+    taskId: string;
+    status: 'running' | 'completed' | 'failed' | 'aborted';
+    quality?: number;
+    duration?: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+/** Agent执行详情 */
+export interface AgentExecution extends AgentExecutionSummary {
+    inputData: Record<string, unknown>;
+    result?: {
+        success: boolean;
+        data?: string;
+        error?: string;
+    };
+    error?: string;
+}
+
 /** 项目空间 */
 interface ProjectSpace {
     id: string;
@@ -320,7 +345,7 @@ interface AppState {
         /** 当前开发计划 */
         current: DevelopmentPlan | null;
         /** 计划生成/编辑状态 */
-        status: 'idle' | 'generating' | 'paused' | 'ready' | 'editing';
+        status: 'idle' | 'generating' | 'paused' | 'ready' | 'editing' | 'failed';
         /** 当前计划关联的需求任务 ID（持久化到 localStorage） */
         taskId: string | null;
         /** 计划生成过程中的流式日志输出 */
@@ -420,6 +445,17 @@ interface AppState {
         scheduler: SchedulerStatus | null;
     };
 
+    // --- Agent ---
+    /** Agent相关状态 */
+    agents: {
+        /** Agent执行列表 */
+        executions: AgentExecutionSummary[];
+        /** 当前活跃的Agent执行ID */
+        activeExecutionId: string | null;
+        /** Agent执行日志 */
+        logs: string[];
+    };
+
     // === Action 方法 ===
 
     // 需求管理 actions
@@ -439,8 +475,8 @@ interface AppState {
     // 计划 actions
     /** 设置当前开发计划 */
     setCurrentPlan: (plan: DevelopmentPlan | null) => void;
-    /** 设置计划状态（idle/generating/paused/ready/editing） */
-    setPlanStatus: (status: 'idle' | 'generating' | 'paused' | 'ready' | 'editing') => void;
+    /** 设置计划状态（idle/generating/paused/ready/editing/failed） */
+    setPlanStatus: (status: 'idle' | 'generating' | 'paused' | 'ready' | 'editing' | 'failed') => void;
     /** 设置计划关联的任务 ID（同时持久化到 localStorage） */
     setPlanTaskId: (taskId: string | null) => void;
     /** 追加一条计划生成日志 */
@@ -529,6 +565,16 @@ interface AppState {
     updateTask: (taskId: string, updates: Partial<TaskInfo>) => void;
     /** 设置调度器状态 */
     setSchedulerStatus: (status: SchedulerStatus | null) => void;
+
+    // Agent actions
+    /** 设置Agent执行列表 */
+    setAgentExecutions: (executions: AgentExecutionSummary[]) => void;
+    /** 设置当前活跃的Agent执行ID */
+    setActiveAgentExecution: (executionId: string | null) => void;
+    /** 添加Agent执行日志 */
+    addAgentLog: (content: string) => void;
+    /** 清空Agent日志 */
+    clearAgentLogs: () => void;
 }
 
 // === 辅助函数：主题持久化 ===
@@ -621,6 +667,7 @@ export const useAppStore = create<AppState>((set) => {
         },
         projects: {list: [], active: null, loading: false},
         tasks: {list: [], activeTaskId: null, logsByTask: {}, scheduler: null},
+        agents: {executions: [], activeExecutionId: null, logs: []},
 
         // === 需求管理 Actions ===
         setRequirements: (list) =>
@@ -870,5 +917,15 @@ export const useAppStore = create<AppState>((set) => {
             })),
         setSchedulerStatus: (status) =>
             set((state) => ({tasks: {...state.tasks, scheduler: status}})),
+
+        // Agent actions
+        setAgentExecutions: (executions) =>
+            set((state) => ({agents: {...state.agents, executions}})),
+        setActiveAgentExecution: (executionId) =>
+            set((state) => ({agents: {...state.agents, activeExecutionId: executionId}})),
+        addAgentLog: (content) =>
+            set((state) => ({agents: {...state.agents, logs: [...state.agents.logs, content]}})),
+        clearAgentLogs: () =>
+            set((state) => ({agents: {...state.agents, logs: []}}))
     };
 });

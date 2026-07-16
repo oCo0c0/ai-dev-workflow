@@ -54,6 +54,7 @@ const system_js_1 = require("./routes/system.js");
 const analytics_js_1 = require("./routes/analytics.js");
 const mineru_js_1 = require("./routes/mineru.js");
 const projects_js_1 = require("./routes/projects.js");
+const agents_js_1 = require("./routes/agents.js");
 /**
  * 创建并启动应用服务器
  *
@@ -164,6 +165,7 @@ async function createServer(port) {
     app.use('/api/analytics', (0, analytics_js_1.createAnalyticsRoutes)(analyticsService, memoryService));
     app.use('/api/mineru', (0, mineru_js_1.createMinerURoutes)(mineruService));
     app.use('/api/tasks', (0, projects_js_1.createTaskRoutes)(taskStoreService, taskScheduler, workspaceService));
+    app.use('/api/agents', (0, agents_js_1.createAgentRoutes)());
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;
     void skillDerivationService;

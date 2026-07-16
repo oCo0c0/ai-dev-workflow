@@ -44,12 +44,17 @@ export declare function resolveSkills(skillConfig: SkillSetConfig | undefined): 
  * 支持新旧两种配置方式兼容（新模型优先）：
  * - 新方式：按阶段独立的 PhaseToolsConfig（plan/execution/test），skills 为数组，空数组 = 不启用
  * - 旧方式：阶段专属 SkillSetConfig（planSkills 等）→ 通用 skillSet，按 mode 解析
+ * - Agent模式：agentMode='agent'时返回Agent配置对象
  *
  * 优先级：新阶段配置（steps[phase]）> 旧阶段 SkillSetConfig > 通用 skillSet
  *
  * @param steps - 包含各阶段配置的对象
  * @param phase - 流水线阶段名称
- * @returns 该阶段的有效技能参数：string[] | 'all' | undefined（undefined = 不启用）
+ * @returns 该阶段的有效技能参数：
+ *   - string[]: 技能名称数组
+ *   - 'all': 启用所有技能
+ *   - {mode: 'agent'}: Agent模式配置（不需要agentId）
+ *   - undefined: 不启用
  */
 export declare function getPhaseSkills(steps: {
     plan?: PhaseToolsConfig;
@@ -59,7 +64,9 @@ export declare function getPhaseSkills(steps: {
     executionSkills?: SkillSetConfig;
     testSkills?: SkillSetConfig;
     skillSet?: SkillSetConfig;
-}, phase: 'plan' | 'execution' | 'test'): string[] | 'all' | undefined;
+}, phase: 'plan' | 'execution' | 'test'): string[] | 'all' | undefined | {
+    mode: 'agent';
+};
 /**
  * 获取指定流水线阶段的有效 MCP 服务器名列表。
  *

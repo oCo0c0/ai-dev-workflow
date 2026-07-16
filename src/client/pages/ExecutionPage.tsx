@@ -331,6 +331,8 @@ export default function ExecutionPage() {
         if (detail) setDetail({...detail, status: 'paused'});
         try {
             await apiPost(`/execution/${activeId}/pause`);
+            // 刷新历史列表以更新状态标识
+            await loadHistory();
         } catch { /* 通过轮询处理状态更新 */
         }
     };
@@ -376,6 +378,8 @@ export default function ExecutionPage() {
         if (detail) setDetail({...detail, status: 'aborted'});
         try {
             await apiPost(`/execution/${activeId}/abort`);
+            // 刷新历史列表以更新状态标识
+            await loadHistory();
         } catch { /* 通过轮询处理状态更新 */
         }
     };
@@ -461,8 +465,8 @@ export default function ExecutionPage() {
         try {
             const res = await fetch(`/api/execution/${id}`, {method: 'DELETE'});
             if (!res.ok) throw new Error(t('execution.deleteFailed'));
-            // 从历史列表中移除已删除的记录
-            setHistory(prev => prev.filter(e => e.id !== id));
+            // 重新加载列表
+            await loadHistory();
             // 如果删除的是当前选中的记录，则清空详情和选中状态
             if (activeId === id) {
                 setDetail(null);
@@ -516,6 +520,8 @@ export default function ExecutionPage() {
 
         try {
             await apiPost(`/execution/${activeId}/reply`, {message});
+            // 刷新历史列表以更新状态标识
+            await loadHistory();
         } catch (err) {
             // 回复失败时将错误信息添加到日志中，便于用户了解失败原因
             addExecutionLog({

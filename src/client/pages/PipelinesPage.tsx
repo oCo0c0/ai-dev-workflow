@@ -61,6 +61,8 @@ interface PhaseToolsConfig {
     skills: string[];
     /** 该阶段启用的 MCP 服务器名列表，空 = 不启用 */
     mcpServers: string[];
+    /** Agent模式：'skill'（技能模式）或 'agent'（Agent自主决策模式） */
+    agentMode?: 'skill' | 'agent';
 }
 
 interface PipelineStepConfig {
@@ -120,11 +122,13 @@ interface Pipeline {
     description: string;
     /** 是否为默认流水线 */
     isDefault: boolean;
+    /** Agent自主决策模式：开启后不需要配置steps中的工具细节 */
+    agentMode?: boolean;
     /** 创建时间（ISO 8601格式） */
     createdAt: string;
     /** 更新时间（ISO 8601格式） */
     updatedAt: string;
-    /** 流水线步骤配置 */
+    /** 流水线步骤配置（agentMode=false时需要配置） */
     steps: PipelineStepConfig;
 }
 
@@ -932,110 +936,168 @@ interface PhaseToolsCardProps {
  */
 function PhaseToolsCard({phaseLabel, config, skills, mcpServers, onChange}: PhaseToolsCardProps) {
     const {t} = useTranslation();
-    const [modal, setModal] = useState<null | 'skill' | 'mcp'>(null);
+    const [modal, setModal] = useState<null | 'skill' | 'mcp' | 'agent'>(null);
 
     const removeSkill = (name: string) =>
         onChange({...config, skills: config.skills.filter((s) => s !== name)});
     const removeMcp = (name: string) =>
         onChange({...config, mcpServers: config.mcpServers.filter((s) => s !== name)});
 
+    // Agent模式切换
+    const handleAgentModeChange = (agentMode: 'skill' | 'agent') => {
+        onChange({...config, agentMode});
+        if (agentMode === 'skill') {
+            onChange({...config, agentMode: 'skill'});
+        }
+    };
+
+    const currentMode = config.agentMode ?? 'skill';
+
     return (
         <div className="mb-3 rounded-md border border-border p-3">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
                 <div className="w-1 h-4 rounded-full bg-gradient-to-b from-indigo-500 to-purple-600"/>
                 <p className="text-xs font-semibold text-foreground">{phaseLabel}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-                {/* 技能列 */}
-                <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs text-muted-foreground">{t('pipelines.phaseTools.skillLabel')}</span>
-                        <button
-                            onClick={() => setModal('skill')}
-                            className="text-xs text-primary hover:bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-0.5 transition-colors"
-                        >
-                            <Plus className="h-3 w-3"/>
-                            {t('pipelines.phaseTools.addSkill')}
-                        </button>
-                    </div>
-                    {config.skills.length === 0 ? (
-                        <p className="text-xs text-muted-foreground/50 italic py-2 text-center rounded border border-dashed border-border">
-                            {t('pipelines.phaseTools.noSkills')}
-                        </p>
-                    ) : (
-                        <div className="space-y-1">
-                            {config.skills.map((name) => {
-                                const skill = skills.find((s) => s.name === name);
-                                return (
-                                    <div
-                                        key={name}
-                                        className="group flex items-start gap-1.5 rounded border border-border bg-muted/20 px-2 py-1.5"
-                                    >
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-medium truncate">{name}</p>
-                                            {skill?.description && (
-                                                <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">
-                                                    {skill.description}
-                                                </p>
-                                            )}
-                                        </div>
-                                        <button
-                                            onClick={() => removeSkill(name)}
-                                            className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
-                                        >
-                                            <X className="h-3 w-3"/>
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-                {/* MCP 列 */}
-                <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs text-muted-foreground">{t('pipelines.phaseTools.mcpLabel')}</span>
-                        <button
-                            onClick={() => setModal('mcp')}
-                            className="text-xs text-primary hover:bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-0.5 transition-colors"
-                        >
-                            <Plus className="h-3 w-3"/>
-                            {t('pipelines.phaseTools.addMcp')}
-                        </button>
-                    </div>
-                    {config.mcpServers.length === 0 ? (
-                        <p className="text-xs text-muted-foreground/50 italic py-2 text-center rounded border border-dashed border-border">
-                            {t('pipelines.phaseTools.noMcp')}
-                        </p>
-                    ) : (
-                        <div className="space-y-1">
-                            {config.mcpServers.map((name) => {
-                                const srv = mcpServers.find((s) => s.name === name);
-                                return (
-                                    <div
-                                        key={name}
-                                        className="group flex items-center gap-1.5 rounded border border-border bg-muted/20 px-2 py-1.5"
-                                    >
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-medium truncate">{name}</p>
-                                            {srv?.type && (
-                                                <Badge variant="outline"
-                                                       className="text-[9px] mt-0.5">{srv.type}</Badge>
-                                            )}
-                                        </div>
-                                        <button
-                                            onClick={() => removeMcp(name)}
-                                            className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
-                                        >
-                                            <X className="h-3 w-3"/>
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
+
+                {/* Agent模式切换 */}
+                <div className="ml-auto flex items-center gap-1 bg-muted rounded-lg p-0.5">
+                    <button
+                        onClick={() => handleAgentModeChange('skill')}
+                        className={cn(
+                            'px-2 py-0.5 text-xs font-medium rounded-md transition-all',
+                            currentMode === 'skill'
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                        )}
+                    >
+                        技能模式
+                    </button>
+                    <button
+                        onClick={() => handleAgentModeChange('agent')}
+                        className={cn(
+                            'px-2 py-0.5 text-xs font-medium rounded-md transition-all',
+                            currentMode === 'agent'
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                        )}
+                    >
+                        Agent模式
+                    </button>
                 </div>
             </div>
+
+            {currentMode === 'agent' ? (
+                // Agent模式：显示说明，不需要选择具体Agent
+                <div
+                    className="rounded-md bg-gradient-to-br from-indigo-500/5 to-purple-600/5 border border-indigo-500/20 px-3 py-2">
+                    <div className="flex items-start gap-2">
+                        <div
+                            className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
+                            <span className="text-white text-xs">✨</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-foreground">Agent自主决策模式</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                                系统将根据需求自动选择和协调合适的Agent，无需手动配置
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                // 技能模式：显示技能和MCP选择
+                <div className="grid grid-cols-2 gap-3">
+                    {/* 技能列 */}
+                    <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span
+                                className="text-xs text-muted-foreground">{t('pipelines.phaseTools.skillLabel')}</span>
+                            <button
+                                onClick={() => setModal('skill')}
+                                className="text-xs text-primary hover:bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-0.5 transition-colors"
+                            >
+                                <Plus className="h-3 w-3"/>
+                                {t('pipelines.phaseTools.addSkill')}
+                            </button>
+                        </div>
+                        {config.skills.length === 0 ? (
+                            <p className="text-xs text-muted-foreground/50 italic py-2 text-center rounded border border-dashed border-border">
+                                {t('pipelines.phaseTools.noSkills')}
+                            </p>
+                        ) : (
+                            <div className="space-y-1">
+                                {config.skills.map((name) => {
+                                    const skill = skills.find((s) => s.name === name);
+                                    return (
+                                        <div
+                                            key={name}
+                                            className="group flex items-start gap-1.5 rounded border border-border bg-muted/20 px-2 py-1.5"
+                                        >
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-medium truncate">{name}</p>
+                                                {skill?.description && (
+                                                    <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">
+                                                        {skill.description}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <button
+                                                onClick={() => removeSkill(name)}
+                                                className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+                                            >
+                                                <X className="h-3 w-3"/>
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                    {/* MCP 列 */}
+                    <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs text-muted-foreground">{t('pipelines.phaseTools.mcpLabel')}</span>
+                            <button
+                                onClick={() => setModal('mcp')}
+                                className="text-xs text-primary hover:bg-primary/10 px-2 py-0.5 rounded-md flex items-center gap-0.5 transition-colors"
+                            >
+                                <Plus className="h-3 w-3"/>
+                                {t('pipelines.phaseTools.addMcp')}
+                            </button>
+                        </div>
+                        {config.mcpServers.length === 0 ? (
+                            <p className="text-xs text-muted-foreground/50 italic py-2 text-center rounded border border-dashed border-border">
+                                {t('pipelines.phaseTools.noMcp')}
+                            </p>
+                        ) : (
+                            <div className="space-y-1">
+                                {config.mcpServers.map((name) => {
+                                    const srv = mcpServers.find((s) => s.name === name);
+                                    return (
+                                        <div
+                                            key={name}
+                                            className="group flex items-center gap-1.5 rounded border border-border bg-muted/20 px-2 py-1.5"
+                                        >
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-medium truncate">{name}</p>
+                                                {srv?.type && (
+                                                    <Badge variant="outline"
+                                                           className="text-[9px] mt-0.5">{srv.type}</Badge>
+                                                )}
+                                            </div>
+                                            <button
+                                                onClick={() => removeMcp(name)}
+                                                className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+                                            >
+                                                <X className="h-3 w-3"/>
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {modal === 'skill' && (
                 <MultiSelectModal
@@ -1143,6 +1205,7 @@ export default function PipelinesPage() {
     // ─── 表单状态 ───
     const [formName, setFormName] = useState('');                      // 表单：流水线名称
     const [formDescription, setFormDescription] = useState('');        // 表单：流水线描述
+    const [formAgentMode, setFormAgentMode] = useState(false);         // 表单：Agent自主决策模式
     const [formSteps, setFormSteps] = useState<PipelineStepConfig>(defaultSteps);  // 表单：步骤配置
     const [savedWorkspaces, setSavedWorkspaces] = useState<{ id: string; name: string; path: string }[]>([]);  // 已保存的工作空间列表
 
@@ -1205,6 +1268,7 @@ export default function PipelinesPage() {
         setSelected(null);
         setFormName('');
         setFormDescription('');
+        setFormAgentMode(false);
         setFormSteps(defaultSteps);
     };
 
@@ -1218,6 +1282,7 @@ export default function PipelinesPage() {
         setCreating(false);
         setFormName(pipeline.name);
         setFormDescription(pipeline.description);
+        setFormAgentMode(pipeline.agentMode || false);
         setFormSteps(pipeline.steps || defaultSteps);
     };
 
@@ -1239,7 +1304,8 @@ export default function PipelinesPage() {
         const payload = {
             name: formName.trim(),
             description: formDescription.trim(),
-            steps: formSteps,
+            agentMode: formAgentMode,
+            steps: formAgentMode ? defaultSteps : formSteps,
         };
 
         try {
@@ -1492,333 +1558,378 @@ export default function PipelinesPage() {
                                            onChange={(e) => setFormDescription(e.target.value)}/>
                                 </div>
 
-                                {/* ─── 工作空间绑定配置 ─── */}
+                                {/* ─── Agent自主决策模式 ─── */}
                                 <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.workspaceTitle')}</h4>
-                                    <select
-                                        value={formSteps.workspace.boundPath || ''}
-                                        onChange={(e) => setFormSteps({
-                                            ...formSteps,
-                                            workspace: {boundPath: e.target.value || undefined},
-                                        })}
-                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    >
-                                        <option value="">{t('pipelines.workspaceNotBound')}</option>
-                                        {savedWorkspaces.map((ws) => (
-                                            <option key={ws.id} value={ws.path}>{ws.name} ({ws.path})</option>
-                                        ))}
-                                    </select>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                        {t('pipelines.workspaceHint')}
-                                    </p>
-                                </div>
-
-                                {/* ─── 各阶段工具配置（技能 + MCP 按阶段独立） ─── */}
-                                <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-1">{t('pipelines.skillsPerPhase')}</h4>
-                                    <p className="text-xs text-muted-foreground mb-3">
-                                        {t('pipelines.skillsDescription')}
-                                    </p>
-                                    {(['plan', 'execution', 'test'] as const).map((phase) => {
-                                        const phaseKey = phase as 'plan' | 'execution' | 'test';
-                                        const phaseConfig: PhaseToolsConfig = formSteps[phaseKey] ?? {
-                                            skills: [],
-                                            mcpServers: []
-                                        };
-                                        const phaseLabel = phase === 'plan'
-                                            ? t('pipelines.phaseTools.planPhase')
-                                            : phase === 'execution'
-                                                ? t('pipelines.phaseTools.executionPhase')
-                                                : t('pipelines.phaseTools.testPhase');
-                                        return (
-                                            <PhaseToolsCard
-                                                key={phase}
-                                                phaseLabel={phaseLabel}
-                                                config={phaseConfig}
-                                                skills={skills}
-                                                mcpServers={mcpServers}
-                                                onChange={(cfg) => setFormSteps({
-                                                    ...formSteps,
-                                                    [phaseKey]: cfg,
-                                                })}
-                                            />
-                                        );
-                                    })}
-                                </div>
-
-                                {/* ─── 文档解析配置（MinerU 额外文件） ─── */}
-                                <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.extraDocuments')}</h4>
-                                    <p className="text-xs text-muted-foreground mb-3">
-                                        {t('pipelines.extraDocumentsDesc')}
-                                    </p>
-                                    <div>
-                                        {(formSteps.documentParsing?.extraPaths ?? []).map((p, i) => (
-                                            <div key={i} className="flex items-center gap-1.5 mb-1.5">
-                                                <Input
-                                                    value={p}
-                                                    onChange={(e) => {
-                                                        const paths = [...(formSteps.documentParsing?.extraPaths ?? [])];
-                                                        paths[i] = e.target.value;
-                                                        setFormSteps({
-                                                            ...formSteps,
-                                                            documentParsing: {extraPaths: paths},
-                                                        });
-                                                    }}
-                                                    placeholder={t('pipelines.extraDocPlaceholder')}
-                                                    className="text-xs h-8"
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-xs font-medium">Agent自主决策模式</h4>
+                                        <div className="flex items-center gap-2">
+                                            <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={formAgentMode}
+                                                    onChange={(e) => setFormAgentMode(e.target.checked)}
+                                                    className="rounded border-input"
                                                 />
-                                                <button
-                                                    onClick={() => {
-                                                        const paths = (formSteps.documentParsing?.extraPaths ?? []).filter((_, j) => j !== i);
-                                                        setFormSteps({
-                                                            ...formSteps,
-                                                            documentParsing: {extraPaths: paths},
-                                                        });
-                                                    }}
-                                                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                                                >
-                                                    <X className="h-3.5 w-3.5"/>
-                                                </button>
-                                            </div>
-                                        ))}
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-7 text-xs"
-                                            onClick={() => setFormSteps({
-                                                ...formSteps,
-                                                documentParsing: {
-                                                    extraPaths: [...(formSteps.documentParsing?.extraPaths ?? []), ''],
-                                                },
-                                            })}
-                                        >
-                                            <Plus className="h-3 w-3 mr-1"/>
-                                            {t('pipelines.addPath')}
-                                        </Button>
+                                                <span className="text-xs">启用</span>
+                                            </label>
+                                        </div>
                                     </div>
+                                    {formAgentMode ? (
+                                        <div
+                                            className="rounded-md bg-gradient-to-br from-indigo-500/5 to-purple-600/5 border border-indigo-500/20 px-3 py-2">
+                                            <div className="flex items-start gap-2">
+                                                <div
+                                                    className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
+                                                    <span className="text-white text-xs">✨</span>
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-xs font-medium text-foreground">Agent自主决策已启用</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        系统将根据需求自动选择和协调合适的Agent，无需手动配置技能和工具
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground">
+                                            启用后，系统将自动分析需求并选择合适的Agent，无需手动配置各阶段的技能和工具
+                                        </p>
+                                    )}
                                 </div>
 
-                                {/* ─── 测试策略配置 ─── */}
-                                <div className="border-t border-border pt-4">
-                                    <h4 className="text-xs font-medium mb-2">{t('pipelines.testStrategy')}</h4>
-
-                                    {/* 测试模式选择：AI自动生成 vs 运行已有测试 vs AI E2E */}
-                                    <div className="grid grid-cols-3 gap-2 mb-3">
-                                        {[
-                                            {
-                                                value: 'ai_generate',
-                                                label: t('pipelines.aiWritesTests'),
-                                                desc: t('pipelines.aiWritesTestsDesc')
-                                            },
-                                            {
-                                                value: 'run_existing',
-                                                label: t('pipelines.runExisting'),
-                                                desc: t('pipelines.runExistingDesc')
-                                            },
-                                            {
-                                                value: 'ai_generate_e2e',
-                                                label: t('pipelines.aiE2eTests'),
-                                                desc: t('pipelines.aiE2eTestsDesc')
-                                            },
-                                        ].map((opt) => (
-                                            <div
-                                                key={opt.value}
-                                                onClick={() => setFormSteps({
+                                {!formAgentMode && (
+                                    <>
+                                        {/* ─── 工作空间绑定配置 ─── */}
+                                        <div className="border-t border-border pt-4">
+                                            <h4 className="text-xs font-medium mb-2">{t('pipelines.workspaceTitle')}</h4>
+                                            <select
+                                                value={formSteps.workspace.boundPath || ''}
+                                                onChange={(e) => setFormSteps({
                                                     ...formSteps,
-                                                    testStrategy: {
-                                                        ...formSteps.testStrategy,
-                                                        mode: opt.value as 'ai_generate' | 'run_existing' | 'ai_generate_e2e'
-                                                    },
+                                                    workspace: {boundPath: e.target.value || undefined},
                                                 })}
-                                                className={`cursor-pointer rounded-md border p-3 transition-all ${
-                                                    formSteps.testStrategy.mode === opt.value
-                                                        ? 'border-primary bg-primary/5'
-                                                        : 'border-border hover:border-primary/40'
-                                                }`}
+                                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                             >
-                                                <p className="text-sm font-medium">{opt.label}</p>
-                                                <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {/* AI模式说明：展示Claude自动测试的能力描述 */}
-                                    {formSteps.testStrategy.mode === 'ai_generate' && (
-                                        <div
-                                            className="rounded-md bg-muted/30 border border-border p-3 text-xs text-muted-foreground space-y-1">
-                                            <p>{t('pipelines.aiAutoDesc')}</p>
-                                            <p>• {t('pipelines.aiAutoLine1')}</p>
-                                            <p>• {t('pipelines.aiAutoLine2')}</p>
-                                            <p>• {t('pipelines.aiAutoLine3')}</p>
-                                            <p className="text-primary mt-2">{t('pipelines.aiAutoHint')}</p>
+                                                <option value="">{t('pipelines.workspaceNotBound')}</option>
+                                                {savedWorkspaces.map((ws) => (
+                                                    <option key={ws.id} value={ws.path}>{ws.name} ({ws.path})</option>
+                                                ))}
+                                            </select>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                {t('pipelines.workspaceHint')}
+                                            </p>
                                         </div>
-                                    )}
 
-                                    {formSteps.testStrategy.mode === 'ai_generate_e2e' && (
-                                        <div
-                                            className="rounded-md bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-muted-foreground space-y-1">
-                                            <p className="text-blue-500 font-medium">{t('pipelines.e2eTwoPhase')}</p>
-                                            <p>{t('pipelines.e2ePhase1')}</p>
-                                            <p>{t('pipelines.e2ePhase2')}</p>
-                                            <p className="mt-2">{t('pipelines.e2eHint1')}</p>
-                                            <p className="text-primary mt-1">{t('pipelines.e2eHint2')}</p>
-                                        </div>
-                                    )}
-
-                                    {/* 运行已有测试模式：框架选择和命令配置 */}
-                                    {formSteps.testStrategy.mode === 'run_existing' && (
-                                        <div className="space-y-2">
-                                            <div>
-                                                <label
-                                                    className="block text-xs text-muted-foreground mb-1">{t('pipelines.framework')}</label>
-                                                <select
-                                                    value={formSteps.testStrategy.framework || ''}
-                                                    onChange={(e) => setFormSteps({
-                                                        ...formSteps,
-                                                        testStrategy: {
-                                                            ...formSteps.testStrategy,
-                                                            framework: e.target.value
-                                                        },
-                                                    })}
-                                                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                                >
-                                                    <option value="">{t('pipelines.autoDetect')}</option>
-                                                    <optgroup label="Java">
-                                                        <option value="junit">JUnit (Maven: mvn test)</option>
-                                                        <option value="junit-gradle">JUnit (Gradle: ./gradlew test)
-                                                        </option>
-                                                    </optgroup>
-                                                    <optgroup label="JavaScript / TypeScript">
-                                                        <option value="jest">Jest (npm test)</option>
-                                                        <option value="vitest">Vitest (npx vitest run)</option>
-                                                        <option value="playwright">Playwright (npx playwright test)
-                                                        </option>
-                                                    </optgroup>
-                                                    <optgroup label="Python">
-                                                        <option value="pytest">PyTest (pytest)</option>
-                                                    </optgroup>
-                                                    <optgroup label="Other">
-                                                        <option value="custom">Custom command</option>
-                                                    </optgroup>
-                                                </select>
-                                            </div>
-
-                                            {/* 测试命令输入框：根据选择的框架自动填充默认命令 */}
-                                            <div>
-                                                <label className="block text-xs text-muted-foreground mb-1">
-                                                    {t('pipelines.testCommand')}
-                                                    <span
-                                                        className="ml-1 text-muted-foreground/60">{t('pipelines.testCommandHint')}</span>
-                                                </label>
-                                                <Input
-                                                    value={formSteps.testStrategy.command || getDefaultCommand(formSteps.testStrategy.framework || '')}
-                                                    onChange={(e) => setFormSteps({
-                                                        ...formSteps,
-                                                        testStrategy: {
-                                                            ...formSteps.testStrategy,
-                                                            command: e.target.value
-                                                        },
-                                                    })}
-                                                    placeholder={t('pipelines.testCommandPlaceholder')}
-                                                />
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* 自动运行测试开关 */}
-                                    <label className="flex items-center gap-2 text-sm mt-3">
-                                        <input
-                                            type="checkbox"
-                                            checked={formSteps.testStrategy.autoRunAfterExecution}
-                                            onChange={(e) => setFormSteps({
-                                                ...formSteps,
-                                                testStrategy: {
-                                                    ...formSteps.testStrategy,
-                                                    autoRunAfterExecution: e.target.checked
-                                                },
+                                        {/* ─── 各阶段工具配置（技能 + MCP 按阶段独立） ─── */}
+                                        <div className="border-t border-border pt-4">
+                                            <h4 className="text-xs font-medium mb-1">{t('pipelines.skillsPerPhase')}</h4>
+                                            <p className="text-xs text-muted-foreground mb-3">
+                                                {t('pipelines.skillsDescription')}
+                                            </p>
+                                            {(['plan', 'execution', 'test'] as const).map((phase) => {
+                                                const phaseKey = phase as 'plan' | 'execution' | 'test';
+                                                const phaseConfig: PhaseToolsConfig = formSteps[phaseKey] ?? {
+                                                    skills: [],
+                                                    mcpServers: []
+                                                };
+                                                const phaseLabel = phase === 'plan'
+                                                    ? t('pipelines.phaseTools.planPhase')
+                                                    : phase === 'execution'
+                                                        ? t('pipelines.phaseTools.executionPhase')
+                                                        : t('pipelines.phaseTools.testPhase');
+                                                return (
+                                                    <PhaseToolsCard
+                                                        key={phase}
+                                                        phaseLabel={phaseLabel}
+                                                        config={phaseConfig}
+                                                        skills={skills}
+                                                        mcpServers={mcpServers}
+                                                        onChange={(cfg) => setFormSteps({
+                                                            ...formSteps,
+                                                            [phaseKey]: cfg,
+                                                        })}
+                                                    />
+                                                );
                                             })}
-                                            className="rounded border-input"
-                                        />
-                                        {t('pipelines.autoRun')}
-                                    </label>
-
-                                    {/* 仅运行变更文件相关测试开关 */}
-                                    {formSteps.testStrategy.autoRunAfterExecution && formSteps.testStrategy.mode === 'run_existing' && (
-                                        <label className="flex items-center gap-2 text-sm mt-2 ml-5">
-                                            <input
-                                                type="checkbox"
-                                                checked={formSteps.testStrategy.changedFilesOnly ?? false}
-                                                onChange={(e) => setFormSteps({
-                                                    ...formSteps,
-                                                    testStrategy: {
-                                                        ...formSteps.testStrategy,
-                                                        changedFilesOnly: e.target.checked
-                                                    },
-                                                })}
-                                                className="rounded border-input"
-                                            />
-                                            {t('pipelines.changedFilesOnly')}
-                                        </label>
-                                    )}
-
-                                    {/* 测试执行环境选择 */}
-                                    <div className="mt-3 space-y-2">
-                                        <label className="text-xs font-medium text-muted-foreground">
-                                            {t('pipelines.testEnv')}
-                                        </label>
-                                        <div className="flex gap-3">
-                                            <label className="flex items-center gap-1.5 text-sm">
-                                                <input
-                                                    type="radio"
-                                                    name="testEnvironment"
-                                                    checked={(formSteps.testStrategy.environment ?? 'local') === 'local'}
-                                                    onChange={() => setFormSteps({
-                                                        ...formSteps,
-                                                        testStrategy: {
-                                                            ...formSteps.testStrategy,
-                                                            environment: 'local',
-                                                            sandboxId: undefined,
-                                                        },
-                                                    })}
-                                                />
-                                                {t('pipelines.localEnv')}
-                                            </label>
-                                            <label className="flex items-center gap-1.5 text-sm">
-                                                <input
-                                                    type="radio"
-                                                    name="testEnvironment"
-                                                    checked={formSteps.testStrategy.environment === 'sandbox'}
-                                                    onChange={() => setFormSteps({
-                                                        ...formSteps,
-                                                        testStrategy: {
-                                                            ...formSteps.testStrategy,
-                                                            environment: 'sandbox',
-                                                        },
-                                                    })}
-                                                />
-                                                {t('pipelines.sandboxEnv')}
-                                            </label>
                                         </div>
 
-                                        {/* 沙箱 ID 输入 */}
-                                        {formSteps.testStrategy.environment === 'sandbox' && (
-                                            <input
-                                                type="text"
-                                                placeholder={t('pipelines.sandboxIdPlaceholder')}
-                                                value={formSteps.testStrategy.sandboxId || ''}
-                                                onChange={(e) => setFormSteps({
-                                                    ...formSteps,
-                                                    testStrategy: {
-                                                        ...formSteps.testStrategy,
-                                                        sandboxId: e.target.value || undefined,
+                                        {/* ─── 文档解析配置（MinerU 额外文件） ─── */}
+                                        <div className="border-t border-border pt-4">
+                                            <h4 className="text-xs font-medium mb-2">{t('pipelines.extraDocuments')}</h4>
+                                            <p className="text-xs text-muted-foreground mb-3">
+                                                {t('pipelines.extraDocumentsDesc')}
+                                            </p>
+                                            <div>
+                                                {(formSteps.documentParsing?.extraPaths ?? []).map((p, i) => (
+                                                    <div key={i} className="flex items-center gap-1.5 mb-1.5">
+                                                        <Input
+                                                            value={p}
+                                                            onChange={(e) => {
+                                                                const paths = [...(formSteps.documentParsing?.extraPaths ?? [])];
+                                                                paths[i] = e.target.value;
+                                                                setFormSteps({
+                                                                    ...formSteps,
+                                                                    documentParsing: {extraPaths: paths},
+                                                                });
+                                                            }}
+                                                            placeholder={t('pipelines.extraDocPlaceholder')}
+                                                            className="text-xs h-8"
+                                                        />
+                                                        <button
+                                                            onClick={() => {
+                                                                const paths = (formSteps.documentParsing?.extraPaths ?? []).filter((_, j) => j !== i);
+                                                                setFormSteps({
+                                                                    ...formSteps,
+                                                                    documentParsing: {extraPaths: paths},
+                                                                });
+                                                            }}
+                                                            className="shrink-0 text-muted-foreground hover:text-destructive"
+                                                        >
+                                                            <X className="h-3.5 w-3.5"/>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 text-xs"
+                                                    onClick={() => setFormSteps({
+                                                        ...formSteps,
+                                                        documentParsing: {
+                                                            extraPaths: [...(formSteps.documentParsing?.extraPaths ?? []), ''],
+                                                        },
+                                                    })}
+                                                >
+                                                    <Plus className="h-3 w-3 mr-1"/>
+                                                    {t('pipelines.addPath')}
+                                                </Button>
+                                            </div>
+                                        </div>
+
+                                        {/* ─── 测试策略配置 ─── */}
+                                        <div className="border-t border-border pt-4">
+                                            <h4 className="text-xs font-medium mb-2">{t('pipelines.testStrategy')}</h4>
+
+                                            {/* 测试模式选择：AI自动生成 vs 运行已有测试 vs AI E2E */}
+                                            <div className="grid grid-cols-3 gap-2 mb-3">
+                                                {[
+                                                    {
+                                                        value: 'ai_generate',
+                                                        label: t('pipelines.aiWritesTests'),
+                                                        desc: t('pipelines.aiWritesTestsDesc')
                                                     },
-                                                })}
-                                                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                                            />
-                                        )}
-                                    </div>
-                                </div>
+                                                    {
+                                                        value: 'run_existing',
+                                                        label: t('pipelines.runExisting'),
+                                                        desc: t('pipelines.runExistingDesc')
+                                                    },
+                                                    {
+                                                        value: 'ai_generate_e2e',
+                                                        label: t('pipelines.aiE2eTests'),
+                                                        desc: t('pipelines.aiE2eTestsDesc')
+                                                    },
+                                                ].map((opt) => (
+                                                    <div
+                                                        key={opt.value}
+                                                        onClick={() => setFormSteps({
+                                                            ...formSteps,
+                                                            testStrategy: {
+                                                                ...formSteps.testStrategy,
+                                                                mode: opt.value as 'ai_generate' | 'run_existing' | 'ai_generate_e2e'
+                                                            },
+                                                        })}
+                                                        className={`cursor-pointer rounded-md border p-3 transition-all ${
+                                                            formSteps.testStrategy.mode === opt.value
+                                                                ? 'border-primary bg-primary/5'
+                                                                : 'border-border hover:border-primary/40'
+                                                        }`}
+                                                    >
+                                                        <p className="text-sm font-medium">{opt.label}</p>
+                                                        <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* AI模式说明：展示Claude自动测试的能力描述 */}
+                                            {formSteps.testStrategy.mode === 'ai_generate' && (
+                                                <div
+                                                    className="rounded-md bg-muted/30 border border-border p-3 text-xs text-muted-foreground space-y-1">
+                                                    <p>{t('pipelines.aiAutoDesc')}</p>
+                                                    <p>• {t('pipelines.aiAutoLine1')}</p>
+                                                    <p>• {t('pipelines.aiAutoLine2')}</p>
+                                                    <p>• {t('pipelines.aiAutoLine3')}</p>
+                                                    <p className="text-primary mt-2">{t('pipelines.aiAutoHint')}</p>
+                                                </div>
+                                            )}
+
+                                            {formSteps.testStrategy.mode === 'ai_generate_e2e' && (
+                                                <div
+                                                    className="rounded-md bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-muted-foreground space-y-1">
+                                                    <p className="text-blue-500 font-medium">{t('pipelines.e2eTwoPhase')}</p>
+                                                    <p>{t('pipelines.e2ePhase1')}</p>
+                                                    <p>{t('pipelines.e2ePhase2')}</p>
+                                                    <p className="mt-2">{t('pipelines.e2eHint1')}</p>
+                                                    <p className="text-primary mt-1">{t('pipelines.e2eHint2')}</p>
+                                                </div>
+                                            )}
+
+                                            {/* 运行已有测试模式：框架选择和命令配置 */}
+                                            {formSteps.testStrategy.mode === 'run_existing' && (
+                                                <div className="space-y-2">
+                                                    <div>
+                                                        <label
+                                                            className="block text-xs text-muted-foreground mb-1">{t('pipelines.framework')}</label>
+                                                        <select
+                                                            value={formSteps.testStrategy.framework || ''}
+                                                            onChange={(e) => setFormSteps({
+                                                                ...formSteps,
+                                                                testStrategy: {
+                                                                    ...formSteps.testStrategy,
+                                                                    framework: e.target.value
+                                                                },
+                                                            })}
+                                                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        >
+                                                            <option value="">{t('pipelines.autoDetect')}</option>
+                                                            <optgroup label="Java">
+                                                                <option value="junit">JUnit (Maven: mvn test)</option>
+                                                                <option value="junit-gradle">JUnit (Gradle: ./gradlew
+                                                                    test)
+                                                                </option>
+                                                            </optgroup>
+                                                            <optgroup label="JavaScript / TypeScript">
+                                                                <option value="jest">Jest (npm test)</option>
+                                                                <option value="vitest">Vitest (npx vitest run)</option>
+                                                                <option value="playwright">Playwright (npx playwright
+                                                                    test)
+                                                                </option>
+                                                            </optgroup>
+                                                            <optgroup label="Python">
+                                                                <option value="pytest">PyTest (pytest)</option>
+                                                            </optgroup>
+                                                            <optgroup label="Other">
+                                                                <option value="custom">Custom command</option>
+                                                            </optgroup>
+                                                        </select>
+                                                    </div>
+
+                                                    {/* 测试命令输入框：根据选择的框架自动填充默认命令 */}
+                                                    <div>
+                                                        <label className="block text-xs text-muted-foreground mb-1">
+                                                            {t('pipelines.testCommand')}
+                                                            <span
+                                                                className="ml-1 text-muted-foreground/60">{t('pipelines.testCommandHint')}</span>
+                                                        </label>
+                                                        <Input
+                                                            value={formSteps.testStrategy.command || getDefaultCommand(formSteps.testStrategy.framework || '')}
+                                                            onChange={(e) => setFormSteps({
+                                                                ...formSteps,
+                                                                testStrategy: {
+                                                                    ...formSteps.testStrategy,
+                                                                    command: e.target.value
+                                                                },
+                                                            })}
+                                                            placeholder={t('pipelines.testCommandPlaceholder')}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* 自动运行测试开关 */}
+                                            <label className="flex items-center gap-2 text-sm mt-3">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={formSteps.testStrategy.autoRunAfterExecution}
+                                                    onChange={(e) => setFormSteps({
+                                                        ...formSteps,
+                                                        testStrategy: {
+                                                            ...formSteps.testStrategy,
+                                                            autoRunAfterExecution: e.target.checked
+                                                        },
+                                                    })}
+                                                    className="rounded border-input"
+                                                />
+                                                {t('pipelines.autoRun')}
+                                            </label>
+
+                                            {/* 仅运行变更文件相关测试开关 */}
+                                            {formSteps.testStrategy.autoRunAfterExecution && formSteps.testStrategy.mode === 'run_existing' && (
+                                                <label className="flex items-center gap-2 text-sm mt-2 ml-5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={formSteps.testStrategy.changedFilesOnly ?? false}
+                                                        onChange={(e) => setFormSteps({
+                                                            ...formSteps,
+                                                            testStrategy: {
+                                                                ...formSteps.testStrategy,
+                                                                changedFilesOnly: e.target.checked
+                                                            },
+                                                        })}
+                                                        className="rounded border-input"
+                                                    />
+                                                    {t('pipelines.changedFilesOnly')}
+                                                </label>
+                                            )}
+
+                                            {/* 测试执行环境选择 */}
+                                            <div className="mt-3 space-y-2">
+                                                <label className="text-xs font-medium text-muted-foreground">
+                                                    {t('pipelines.testEnv')}
+                                                </label>
+                                                <div className="flex gap-3">
+                                                    <label className="flex items-center gap-1.5 text-sm">
+                                                        <input
+                                                            type="radio"
+                                                            name="testEnvironment"
+                                                            checked={(formSteps.testStrategy.environment ?? 'local') === 'local'}
+                                                            onChange={() => setFormSteps({
+                                                                ...formSteps,
+                                                                testStrategy: {
+                                                                    ...formSteps.testStrategy,
+                                                                    environment: 'local',
+                                                                    sandboxId: undefined,
+                                                                },
+                                                            })}
+                                                        />
+                                                        {t('pipelines.localEnv')}
+                                                    </label>
+                                                    <label className="flex items-center gap-1.5 text-sm">
+                                                        <input
+                                                            type="radio"
+                                                            name="testEnvironment"
+                                                            checked={formSteps.testStrategy.environment === 'sandbox'}
+                                                            onChange={() => setFormSteps({
+                                                                ...formSteps,
+                                                                testStrategy: {
+                                                                    ...formSteps.testStrategy,
+                                                                    environment: 'sandbox',
+                                                                },
+                                                            })}
+                                                        />
+                                                        {t('pipelines.sandboxEnv')}
+                                                    </label>
+                                                </div>
+
+                                                {/* 沙箱 ID 输入 */}
+                                                {formSteps.testStrategy.environment === 'sandbox' && (
+                                                    <input
+                                                        type="text"
+                                                        placeholder={t('pipelines.sandboxIdPlaceholder')}
+                                                        value={formSteps.testStrategy.sandboxId || ''}
+                                                        onChange={(e) => setFormSteps({
+                                                            ...formSteps,
+                                                            testStrategy: {
+                                                                ...formSteps.testStrategy,
+                                                                sandboxId: e.target.value || undefined,
+                                                            },
+                                                        })}
+                                                        className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
 
                                 {/* 表单底部操作按钮：保存和取消 */}
                                 <div className="flex gap-2 pt-4 border-t border-border">

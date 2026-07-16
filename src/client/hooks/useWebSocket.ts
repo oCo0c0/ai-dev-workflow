@@ -8,6 +8,7 @@
  *                - plan:progress / plan:complete: 计划生成进度与完成通知
  *                - execution:output / execution:step_complete / execution:complete: 执行状态更新
  *                - test:output / test:complete: 测试输出与结果
+ *                - agent:progress / agent:complete: Agent执行进度与完成通知
  *                - error: 服务端错误消息
  */
 
@@ -69,6 +70,9 @@ export function useWebSocket() {
     const setTestPhase = useAppStore((s) => s.setTestPhase);
     const setPlanStatus = useAppStore((s) => s.setPlanStatus);
     const addPlanLog = useAppStore((s) => s.addPlanLog);
+    const setAgentExecutions = useAppStore((s) => s.setAgentExecutions);
+    const setActiveAgentExecution = useAppStore((s) => s.setActiveAgentExecution);
+    const addAgentLog = useAppStore((s) => s.addAgentLog);
 
     /**
      * WebSocket 消息处理回调
@@ -188,12 +192,84 @@ export function useWebSocket() {
                     case 'task:log':
                         window.dispatchEvent(new CustomEvent('ws-message', {detail: message}));
                         break;
+
+                    // Agent决策过程：展示Think-Act-Observe-Reflect循环
+                    case 'agent:progress':
+                        const {step, message: progressMessage} = message.data;
+
+                        if (step === 'start') {
+                            addAgentLog(`🚀 ${progressMessage || '开始执行...'}`);
+                        } else if (step === 'resume') {
+                            addAgentLog(`▶️ ${progressMessage || '恢复执行...'}`);
+                        }
+                        break;
+
+                    // Agent步骤进度更新
+                    case 'agent:step-progress':
+                        const stepData = message.data?.step;
+                        if (stepData) {
+                            const statusMap: Record<string, string> = {
+                                'running': '执行中',
+                                'completed': '完成',
+                                'failed': '失败',
+                                'pending': '待执行'
+                            };
+                            const statusText = statusMap[stepData.status as string] || stepData.status;
+
+                            addAgentLog(`  [步骤${stepData.order}] ${stepData.agentName}: ${statusText}`);
+                            if (stepData.reasoning && stepData.status === 'running') {
+                                addAgentLog(`    └─ ${stepData.reasoning}`);
+                            }
+
+                            // 刷新执行列表以更新状态（每隔几个步骤刷新一次，避免过于频繁）
+                            if (stepData.status === 'running' || stepData.status === 'completed') {
+                                setActiveAgentExecution(null);
+                            }
+                        }
+                        break;
+
+                    // Agent暂停执行
+                    case 'agent:paused':
+                        addAgentLog('⏸️ 执行已暂停');
+                        break;
+
+                    // Agent向用户提问
+                    case 'agent:question':
+                        const question = message.data?.question;
+                        if (question) {
+                            addAgentLog(`❓ Agent提问: ${question}`);
+                            // 触发自定义事件，供页面组件处理
+                            window.dispatchEvent(new CustomEvent('agent:question', {
+                                detail: {executionId: message.data.executionId, question}
+                            }));
+                        }
+                        break;
+
+                    // 用户回答已发送确认
+                    case 'agent:answer_received':
+                        addAgentLog('✅ 回答已接收，继续执行...');
+                        // 刷新执行列表以更新状态
+                        setActiveAgentExecution(null);
+                        break;
+
+                    // Agent执行完成：更新执行状态并刷新执行列表
+                    case 'agent:complete':
+                        if (message.data?.status === 'completed') {
+                            addAgentLog('✅ 执行完成！');
+                        } else if (message.data?.status === 'aborted') {
+                            addAgentLog('⚠️ 执行已中止');
+                        } else if (message.data?.status === 'failed') {
+                            addAgentLog(`❌ 执行失败: ${message.data?.error || 'Unknown error'}`);
+                        }
+                        // 刷新执行列表（通过重新获取历史）
+                        setActiveAgentExecution(null);
+                        break;
                 }
             } catch {
                 // 非标准 JSON 消息，静默忽略（如心跳帧等）
             }
         },
-        [addExecutionLog, addPlanLog, setExecutionId, setExecutionStatus, setPlanStatus, setTestResults, setTestRunning, setTestPhase]
+        [addExecutionLog, addPlanLog, setExecutionId, setExecutionStatus, setPlanStatus, setTestResults, setTestRunning, setTestPhase, setAgentExecutions, setActiveAgentExecution, addAgentLog]
     );
 
     /**

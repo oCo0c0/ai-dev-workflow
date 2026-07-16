@@ -9,6 +9,39 @@
  *              - 计划数据同时存储在内存缓存（快速访问）和文件持久化层（持久存储）
  *              - 支持从 Pipeline 配置中解析计划阶段所需的技能（Skills）
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -25,6 +58,7 @@ const mcp_config_service_js_1 = require("../services/mcp-config-service.js");
 const validation_js_1 = require("../middleware/validation.js");
 const websocket_js_1 = require("../websocket.js");
 const plan_store_service_js_1 = require("../services/plan-store-service.js");
+const agents_1 = require("../services/agents");
 const requirement_store_service_js_1 = require("../services/requirement-store-service.js");
 const skill_utils_js_1 = require("../utils/skill-utils.js");
 const prompt_enrichment_js_1 = require("../utils/prompt-enrichment.js");
@@ -416,10 +450,10 @@ function finalizePlan(plan, result, accumulatedOutput, planStore) {
     (0, websocket_js_1.broadcast)({ type: 'plan:complete', data: { taskId: plan.id, status: plan.status } });
 }
 /**
- * 从 Pipeline 配置中解析计划阶段的技能列表
+ * 从 Pipeline 配置中解析计划阶段的技能列表或Agent配置
  * @param pipelineId - 流水线ID
  * @param pipelineService - 流水线服务实例
- * @returns 技能列表，无配置时返回 undefined
+ * @returns 技能列表、Agent配置对象，无配置时返回 undefined
  */
 function resolvePlanSkills(pipelineId, pipelineService) {
     if (!pipelineId || !pipelineService)
@@ -604,6 +638,7 @@ async function runNextPlanSkill(plan, opts, planStore) {
  */
 function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService) {
     const planStore = new plan_store_service_js_1.PlanStoreService();
+    const agentsService = new agents_1.AgentsService();
     const reqStore = new requirement_store_service_js_1.RequirementStoreService();
     const mcpConfigService = new mcp_config_service_js_1.MCPConfigService();
     const router = (0, express_1.Router)();
@@ -672,12 +707,40 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
             const promptText = PLAN_PROMPT_TEMPLATE
                 .replace('{title}', title)
                 .replace('{description}', enrichedDescription);
+            // 检查pipeline级别的Agent模式
+            const pipeline = plan.pipelineId ? pipelineService?.get(plan.pipelineId) : undefined;
+            const isPipelineAgentMode = pipeline?.agentMode === true;
             const planMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
+            // Agent模式：使用协调Agent自主决策（pipeline级别或阶段级别）
+            if (isPipelineAgentMode || (planSkills && typeof planSkills === 'object' && 'mode' in planSkills && planSkills.mode === 'agent')) {
+                // 导入协调服务
+                const { getCoordinatorService } = await Promise.resolve().then(() => __importStar(require('../services/agents/coordinator-service.js')));
+                const coordinatorService = getCoordinatorService();
+                // 调用协调Agent
+                const coordinatorResult = await coordinatorService.executeAgentMode(`${title}: ${enrichedDescription}`, workspacePath, { taskId: plan.id });
+                if (coordinatorResult.success) {
+                    plan.status = 'ready';
+                    plan.rawOutput = JSON.stringify({
+                        plan: coordinatorResult.plan,
+                        finalResult: coordinatorResult.finalResult
+                    }, null, 2);
+                    plan.summary = `协调Agent完成：执行了${coordinatorResult.plan.steps.length}个步骤`;
+                    plan.updatedAt = new Date().toISOString();
+                    persistPlan(plan, planStore);
+                    activeGenerations.delete(plan.id);
+                    (0, websocket_js_1.broadcast)({ type: 'plan:complete', data: { taskId: plan.id, status: plan.status } });
+                }
+                else {
+                    failPlan(plan, coordinatorResult.errors.join('; ') || '协调Agent执行失败', planStore);
+                }
+                return;
+            }
+            // 传统技能模式
             await runPlanSkillsSequentially(plan, {
                 cliRunner: cliRunnerService,
                 prompt: (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, workspacePath),
                 cwd: workspacePath,
-                skills: planSkills,
+                skills: (planSkills && typeof planSkills === 'object' && 'mode' in planSkills && planSkills.mode === 'agent') ? undefined : planSkills,
                 mcpServers: planMcpServers,
                 signal: abortController.signal,
             }, planStore);
@@ -908,6 +971,9 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
         }
         const planSkills = resolvePlanSkills(plan.pipelineId, pipelineService);
         const planMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
+        // 检查pipeline级别的Agent模式
+        const pipeline = plan.pipelineId ? pipelineService?.get(plan.pipelineId) : undefined;
+        const isPipelineAgentMode = pipeline?.agentMode === true;
         // 重置状态
         plan.status = 'generating';
         plan.rawOutput = undefined;
@@ -921,6 +987,29 @@ function createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, m
         activeGenerations.set(taskId, abortController);
         try {
             const { title, description } = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
+            // Agent模式：使用协调Agent
+            if (isPipelineAgentMode || (planSkills && typeof planSkills === 'object' && 'mode' in planSkills && planSkills.mode === 'agent')) {
+                const { getCoordinatorService } = await Promise.resolve().then(() => __importStar(require('../services/agents/coordinator-service.js')));
+                const coordinatorService = getCoordinatorService();
+                const coordinatorResult = await coordinatorService.executeAgentMode(`${title}: ${description}`, plan.workspacePath, { taskId: plan.id });
+                if (coordinatorResult.success) {
+                    plan.status = 'ready';
+                    plan.rawOutput = JSON.stringify({
+                        plan: coordinatorResult.plan,
+                        finalResult: coordinatorResult.finalResult
+                    }, null, 2);
+                    plan.summary = `协调Agent完成：执行了${coordinatorResult.plan.steps.length}个步骤`;
+                    plan.updatedAt = new Date().toISOString();
+                    persistPlan(plan, planStore);
+                    activeGenerations.delete(plan.id);
+                    (0, websocket_js_1.broadcast)({ type: 'plan:complete', data: { taskId: plan.id, status: plan.status } });
+                }
+                else {
+                    failPlan(plan, coordinatorResult.errors.join('; ') || '协调Agent执行失败', planStore, 'Plan regeneration');
+                }
+                return;
+            }
+            // 传统技能模式
             const promptText = PLAN_PROMPT_TEMPLATE
                 .replace('{title}', title)
                 .replace('{description}', description);

@@ -9,8 +9,7 @@
  * - 任务完成自动启动排队中的下一个
  * - 内部编排完整流水线：Plan → Execution → Test
  */
-import { ClaudeProvider } from './cli-providers/claude-provider.js';
-import type { CLIProviderResult } from './cli-providers/types.js';
+import type { CLIProviderResult } from './cli-providers';
 import type { MemoryService } from './memory/memory-service.js';
 import type { PipelineService } from './pipeline-service.js';
 import type { MCPBridgeService } from './mcp-bridge-service.js';
@@ -70,8 +69,6 @@ export declare class TaskScheduler {
     getQueueLength(): number;
     registerTask(task: TaskInfo): void;
     getTask(taskId: string): TaskInfo | undefined;
-    getAllTasks(): TaskInfo[];
-    getTasksByProject(projectId: string): TaskInfo[];
     /**
      * 启动任务（如果达到并行上限则排队，否则直接执行完整流水线）
      */
@@ -84,9 +81,6 @@ export declare class TaskScheduler {
      * 向运行中的任务发送对话（多轮回复）
      */
     sendReply(taskId: string, message: string): Promise<CLIProviderResult>;
-    getTaskProvider(taskId: string): ClaudeProvider | undefined;
-    getTaskSignal(taskId: string): AbortSignal | undefined;
-    setTaskSessionId(taskId: string, sessionId: string): void;
     updateTaskState(taskId: string, updates: Partial<Pick<TaskInfo, 'status' | 'phase' | 'name'>>): void;
     /**
      * 用户确认当前阶段，推进流水线

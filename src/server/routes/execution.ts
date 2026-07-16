@@ -264,7 +264,11 @@ export function createExecutionRoutes(
         if (plan.pipelineId && pipelineService) {
             const pipeline = pipelineService.get(plan.pipelineId);
             if (pipeline?.steps) {
-                executionSkills = getPhaseSkills(pipeline.steps, 'execution');
+                const phaseConfig = getPhaseSkills(pipeline.steps, 'execution');
+                // ponytail: 过滤掉Agent模式，execution暂时不支持Agent
+                executionSkills = (phaseConfig && typeof phaseConfig === 'object' && 'mode' in phaseConfig && phaseConfig.mode === 'agent')
+                    ? undefined
+                    : phaseConfig as string[] | 'all' | undefined;
             }
         }
 
@@ -754,7 +758,14 @@ export function createExecutionRoutes(
         }
 
         try {
-            const args = buildSkillArgs(execution, plan, {cliRunnerService, memoryService, pipelineService, testExecutorService, testPersistStore, sandboxService});
+            const args = buildSkillArgs(execution, plan, {
+                cliRunnerService,
+                memoryService,
+                pipelineService,
+                testExecutorService,
+                testPersistStore,
+                sandboxService
+            });
             await runNextExecutionSkill(execution, plan, args, persistStore);
         } catch (err) {
             execution.status = 'failed';
@@ -796,7 +807,14 @@ export function createExecutionRoutes(
                 return;
             }
             try {
-                const args = buildSkillArgs(execution, plan, {cliRunnerService, memoryService, pipelineService, testExecutorService, testPersistStore, sandboxService});
+                const args = buildSkillArgs(execution, plan, {
+                    cliRunnerService,
+                    memoryService,
+                    pipelineService,
+                    testExecutorService,
+                    testPersistStore,
+                    sandboxService
+                });
                 await runNextExecutionSkill(execution, plan, args, persistStore);
             } catch (err) {
                 execution.status = 'failed';
@@ -998,7 +1016,11 @@ async function triggerTestPhase(
 
     const testRunId = crypto.randomUUID();
     // 从 Pipeline 配置中解析测试阶段的技能列表
-    const testSkills = getPhaseSkills(pipeline.steps, 'test');
+    const phaseConfig = getPhaseSkills(pipeline.steps, 'test');
+    // ponytail: 过滤掉Agent模式
+    const testSkills = (phaseConfig && typeof phaseConfig === 'object' && 'mode' in phaseConfig && phaseConfig.mode === 'agent')
+        ? undefined
+        : phaseConfig as string[] | 'all' | undefined;
 
     // 如果配置了 changedFilesOnly，通过 git 命令获取变更文件列表
     // 包含已修改、已暂存和未跟踪的新文件

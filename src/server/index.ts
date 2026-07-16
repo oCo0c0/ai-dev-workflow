@@ -13,8 +13,7 @@ import express from 'express';
 import cors from 'cors';
 import http from 'http';
 import path from 'path';
-import fs from 'fs';
-import {setupWebSocket, broadcast} from './websocket.js';
+import {setupWebSocket} from './websocket.js';
 import {requestLogger} from './middleware/logger.js';
 import {errorHandler} from './middleware/validation.js';
 
@@ -52,6 +51,7 @@ import {createSystemRoutes} from './routes/system.js';
 import {createAnalyticsRoutes} from './routes/analytics.js';
 import {createMinerURoutes} from './routes/mineru.js';
 import {createTaskRoutes} from './routes/projects.js';
+import {createAgentRoutes} from './routes/agents.js';
 
 /**
  * 创建并启动应用服务器
@@ -174,6 +174,7 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));
     app.use('/api/mineru', createMinerURoutes(mineruService));
     app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService));
+    app.use('/api/agents', createAgentRoutes());
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;

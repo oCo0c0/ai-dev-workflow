@@ -31,7 +31,8 @@
     "projects": "项目空间",
     "mcp": "MCP",
     "skills": "技能",
-    "mineru": "文档解析"
+    "mineru": "文档解析",
+    "agents": "Agent执行"
   },
   "pageTitle": {
     "requirements": "需求管理",
@@ -43,7 +44,8 @@
     "projects": "项目空间",
     "mcp": "MCP 服务器",
     "skills": "技能管理",
-    "mineru": "MinerU 文档解析"
+    "mineru": "MinerU 文档解析",
+    "agents": "Agent执行"
   },
   "requirements": {
     "subtitle": "从 ONES 等平台获取需求并保存，用于流水线执行",
@@ -526,5 +528,33 @@
     "langEastSlavic": "Русский/English",
     "langCyrillic": "Cyrillic（俄/白/乌/塞等）",
     "langDevanagari": "हिन्दी/English"
+  },
+  "agents": {
+    "title": "Agent执行",
+    "description": "选择Agent执行任务",
+    "availableAgents": "可用Agent",
+    "executionHistory": "执行历史",
+    "execute": "执行Agent",
+    "executing": "执行中...",
+    "abort": "中止",
+    "executionDetails": "执行详情",
+    "executionLogs": "执行日志",
+    "result": "执行结果",
+    "success": "执行成功",
+    "failed": "执行失败",
+    "error": "错误",
+    "quality": "质量",
+    "duration": "时长",
+    "selectAgent": "选择Agent开始执行",
+    "requirement-analysis": "需求分析Agent",
+    "code-generation": "代码生成Agent",
+    "test": "测试Agent",
+    "code-review": "代码审查Agent",
+    "documentation": "文档生成Agent",
+    "requirement-analysis-desc": "分析需求文档，提取关键信息和变更点",
+    "code-generation-desc": "根据需求生成高质量代码",
+    "test-desc": "生成和执行测试用例",
+    "code-review-desc": "审查代码质量、安全性和最佳实践",
+    "documentation-desc": "生成技术文档和API文档"
   }
 }

@@ -47,10 +47,6 @@ class TaskScheduler {
     getQueueLength() { return this.queue.length; }
     registerTask(task) { this.tasks.set(task.id, task); }
     getTask(taskId) { return this.tasks.get(taskId); }
-    getAllTasks() { return Array.from(this.tasks.values()); }
-    getTasksByProject(projectId) {
-        return Array.from(this.tasks.values()).filter(t => t.projectId === projectId);
-    }
     /**
      * 启动任务（如果达到并行上限则排队，否则直接执行完整流水线）
      */
@@ -149,19 +145,6 @@ class TaskScheduler {
             onOutput: (data) => this.addLog(taskId, running.task.phase, 'output', data),
             onError: (data) => this.addLog(taskId, running.task.phase, 'error', data),
         });
-    }
-    getTaskProvider(taskId) {
-        return this.running.get(taskId)?.provider;
-    }
-    getTaskSignal(taskId) {
-        return this.running.get(taskId)?.abortController.signal;
-    }
-    setTaskSessionId(taskId, sessionId) {
-        const task = this.tasks.get(taskId);
-        if (task) {
-            task.sessionId = sessionId;
-            task.updatedAt = new Date().toISOString();
-        }
     }
     updateTaskState(taskId, updates) {
         const task = this.tasks.get(taskId);
@@ -331,11 +314,15 @@ class TaskScheduler {
         }
         const planPrompt = (0, prompt_enrichment_js_1.enrichPrompt)(promptText, memoryService, cwd);
         let planOutput = '';
+        // ponytail: 过滤掉Agent模式
+        const filteredPlanSkills = (planSkills && typeof planSkills === 'object' && 'mode' in planSkills && planSkills.mode === 'agent')
+            ? undefined
+            : planSkills;
         const planResult = await provider.run({
             prompt: planPrompt,
             cwd: cwd,
             maxTurns: 20,
-            skills: planSkills,
+            skills: filteredPlanSkills,
             mcpServers: planMcpServers,
         }, {
             signal,
@@ -364,12 +351,16 @@ class TaskScheduler {
             this.addLog(taskId, 'execution', 'warning', `MCP servers not found, skipped: ${executionMcpMissing.join(', ')}`);
         }
         const executionPrompt = (0, prompt_enrichment_js_1.enrichPrompt)(planOutput, memoryService, cwd);
+        // ponytail: 过滤掉Agent模式
+        const filteredExecutionSkills = (executionSkills && typeof executionSkills === 'object' && 'mode' in executionSkills && executionSkills.mode === 'agent')
+            ? undefined
+            : executionSkills;
         const execResult = await provider.run({
             prompt: executionPrompt,
             cwd: cwd,
             sessionId: task.sessionId,
             maxTurns: 50,
-            skills: executionSkills,
+            skills: filteredExecutionSkills,
             mcpServers: executionMcpServers,
         }, {
             signal,
