@@ -153,11 +153,6 @@ export class CodexProvider implements CLIProvider {
 
     async detect(): Promise<CLIProviderStatus> {
         try {
-            // 检查 API Key
-            if (!process.env.OPENAI_API_KEY) {
-                return {available: false, error: 'OPENAI_API_KEY environment variable not set'};
-            }
-
             // 优先检查 codex CLI 是否安装（Windows 用 where，Unix 用 which，抑制 stderr 避免 GBK 乱码）
             let cliPath: string | undefined;
             try {
