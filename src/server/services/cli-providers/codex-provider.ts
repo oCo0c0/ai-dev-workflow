@@ -158,40 +158,48 @@ export class CodexProvider implements CLIProvider {
                 return {available: false, error: 'OPENAI_API_KEY environment variable not set'};
             }
 
-            // 检查 SDK 是否安装（通过文件系统检测，避免 CJS 环境下 ESM 动态导入失败）
-            let sdkPath: string | undefined;
-            try {
-                const resolved = require.resolve('@openai/codex-sdk/package.json');
-                sdkPath = path.dirname(resolved);
-            } catch {
-                // require.resolve 在 ESM-only 包的 CJS 环境下也可能失败，尝试直接检查路径
-                const candidates = [
-                    path.join(process.cwd(), 'node_modules', '@openai', 'codex-sdk'),
-                    path.join(__dirname, '..', '..', '..', '..', 'node_modules', '@openai', 'codex-sdk'),
-                ];
-                for (const c of candidates) {
-                    if (fs.existsSync(path.join(c, 'package.json'))) {
-                        sdkPath = c;
-                        break;
-                    }
-                }
-                if (!sdkPath) {
-                    return {available: false, error: '@openai/codex-sdk not installed'};
-                }
-            }
-
-            // 检查 codex CLI 是否安装（Windows 用 where，Unix 用 which，抑制 stderr 避免 GBK 乱码）
+            // 优先检查 codex CLI 是否安装（Windows 用 where，Unix 用 which，抑制 stderr 避免 GBK 乱码）
             let cliPath: string | undefined;
             try {
                 const cmd = process.platform === 'win32' ? 'where codex' : 'which codex 2>/dev/null';
                 cliPath = execSync(cmd, {encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']}).trim();
             } catch {
-                // CLI 未安装但 SDK 可用，仍然可以使用
+                // CLI 未安装，继续检查 SDK
+            }
+
+            // 检查 SDK 是否安装（优先用 require.resolve，会自动在应用依赖中查找）
+            let sdkPath: string | undefined;
+            try {
+                const resolved = require.resolve('@openai/codex-sdk/package.json');
+                sdkPath = path.dirname(resolved);
+            } catch {
+                // require.resolve 失败，尝试从执行文件位置查找
+                // 找到 __dirname 的真实位置（处理全局安装的符号链接）
+                const realDir = fs.realpathSync(__dirname);
+
+                // 从当前文件向上查找，最多尝试 6 级
+                let current = realDir;
+                for (let i = 0; i < 6; i++) {
+                    const candidate = path.join(current, 'node_modules', '@openai', 'codex-sdk');
+                    if (fs.existsSync(path.join(candidate, 'package.json'))) {
+                        sdkPath = candidate;
+                        break;
+                    }
+                    current = path.dirname(current);
+                }
+            }
+
+            // CLI 或 SDK 至少一个可用即可
+            if (!cliPath && !sdkPath) {
+                return {
+                    available: false,
+                    error: 'Neither codex CLI nor @openai/codex-sdk installed. Run: npm install -g @openai/codex'
+                };
             }
 
             return {
                 available: true,
-                version: 'codex-sdk',
+                version: cliPath ? 'codex-cli' : 'codex-sdk',
                 path: cliPath || sdkPath,
             };
         } catch (err) {
@@ -304,14 +312,16 @@ export class CodexProvider implements CLIProvider {
                             if (fs.existsSync(candidate)) {
                                 try {
                                     description = extractDescription(fs.readFileSync(candidate, 'utf-8'));
-                                } catch { /* skip */ }
+                                } catch { /* skip */
+                                }
                                 break;
                             }
                         }
                         skills.push({name, description, enabled, filePath: skillPath});
                     }
                 }
-            } catch { /* ignore */ }
+            } catch { /* ignore */
+            }
         }
 
         // 来源 2：AGENTS.md 文件（Codex 的另一种 skill 定义方式）
@@ -325,7 +335,8 @@ export class CodexProvider implements CLIProvider {
                     enabled: true,
                     filePath: agentsFile,
                 });
-            } catch { /* skip */ }
+            } catch { /* skip */
+            }
         }
 
         return skills;
