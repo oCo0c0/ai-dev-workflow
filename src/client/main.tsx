@@ -23,7 +23,7 @@ import MCPPage from './pages/MCPPage';
 import PipelinesPage from './pages/PipelinesPage';
 import MinerUPage from './pages/MinerUPage';
 import ProjectsPage from './pages/ProjectsPage';
-import AgentsPage from './pages/AgentsPage';
+import AgentExecutionPage from './pages/AgentExecutionPage';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
 
@@ -67,7 +67,7 @@ function App() {
                     <Route path="/mcp" element={<MCPPage/>}/>
                     <Route path="/pipelines" element={<PipelinesPage/>}/>
                     <Route path="/mineru" element={<MinerUPage/>}/>
-                    <Route path="/agents" element={<AgentsPage/>}/>
+                    <Route path="/agent-execution" element={<AgentExecutionPage/>}/>
                 </Route>
             </Routes>
         </BrowserRouter>

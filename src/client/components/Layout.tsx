@@ -48,7 +48,7 @@ import {ModelConfigModal} from './ModelConfigModal';
 const navItems = [
     {path: '/', labelKey: 'nav.requirements', icon: FileText},
     {path: '/workspace', labelKey: 'nav.workspace', icon: FolderOpen},
-    {path: '/agents', labelKey: 'nav.agents', icon: Bot},
+    {path: '/agent-execution', labelKey: 'nav.agentExecution', icon: Bot},
     {path: '/pipelines', labelKey: 'nav.pipelines', icon: GitBranch},
     {path: '/plan', labelKey: 'nav.plan', icon: FileCode},
     {path: '/execution', labelKey: 'nav.execution', icon: Play},
@@ -66,7 +66,7 @@ const pageTitleKeys: Record<string, string> = {
     '/': 'pageTitle.requirements',
     '/projects': 'pageTitle.projects',
     '/workspace': 'pageTitle.workspace',
-    '/agents': 'pageTitle.agents',
+    '/agent-execution': 'pageTitle.agentExecution',
     '/plan': 'pageTitle.plan',
     '/execution': 'pageTitle.execution',
     '/tests': 'pageTitle.tests',

@@ -22,7 +22,6 @@ import {PipelineService} from '../services/pipeline-service.js';
 import {validateBody, validateWorkspacePath} from '../middleware/validation.js';
 import {broadcast} from '../websocket.js';
 import {PlanStoreService, type PersistedPlan} from '../services/plan-store-service.js';
-import {AgentsService} from '../services/agents';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import {getPhaseSkills, getPhaseMcpServers, resolveMcpServerMap} from '../utils/skill-utils.js';
 import type {McpStdioMap} from '../services/cli-providers/types.js';
@@ -750,7 +749,6 @@ export function createPlanRoutes(
     mineruService?: MinerUService,
 ): Router {
     const planStore = new PlanStoreService();
-    const agentsService = new AgentsService();
     const reqStore = new RequirementStoreService();
     const mcpConfigService = new MCPConfigService();
     const router = Router();
@@ -842,33 +840,9 @@ export function createPlanRoutes(
 
             const planMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
 
-            // Agent模式：使用协调Agent自主决策（pipeline级别或阶段级别）
-            if (isPipelineAgentMode || (planSkills && typeof planSkills === 'object' && 'mode' in planSkills && planSkills.mode === 'agent')) {
-                // 导入协调服务
-                const {getCoordinatorService} = await import('../services/agents/coordinator-service.js');
-                const coordinatorService = getCoordinatorService();
-
-                // 调用协调Agent
-                const coordinatorResult = await coordinatorService.executeAgentMode(
-                    `${title}: ${enrichedDescription}`,
-                    workspacePath,
-                    {taskId: plan.id}
-                );
-
-                if (coordinatorResult.success) {
-                    plan.status = 'ready';
-                    plan.rawOutput = JSON.stringify({
-                        plan: coordinatorResult.plan,
-                        finalResult: coordinatorResult.finalResult
-                    }, null, 2);
-                    plan.summary = `协调Agent完成：执行了${coordinatorResult.plan.steps.length}个步骤`;
-                    plan.updatedAt = new Date().toISOString();
-                    persistPlan(plan, planStore);
-                    activeGenerations.delete(plan.id);
-                    broadcast({type: 'plan:complete', data: {taskId: plan.id, status: plan.status}});
-                } else {
-                    failPlan(plan, coordinatorResult.errors.join('; ') || '协调Agent执行失败', planStore);
-                }
+            // Agent模式已移除，直接使用传统技能模式
+            if (false) {
+                // Agent模式分支已禁用
                 return;
             }
 
@@ -1172,34 +1146,6 @@ export function createPlanRoutes(
 
         try {
             const {title, description} = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
-
-            // Agent模式：使用协调Agent
-            if (isPipelineAgentMode || (planSkills && typeof planSkills === 'object' && 'mode' in planSkills && planSkills.mode === 'agent')) {
-                const {getCoordinatorService} = await import('../services/agents/coordinator-service.js');
-                const coordinatorService = getCoordinatorService();
-
-                const coordinatorResult = await coordinatorService.executeAgentMode(
-                    `${title}: ${description}`,
-                    plan.workspacePath,
-                    {taskId: plan.id}
-                );
-
-                if (coordinatorResult.success) {
-                    plan.status = 'ready';
-                    plan.rawOutput = JSON.stringify({
-                        plan: coordinatorResult.plan,
-                        finalResult: coordinatorResult.finalResult
-                    }, null, 2);
-                    plan.summary = `协调Agent完成：执行了${coordinatorResult.plan.steps.length}个步骤`;
-                    plan.updatedAt = new Date().toISOString();
-                    persistPlan(plan, planStore);
-                    activeGenerations.delete(plan.id);
-                    broadcast({type: 'plan:complete', data: {taskId: plan.id, status: plan.status}});
-                } else {
-                    failPlan(plan, coordinatorResult.errors.join('; ') || '协调Agent执行失败', planStore, 'Plan regeneration');
-                }
-                return;
-            }
 
             // 传统技能模式
             const promptText = PLAN_PROMPT_TEMPLATE

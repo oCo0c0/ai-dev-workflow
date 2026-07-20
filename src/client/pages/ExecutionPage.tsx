@@ -63,7 +63,7 @@ interface ExecutionSummary {
     /** 关联需求编号（如 #125975） */
     requirementNumber?: string;
     /** 执行状态：运行中、已暂停、已完成、已失败、已中止 */
-    status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm';
+    status: 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'waiting_skill_confirm';
     /** 当前执行的步骤编号 */
     currentStep: number;
     /** 总步骤数 */
@@ -505,7 +505,14 @@ export default function ExecutionPage() {
         setReplying(true);
         setReplyText(''); // 清空输入框
 
-        // 设置状态为 running（图标转动）
+        // 乐观更新：立即更新本地history状态，避免显示延迟
+        setHistory(prev => prev.map(item =>
+            item.id === activeId
+                ? {...item, status: 'running' as const}
+                : item
+        ));
+
+        // 设置全局状态为 running（图标转动）
         setExecutionStatus({
             executionId: activeId,
             planId: detail?.planId,
@@ -520,7 +527,7 @@ export default function ExecutionPage() {
 
         try {
             await apiPost(`/execution/${activeId}/reply`, {message});
-            // 刷新历史列表以更新状态标识
+            // 刷新历史列表以同步最新状态
             await loadHistory();
         } catch (err) {
             // 回复失败时将错误信息添加到日志中，便于用户了解失败原因
@@ -530,7 +537,13 @@ export default function ExecutionPage() {
                 type: 'error',
                 content: t('execution.replyFailed', {error: err instanceof Error ? err.message : 'Unknown error'}),
             });
-            // 恢复状态为 idle
+            // 失败时恢复本地状态
+            setHistory(prev => prev.map(item =>
+                item.id === activeId
+                    ? {...item, status: 'idle' as const}
+                    : item
+            ));
+            // 恢复全局状态为 idle
             setExecutionStatus({
                 executionId: activeId,
                 planId: detail?.planId,

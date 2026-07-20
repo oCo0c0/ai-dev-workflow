@@ -51,7 +51,7 @@ import {createSystemRoutes} from './routes/system.js';
 import {createAnalyticsRoutes} from './routes/analytics.js';
 import {createMinerURoutes} from './routes/mineru.js';
 import {createTaskRoutes} from './routes/projects.js';
-import {createAgentRoutes} from './routes/agents.js';
+import {createAgentExecutionRoutes} from './routes/agent-execution.js';
 
 /**
  * 创建并启动应用服务器
@@ -174,7 +174,11 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));
     app.use('/api/mineru', createMinerURoutes(mineruService));
     app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService));
-    app.use('/api/agents', createAgentRoutes());
+    app.use('/api/agent-execution', createAgentExecutionRoutes({
+        cliRunner: cliRunnerService,
+        skillsService,
+        mcpBridgeService,
+    }));
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;

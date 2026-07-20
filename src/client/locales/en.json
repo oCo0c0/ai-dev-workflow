@@ -31,7 +31,8 @@
     "projects": "Projects",
     "mcp": "MCP",
     "skills": "Skills",
-    "mineru": "MinerU"
+    "mineru": "MinerU",
+    "agentExecution": "Agent Execution"
   },
   "pageTitle": {
     "requirements": "Requirements",
@@ -43,7 +44,8 @@
     "projects": "Project Space",
     "mcp": "MCP Servers",
     "skills": "Skills",
-    "mineru": "MinerU Doc Parser"
+    "mineru": "MinerU Doc Parser",
+    "agentExecution": "Agent Execution"
   },
   "requirements": {
     "subtitle": "Fetch requirements from ONES and save them for use in pipelines",

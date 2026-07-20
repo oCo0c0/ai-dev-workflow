@@ -195,12 +195,53 @@ export function useWebSocket() {
 
                     // Agent决策过程：展示Think-Act-Observe-Reflect循环
                     case 'agent:progress':
-                        const {step, message: progressMessage} = message.data;
+                        const {step, message: progressMessage, logType, timestamp, subtaskId, subtaskStatus, tokensUsed, duration} = message.data as any;
 
+                        // 根据logType添加不同的前缀
+                        let prefix = '';
+                        if (logType === 'tool') {
+                            prefix = '🔧 **Tool:** ';
+                        } else if (logType === 'file') {
+                            prefix = '📄 **File:** ';
+                        } else if (logType === 'shell') {
+                            prefix = '💻 **Shell:** ';
+                        } else if (logType === 'error') {
+                            prefix = '❌ **Error:** ';
+                        } else if (logType === 'user') {
+                            prefix = '👤 **User:** ';
+                        } else if (logType === 'system') {
+                            prefix = '⚙️ **System:** ';
+                        }
+
+                        // 处理步骤消息
                         if (step === 'start') {
-                            addAgentLog(`🚀 ${progressMessage || '开始执行...'}`);
+                            addAgentLog(`🚀 ${prefix}${progressMessage || '开始执行...'}`, {
+                                timestamp,
+                                type: logType || 'system',
+                                taskId: subtaskId,
+                                subtaskStatus: subtaskStatus || 'processing',
+                                tokensUsed,
+                                duration
+                            });
                         } else if (step === 'resume') {
-                            addAgentLog(`▶️ ${progressMessage || '恢复执行...'}`);
+                            addAgentLog(`▶️ ${prefix}${progressMessage || '恢复执行...'}`, {
+                                timestamp,
+                                type: logType || 'system',
+                                taskId: subtaskId,
+                                subtaskStatus: subtaskStatus || 'processing',
+                                tokensUsed,
+                                duration
+                            });
+                        } else {
+                            // 通用消息
+                            addAgentLog(`${prefix}${progressMessage || ''}`, {
+                                timestamp,
+                                type: logType || 'output',
+                                taskId: subtaskId,
+                                subtaskStatus: subtaskStatus,
+                                tokensUsed,
+                                duration
+                            });
                         }
                         break;
 
@@ -263,6 +304,71 @@ export function useWebSocket() {
                         }
                         // 刷新执行列表（通过重新获取历史）
                         setActiveAgentExecution(null);
+                        break;
+
+                    // Agent执行页 - 思考过程
+                    case 'agent-execution:thought':
+                        const thought = message.data?.thought;
+                        if (thought) {
+                            const icon = thought.type === 'analysis' ? '🔍' :
+                                       thought.type === 'planning' ? '📋' :
+                                       thought.type === 'decision' ? '🤔' :
+                                       thought.type === 'tool_selection' ? '🔧' : '💭';
+                            addAgentLog(`${icon} ${thought.content}`);
+                        }
+                        break;
+
+                    // Agent执行页 - 执行计划
+                    case 'agent-execution:plan':
+                        const subTasks = message.data?.subTasks;
+                        if (subTasks && Array.isArray(subTasks)) {
+                            addAgentLog(`📋 执行计划已生成，包含 ${subTasks.length} 个子任务`);
+                        }
+                        break;
+
+                    // Agent执行页 - 子任务状态
+                    case 'agent-execution:subtask':
+                        const subTaskMsg = message.data;
+                        if (subTaskMsg) {
+                            const statusText = subTaskMsg.status === 'running' ? '执行中' :
+                                             subTaskMsg.status === 'completed' ? '✅ 完成' :
+                                             subTaskMsg.status === 'failed' ? '❌ 失败' : '⏳ 等待';
+                            addAgentLog(`  [${statusText}] 子任务 ${subTaskMsg.subTaskId?.substring(0, 8)}`);
+                        }
+                        break;
+
+                    // Agent执行页 - 状态变更
+                    case 'agent-execution:status':
+                        const execStatus = message.data?.status;
+                        if (execStatus) {
+                            const statusEmoji = execStatus === 'analyzing' ? '🔍' :
+                                             execStatus === 'ready' ? '✅' :
+                                             execStatus === 'running' ? '🚀' :
+                                             execStatus === 'paused' ? '⏸️' :
+                                             execStatus === 'completed' ? '🎉' :
+                                             execStatus === 'failed' ? '❌' : '⏹️';
+                            addAgentLog(`${statusEmoji} 状态: ${execStatus}`);
+                        }
+                        break;
+
+                    // Agent执行页 - 完成通知
+                    case 'agent-execution:complete':
+                        const completeStatus = message.data?.status;
+                        if (completeStatus === 'completed') {
+                            addAgentLog('🎉 Agent执行完成！');
+                        } else if (completeStatus === 'aborted') {
+                            addAgentLog('⏹️ Agent执行已中止');
+                        } else if (completeStatus === 'failed') {
+                            addAgentLog('❌ Agent执行失败');
+                        }
+                        break;
+
+                    // Agent执行页 - 日志消息
+                    case 'agent-execution:log':
+                        const logMsg = message.data?.log;
+                        if (logMsg) {
+                            addAgentLog(logMsg);
+                        }
                         break;
                 }
             } catch {

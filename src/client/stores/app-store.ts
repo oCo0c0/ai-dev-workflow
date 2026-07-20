@@ -14,6 +14,7 @@
  */
 
 import {create} from 'zustand';
+import type {AgentExecution, AgentExecutionSummary} from 'types/agent-types';
 
 // === 数据模型接口定义 ===
 
@@ -248,29 +249,7 @@ interface TaskInfo {
 }
 
 // === Agent 模型 ===
-
-/** Agent执行摘要 */
-export interface AgentExecutionSummary {
-    id: string;
-    agentId: string;
-    taskId: string;
-    status: 'running' | 'completed' | 'failed' | 'aborted';
-    quality?: number;
-    duration?: number;
-    createdAt: string;
-    updatedAt: string;
-}
-
-/** Agent执行详情 */
-export interface AgentExecution extends AgentExecutionSummary {
-    inputData: Record<string, unknown>;
-    result?: {
-        success: boolean;
-        data?: string;
-        error?: string;
-    };
-    error?: string;
-}
+// AgentExecution和AgentExecutionSummary现在从shared types导入
 
 /** 项目空间 */
 interface ProjectSpace {
@@ -572,7 +551,14 @@ interface AppState {
     /** 设置当前活跃的Agent执行ID */
     setActiveAgentExecution: (executionId: string | null) => void;
     /** 添加Agent执行日志 */
-    addAgentLog: (content: string) => void;
+    addAgentLog: (content: string, metadata?: {
+        timestamp?: string;
+        type?: 'output' | 'error' | 'warning' | 'user' | 'system' | 'tool' | 'file' | 'shell';
+        taskId?: string;
+        subtaskStatus?: 'reading' | 'fetching' | 'generating' | 'processing';
+        tokensUsed?: number;
+        duration?: number;
+    }) => void;
     /** 清空Agent日志 */
     clearAgentLogs: () => void;
 }
@@ -923,8 +909,30 @@ export const useAppStore = create<AppState>((set) => {
             set((state) => ({agents: {...state.agents, executions}})),
         setActiveAgentExecution: (executionId) =>
             set((state) => ({agents: {...state.agents, activeExecutionId: executionId}})),
-        addAgentLog: (content) =>
-            set((state) => ({agents: {...state.agents, logs: [...state.agents.logs, content]}})),
+        addAgentLog: (content, metadata?: {
+            timestamp?: string;
+            type?: 'output' | 'error' | 'warning' | 'user' | 'system' | 'tool' | 'file' | 'shell';
+            taskId?: string;
+            subtaskStatus?: 'reading' | 'fetching' | 'generating' | 'processing';
+            tokensUsed?: number;
+            duration?: number;
+        }) =>
+            set((state) => {
+                // 如果是对象格式，直接添加
+                if (typeof content === 'object') {
+                    return {agents: {...state.agents, logs: [...state.agents.logs, JSON.stringify(content)]}};
+                }
+                // 如果是字符串格式，添加元数据
+                if (metadata && Object.keys(metadata).length > 0) {
+                    const logEntry = {
+                        content: String(content),
+                        ...metadata
+                    };
+                    return {agents: {...state.agents, logs: [...state.agents.logs, JSON.stringify(logEntry)]}};
+                }
+                // 简单字符串格式
+                return {agents: {...state.agents, logs: [...state.agents.logs, content]}};
+            }),
         clearAgentLogs: () =>
             set((state) => ({agents: {...state.agents, logs: []}}))
     };

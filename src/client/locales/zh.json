@@ -32,6 +32,7 @@
     "mcp": "MCP",
     "skills": "技能",
     "mineru": "文档解析",
+    "agentExecution": "Agent执行",
     "agents": "Agent执行"
   },
   "pageTitle": {
@@ -45,6 +46,7 @@
     "mcp": "MCP 服务器",
     "skills": "技能管理",
     "mineru": "MinerU 文档解析",
+    "agentExecution": "Agent执行",
     "agents": "Agent执行"
   },
   "requirements": {
