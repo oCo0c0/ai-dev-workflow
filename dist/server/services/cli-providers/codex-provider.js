@@ -232,8 +232,8 @@ class CodexProvider {
                 }
                 switch (event.type) {
                     case 'item.completed': {
-                        // 提取 agent 消息文本
                         const item = event.item;
+                        // 提取 agent 消息文本
                         if (item.type === 'agentMessage' && typeof item.text === 'string') {
                             stdout += item.text;
                             options?.onOutput?.(item.text);
@@ -242,6 +242,29 @@ class CodexProvider {
                         if (item.type === 'commandExecution' && typeof item.output === 'string') {
                             stdout += item.output;
                             options?.onOutput?.(item.output);
+                        }
+                        // 提取思考/推理过程（Codex SDK reasoning item）
+                        if (item.type === 'reasoning' && typeof item.text === 'string') {
+                            options?.onOutput?.(item.text, { type: 'thinking' });
+                        }
+                        // tool 调用开始 + 完成
+                        if (item.type === 'toolCall' || item.type === 'tool_use') {
+                            const toolUseId = item.id || item.callId || '';
+                            // 先广播 tool_use（running）
+                            const funcInfo = item.function || {};
+                            options?.onOutput?.('', {
+                                type: 'tool_use',
+                                toolName: item.name || funcInfo.name || 'Tool',
+                                toolInput: item.input || funcInfo.arguments || {},
+                                toolUseId,
+                            });
+                            // 再广播 tool_result（completed）
+                            const isError = item.isError === true || item.error != null;
+                            options?.onOutput?.(typeof item.output === 'string' ? item.output : '', {
+                                type: 'tool_result',
+                                toolUseId,
+                                isError,
+                            });
                         }
                         break;
                     }

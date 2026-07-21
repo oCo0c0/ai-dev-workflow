@@ -199,7 +199,6 @@ class ClaudeProvider {
     }
     start() {
         return new Promise((resolve, reject) => {
-            console.log(`[claude-provider] spawning: node ${BRIDGE_SCRIPT}`);
             // 清除 NODE_OPTIONS 中的 inspector 参数，避免子进程启动 debugger
             const env = { ...process.env, ...loadClaudeSettingsEnv() };
             if (env.NODE_OPTIONS) {
@@ -233,7 +232,7 @@ class ClaudeProvider {
             });
             child.stderr.on('data', (chunk) => {
                 const text = chunk.toString();
-                console.error(`[claude-provider] stderr: ${text.trim()}`);
+                console.error(`[claude-provider] stderr: ${text.trim().slice(0, 500)}`);
                 for (const req of this.pendingRequests.values()) {
                     req.onError?.(text);
                 }
@@ -323,6 +322,27 @@ class ClaudeProvider {
                     req.stdout += msg.content;
                     req.onOutput?.(msg.content);
                 }
+                break;
+            case 'thinking':
+                if (msg.content) {
+                    req.stdout += msg.content;
+                    req.onOutput?.(msg.content, { type: 'thinking' });
+                }
+                break;
+            case 'tool_use':
+                req.onOutput?.('', {
+                    type: 'tool_use',
+                    toolName: msg.toolName,
+                    toolInput: msg.toolInput,
+                    toolUseId: msg.toolUseId,
+                });
+                break;
+            case 'tool_result':
+                req.onOutput?.(msg.content, {
+                    type: 'tool_result',
+                    toolUseId: msg.toolUseId,
+                    isError: msg.isError,
+                });
                 break;
             case 'session':
                 if (msg.sessionId) {

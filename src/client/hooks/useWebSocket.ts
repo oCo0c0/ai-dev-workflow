@@ -333,7 +333,8 @@ export function useWebSocket() {
                             const statusText = subTaskMsg.status === 'running' ? '执行中' :
                                              subTaskMsg.status === 'completed' ? '✅ 完成' :
                                              subTaskMsg.status === 'failed' ? '❌ 失败' : '⏳ 等待';
-                            addAgentLog(`  [${statusText}] 子任务 ${subTaskMsg.subTaskId?.substring(0, 8)}`);
+                            const title = subTaskMsg.title || subTaskMsg.subTaskId?.substring(0, 8) || '';
+                            addAgentLog(`  [${statusText}] ${title}`);
                         }
                         break;
 

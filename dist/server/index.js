@@ -167,8 +167,6 @@ async function createServer(port) {
     app.use('/api/tasks', (0, projects_js_1.createTaskRoutes)(taskStoreService, taskScheduler, workspaceService));
     app.use('/api/agent-execution', (0, agent_execution_js_1.createAgentExecutionRoutes)({
         cliRunner: cliRunnerService,
-        skillsService,
-        mcpBridgeService,
     }));
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;

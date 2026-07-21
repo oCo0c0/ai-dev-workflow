@@ -108,8 +108,8 @@ export interface CLIProviderOptions {
     workspacePath?: string;
     /** 中止信号 */
     signal?: AbortSignal;
-    /** 实时输出回调 */
-    onOutput?: (data: string) => void;
+    /** 实时输出回调（meta 用于传递结构化事件类型） */
+    onOutput?: (data: string, meta?: Record<string, unknown>) => void;
     /** 错误输出回调 */
     onError?: (data: string) => void;
     /** 模型名称（覆盖配置文件中的默认模型） */

@@ -15,8 +15,8 @@ import type { CLIProvider, McpStdioMap } from './cli-providers/types.js';
 export interface CLIRunnerOptions {
     /** 工作区路径 */
     workspacePath: string;
-    /** 标准输出回调函数 */
-    onOutput?: (data: string) => void;
+    /** 标准输出回调函数（meta 用于传递结构化事件类型） */
+    onOutput?: (data: string, meta?: Record<string, unknown>) => void;
     /** 标准错误回调函数 */
     onError?: (data: string) => void;
     /** 中止信号 */

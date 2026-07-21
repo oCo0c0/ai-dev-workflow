@@ -113,6 +113,35 @@ async function runQueryOnce(prompt, requestId, options) {
                 for (const block of content) {
                     if (block.type === 'text' && block.text) {
                         emit({requestId, type: 'output', content: block.text});
+                    } else if (block.type === 'thinking' && block.thinking) {
+                        emit({requestId, type: 'thinking', content: block.thinking});
+                    } else if (block.type === 'tool_use') {
+                        emit({
+                            requestId,
+                            type: 'tool_use',
+                            toolName: block.name || '',
+                            toolInput: block.input || {},
+                            toolUseId: block.id || '',
+                        });
+                    }
+                }
+            }
+        }
+        // SDK 的 tool_result 在 user 类型消息中（API 把工具结果作为 user turn 返回）
+        if (msg.type === 'user') {
+            const content = msg.message?.content;
+            if (Array.isArray(content)) {
+                for (const block of content) {
+                    if (block.type === 'tool_result') {
+                        emit({
+                            requestId,
+                            type: 'tool_result',
+                            toolUseId: block.tool_use_id || '',
+                            isError: block.is_error || false,
+                            content: typeof block.content === 'string'
+                                ? block.content
+                                : JSON.stringify(block.content ?? ''),
+                        });
                     }
                 }
             }

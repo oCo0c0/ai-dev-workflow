@@ -1,7 +1,7 @@
 "use strict";
 /**
  * @file Agent Execution Routes
- * @description Agent执行API路由 - 提供Agent执行相关的RESTful API
+ * @description Agent执行API路由 - 简化版：直接执行，无复杂子任务管理
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createAgentExecutionRoutes = createAgentExecutionRoutes;
@@ -27,28 +27,24 @@ function createAgentExecutionRoutes(config) {
         }
     });
     /**
-     * POST /api/agent-execution/analyze
-     * 分析需求，创建新的执行记录
+     * POST /api/agent-execution/create
+     * 创建新执行记录（准备状态，等待启动）
      */
-    router.post('/analyze', async (req, res) => {
+    router.post('/create', async (req, res) => {
         try {
             const { requirementText, workspacePath } = req.body;
             if (!requirementText || typeof requirementText !== 'string') {
                 return res.status(400).json({ error: 'requirementText is required' });
             }
             const requirementId = req.body.requirementId || `manual-${Date.now()}`;
-            // 创建执行记录
+            // 创建执行记录，状态为ready等待启动
             const execution = await store.create({
                 requirementId,
                 requirementText,
                 requirementNumber: req.body.requirementNumber,
                 requirementTitle: req.body.requirementTitle || requirementText.split('\n')[0].substring(0, 50),
                 workspacePath: workspacePath || '',
-                status: 'analyzing',
-            });
-            // 异步开始分析（不阻塞响应）
-            coordinator.analyzeRequirement(execution.id).catch(error => {
-                console.error('Analysis error:', error);
+                status: 'ready',
             });
             res.json({ executionId: execution.id });
         }
@@ -67,48 +63,13 @@ function createAgentExecutionRoutes(config) {
             if (!execution) {
                 return res.status(404).json({ error: 'Execution not found' });
             }
-            if (execution.status !== 'ready') {
+            if (execution.status !== 'ready' && execution.status !== 'paused') {
                 return res.status(400).json({ error: `Execution is not ready: ${execution.status}` });
             }
             // 异步执行（不阻塞响应）
             coordinator.execute(id).catch(error => {
                 console.error('Execution error:', error);
             });
-            res.json({ success: true });
-        }
-        catch (error) {
-            res.status(500).json({ error: error.message });
-        }
-    });
-    /**
-     * POST /api/agent-execution/:id/pause
-     * 暂停执行
-     */
-    router.post('/:id/pause', async (req, res) => {
-        try {
-            const { id } = req.params;
-            await coordinator.pause(id);
-            res.json({ success: true });
-        }
-        catch (error) {
-            res.status(500).json({ error: error.message });
-        }
-    });
-    /**
-     * POST /api/agent-execution/:id/resume
-     * 继续执行
-     */
-    router.post('/:id/resume', async (req, res) => {
-        try {
-            const { id } = req.params;
-            const execution = await store.get(id);
-            if (!execution) {
-                return res.status(404).json({ error: 'Execution not found' });
-            }
-            if (execution.status !== 'paused') {
-                return res.status(400).json({ error: `Execution is not paused: ${execution.status}` });
-            }
-            await coordinator.resume(id);
             res.json({ success: true });
         }
         catch (error) {
@@ -137,7 +98,7 @@ function createAgentExecutionRoutes(config) {
     router.post('/:id/reply', async (req, res) => {
         try {
             const { id } = req.params;
-            const { message } = req.body;
+            const { message } = req.body || {};
             if (!message || typeof message !== 'string') {
                 return res.status(400).json({ error: 'message is required' });
             }
@@ -146,16 +107,20 @@ function createAgentExecutionRoutes(config) {
                 return res.status(404).json({ error: 'Execution not found' });
             }
             // 添加用户消息到日志
-            await store.addLog(id, `**User:** ${message}`);
+            const userMsg = `**User:** ${message}`;
+            await store.addLog(id, userMsg);
             // 广播消息
             (0, websocket_js_1.broadcast)({
                 type: 'agent-execution:log',
-                data: { executionId: id, log: `**User:** ${message}` },
+                data: { executionId: id, log: userMsg },
             });
-            // 如果Agent在等待用户输入，继续执行
-            if (execution.status === 'paused') {
-                // 恢复执行
-                coordinator.resume(id);
+            // 如果执行已完成/失败/中止，自动重新启动继续对话
+            if (execution.status === 'completed' || execution.status === 'failed' || execution.status === 'aborted') {
+                await store.updateStatus(id, 'ready');
+                // 异步自动执行，无需用户手动点开始
+                coordinator.execute(id).catch(error => {
+                    console.error('Auto-execute after reply error:', error);
+                });
             }
             res.json({ success: true });
         }

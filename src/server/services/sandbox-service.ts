@@ -65,9 +65,7 @@ export class SandboxService {
                 apiKey: this.config.apiKey,
                 apiUrl: this.config.apiUrl ?? DAYTONA_DEFAULTS.API_URL,
             });
-            console.log(`[sandbox] Daytona client initialized (${this.config.apiUrl ?? DAYTONA_DEFAULTS.API_URL})`);
         } catch (err) {
-            console.error(`[sandbox] Failed to initialize Daytona client: ${getErrorMessage(err)}`);
             this.client = null;
         }
     }
@@ -123,7 +121,6 @@ export class SandboxService {
 
         try {
             const sandboxName = `aiwb-${Buffer.from(workspacePath).toString('base64url').slice(0, 20)}`;
-            console.log(`[sandbox] Creating sandbox "${sandboxName}" for workspace: ${workspacePath}`);
             const sandbox = await this.client.create({
                 name: sandboxName,
                 snapshot: this.config.template || DAYTONA_DEFAULTS.DEFAULT_TEMPLATE,
@@ -132,7 +129,6 @@ export class SandboxService {
             }, {timeout: TIMEOUTS.BRIDGE_START});
 
             this.sandboxes.set(workspacePath, sandbox);
-            console.log(`[sandbox] Sandbox "${sandboxName}" created successfully`);
             return sandbox;
         } catch (err) {
             console.error(`[sandbox] Failed to create sandbox for "${workspacePath}": ${getErrorMessage(err)}`);
@@ -189,7 +185,10 @@ export class SandboxService {
             let filesToSync: string[] = [];
             try {
                 const tracked = execSync('git ls-files', {cwd: localPath, encoding: 'utf-8'}).trim();
-                const untracked = execSync('git ls-files --others --exclude-standard', {cwd: localPath, encoding: 'utf-8'}).trim();
+                const untracked = execSync('git ls-files --others --exclude-standard', {
+                    cwd: localPath,
+                    encoding: 'utf-8'
+                }).trim();
                 const allFiles = [...tracked.split('\n'), ...untracked.split('\n')]
                     .map(f => f.trim())
                     .filter(f => f.length > 0);
@@ -308,7 +307,7 @@ export class SandboxService {
     }
 
     /** 获取当前配置状态（用于调试/状态接口） */
-    getStatus(): {enabled: boolean; apiUrl: string; sandboxId?: string; template?: string; activeCount: number} {
+    getStatus(): { enabled: boolean; apiUrl: string; sandboxId?: string; template?: string; activeCount: number } {
         return {
             enabled: this.isEnabled(),
             apiUrl: this.config.apiUrl ?? DAYTONA_DEFAULTS.API_URL,

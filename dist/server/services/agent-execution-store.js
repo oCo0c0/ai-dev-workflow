@@ -77,6 +77,7 @@ class AgentExecutionStore {
             subTasks: [],
             thoughts: [],
             logs: [],
+            steps: [],
             createdAt: now,
             updatedAt: now,
         };
@@ -129,6 +130,10 @@ class AgentExecutionStore {
                     const content = await (0, promises_1.readFile)(path, 'utf-8');
                     const execution = JSON.parse(content);
                     const completedCount = execution.subTasks.filter(t => t.status === 'completed').length;
+                    // 计算当前执行的步骤
+                    const totalSteps = execution.steps.length || 5; // 默认5步
+                    const currentStep = execution.steps.findIndex(s => s.status === 'running') + 1 ||
+                        execution.steps.filter(s => s.status === 'completed').length + 1;
                     executions.push({
                         id: execution.id,
                         requirementId: execution.requirementId,
@@ -140,6 +145,8 @@ class AgentExecutionStore {
                         updatedAt: execution.updatedAt,
                         subTasksCount: execution.subTasks.length,
                         completedSubTasks: completedCount,
+                        currentStep,
+                        totalSteps,
                     });
                 }
                 catch {
@@ -228,6 +235,44 @@ class AgentExecutionStore {
             throw new Error(`Execution not found: ${executionId}`);
         }
         execution.subTasks = subTasks;
+        await this.save(execution);
+    }
+    /**
+     * 添加单个子任务
+     */
+    async addSubTask(executionId, subTask) {
+        const execution = await this.get(executionId);
+        if (!execution) {
+            throw new Error(`Execution not found: ${executionId}`);
+        }
+        execution.subTasks.push(subTask);
+        await this.save(execution);
+    }
+    /**
+     * 更新执行步骤
+     */
+    async updateSteps(executionId, steps) {
+        const execution = await this.get(executionId);
+        if (!execution) {
+            throw new Error(`Execution not found: ${executionId}`);
+        }
+        execution.steps = steps;
+        await this.save(execution);
+    }
+    /**
+     * 更新单个步骤
+     */
+    async updateStep(executionId, stepIndex, step) {
+        const execution = await this.get(executionId);
+        if (!execution) {
+            throw new Error(`Execution not found: ${executionId}`);
+        }
+        if (!execution.steps[stepIndex]) {
+            execution.steps[stepIndex] = step;
+        }
+        else {
+            Object.assign(execution.steps[stepIndex], step);
+        }
         await this.save(execution);
     }
 }

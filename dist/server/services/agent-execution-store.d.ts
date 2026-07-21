@@ -8,6 +8,17 @@
  * - 存储Agent思考过程、子任务状态、执行日志
  */
 /**
+ * 执行步骤
+ */
+export interface ExecutionStep {
+    id: string;
+    title: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    startedAt?: string;
+    completedAt?: string;
+    logs: string[];
+}
+/**
  * 子任务状态
  */
 export interface SubTask {
@@ -45,6 +56,8 @@ export interface AgentExecutionSummary {
     updatedAt: string;
     subTasksCount?: number;
     completedSubTasks?: number;
+    currentStep?: number;
+    totalSteps?: number;
 }
 /**
  * 完整的Agent执行信息
@@ -53,6 +66,7 @@ export interface AgentExecution extends AgentExecutionSummary {
     requirementText?: string;
     thoughts: AgentThought[];
     subTasks: SubTask[];
+    steps: ExecutionStep[];
     logs: string[];
     error?: string;
     sessionId?: string;
@@ -70,7 +84,7 @@ export declare class AgentExecutionStore {
     /**
      * 创建新执行记录
      */
-    create(data: Omit<AgentExecution, 'id' | 'createdAt' | 'updatedAt' | 'subTasks' | 'thoughts' | 'logs'>): Promise<AgentExecution>;
+    create(data: Omit<AgentExecution, 'id' | 'createdAt' | 'updatedAt' | 'subTasks' | 'thoughts' | 'logs' | 'steps'>): Promise<AgentExecution>;
     /**
      * 保存执行记录
      */
@@ -107,6 +121,18 @@ export declare class AgentExecutionStore {
      * 设置子任务列表
      */
     setSubTasks(executionId: string, subTasks: SubTask[]): Promise<void>;
+    /**
+     * 添加单个子任务
+     */
+    addSubTask(executionId: string, subTask: SubTask): Promise<void>;
+    /**
+     * 更新执行步骤
+     */
+    updateSteps(executionId: string, steps: ExecutionStep[]): Promise<void>;
+    /**
+     * 更新单个步骤
+     */
+    updateStep(executionId: string, stepIndex: number, step: ExecutionStep): Promise<void>;
 }
 export declare function getAgentExecutionStore(): AgentExecutionStore;
 //# sourceMappingURL=agent-execution-store.d.ts.map

@@ -40,10 +40,8 @@ class SandboxService {
                 apiKey: this.config.apiKey,
                 apiUrl: this.config.apiUrl ?? constants_js_1.DAYTONA_DEFAULTS.API_URL,
             });
-            console.log(`[sandbox] Daytona client initialized (${this.config.apiUrl ?? constants_js_1.DAYTONA_DEFAULTS.API_URL})`);
         }
         catch (err) {
-            console.error(`[sandbox] Failed to initialize Daytona client: ${(0, error_utils_js_1.getErrorMessage)(err)}`);
             this.client = null;
         }
     }
@@ -98,7 +96,6 @@ class SandboxService {
         }
         try {
             const sandboxName = `aiwb-${Buffer.from(workspacePath).toString('base64url').slice(0, 20)}`;
-            console.log(`[sandbox] Creating sandbox "${sandboxName}" for workspace: ${workspacePath}`);
             const sandbox = await this.client.create({
                 name: sandboxName,
                 snapshot: this.config.template || constants_js_1.DAYTONA_DEFAULTS.DEFAULT_TEMPLATE,
@@ -106,7 +103,6 @@ class SandboxService {
                 autoStopInterval: 60, // 60 分钟无活动后停止
             }, { timeout: constants_js_1.TIMEOUTS.BRIDGE_START });
             this.sandboxes.set(workspacePath, sandbox);
-            console.log(`[sandbox] Sandbox "${sandboxName}" created successfully`);
             return sandbox;
         }
         catch (err) {
@@ -152,7 +148,10 @@ class SandboxService {
             let filesToSync = [];
             try {
                 const tracked = (0, child_process_1.execSync)('git ls-files', { cwd: localPath, encoding: 'utf-8' }).trim();
-                const untracked = (0, child_process_1.execSync)('git ls-files --others --exclude-standard', { cwd: localPath, encoding: 'utf-8' }).trim();
+                const untracked = (0, child_process_1.execSync)('git ls-files --others --exclude-standard', {
+                    cwd: localPath,
+                    encoding: 'utf-8'
+                }).trim();
                 const allFiles = [...tracked.split('\n'), ...untracked.split('\n')]
                     .map(f => f.trim())
                     .filter(f => f.length > 0);

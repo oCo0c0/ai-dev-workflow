@@ -14,7 +14,7 @@
  */
 
 import {create} from 'zustand';
-import type {AgentExecution, AgentExecutionSummary} from 'types/agent-types';
+import type {AgentExecutionSummary} from '../types/agent-types';
 
 // === 数据模型接口定义 ===
 
@@ -560,6 +560,7 @@ interface AppState {
         duration?: number;
     }) => void;
     /** 清空Agent日志 */
+    setAgentLogs: (logs: string[]) => void;
     clearAgentLogs: () => void;
 }
 
@@ -933,6 +934,8 @@ export const useAppStore = create<AppState>((set) => {
                 // 简单字符串格式
                 return {agents: {...state.agents, logs: [...state.agents.logs, content]}};
             }),
+        setAgentLogs: (logs: string[]) =>
+            set((state) => ({agents: {...state.agents, logs}})),
         clearAgentLogs: () =>
             set((state) => ({agents: {...state.agents, logs: []}}))
     };

@@ -459,7 +459,6 @@ export function createTestRoutes(
 
             let accumulatedOutput = '';
             try {
-                console.log(`[tests:ai] calling runBridge, taskId=${run.id}`);
                 const result = await cliRunnerService.runBridge(
                     {
                         prompt: enrichPrompt(prompt, memoryService, workspacePath),

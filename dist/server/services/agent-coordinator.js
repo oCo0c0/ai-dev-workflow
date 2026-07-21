@@ -1,23 +1,20 @@
 "use strict";
 /**
- * @file Agent Coordinator (重新实现)
- * @description Agent真正自主决策，不硬编码映射到Skill
- *
- * Agent = 自主决策的AI
- * - 能思考、规划
- * - 能调用工具（Claude/Skill/MCP）
- * - 能读写文件、运行命令
- * - 不是Skill的包装器
+ * @file Agent Coordinator (通用设计，不依赖特定格式)
+ * @description 执行Agent并透传所有输出，解析结构化事件（thinking/tool_use/tool_result），
+ *              生成思考过程、执行步骤、子任务数据并广播给前端。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentCoordinator = void 0;
 exports.createAgentCoordinator = createAgentCoordinator;
-const uuid_1 = require("uuid");
+const crypto_1 = require("crypto");
 const agent_execution_store_js_1 = require("./agent-execution-store.js");
 const websocket_js_1 = require("../websocket.js");
-/**
- * Agent协调器
- */
+// 只有写操作工具才创建独立步骤（Read/Glob/Grep 等读操作是噪声）
+const STEP_TOOLS = new Set([
+    'Write', 'Edit', 'NotebookEdit', 'Bash', 'TaskCreate',
+    'Workflow', 'Skill', 'CronCreate', 'CronDelete',
+]);
 class AgentCoordinator {
     store = (0, agent_execution_store_js_1.getAgentExecutionStore)();
     abortControllers = new Map();
@@ -26,277 +23,225 @@ class AgentCoordinator {
         this.config = config;
     }
     /**
-     * 分析需求 - Coordinator Agent思考
-     */
-    async analyzeRequirement(executionId) {
-        const execution = await this.store.get(executionId);
-        if (!execution)
-            throw new Error(`Execution not found: ${executionId}`);
-        const controller = new AbortController();
-        this.abortControllers.set(executionId, controller);
-        try {
-            this.broadcastStatus(executionId, 'analyzing');
-            const prompt = `你是Coordinator Agent（项目经理Agent）。
-请分析以下需求并制定执行计划。
-
-## 用户需求
-${execution.requirementText}
-
-## 你的职责
-
-1. **需求分析**：理解用户要做什么
-2. **任务拆解**：将需求拆解为具体的子任务
-3. **Agent分配**：为每个子任务分配合适的Agent
-
-## 可用的Agent类型
-
-- **coordinator** - 协调Agent（统筹全局）
-- **code-agent** - 代码Agent（写代码、改代码）
-- **test-agent** - 测试Agent（写测试、跑测试）
-- **review-agent** - 审查Agent（审查代码质量）
-- **doc-agent** - 文档Agent（写文档）
-
-## 输出格式
-
-请先输出你的分析思考过程，然后输出JSON格式的任务列表：
-
-\`\`\`json
-[
-  {
-    "title": "需求分析",
-    "description": "深入理解需求细节和技术要点",
-    "agent": "coordinator",
-    "order": 1
-  },
-  {
-    "title": "代码实现",
-    "description": "根据需求编写实现代码",
-    "agent": "code-agent",
-    "order": 2
-  },
-  {
-    "title": "编写测试",
-    "description": "编写单元测试和集成测试",
-    "agent": "test-agent",
-    "order": 3
-  }
-]
-\`\`\`
-
-请开始分析和规划：`;
-            const cwd = execution.workspacePath || this.config.workspacePath || process.cwd();
-            let accumulatedOutput = '';
-            // 使用sessionId（如果有）以保持上下文
-            const sessionId = execution.sessionId;
-            const result = await this.config.cliRunner.runBridge({ prompt, cwd, sessionId, maxTurns: 1 }, {
-                workspacePath: cwd,
-                signal: controller.signal,
-                onOutput: (data) => {
-                    accumulatedOutput += data;
-                    this.store.addLog(executionId, data);
-                    this.broadcastLog(executionId, data);
-                },
-            });
-            // 解析子任务
-            const subTasks = this.parseSubTasks(accumulatedOutput);
-            await this.store.setSubTasks(executionId, subTasks);
-            this.broadcastPlan(executionId, subTasks);
-            await this.store.updateStatus(executionId, 'ready');
-            this.broadcastStatus(executionId, 'ready');
-        }
-        catch (error) {
-            if (controller.signal.aborted) {
-                await this.store.updateStatus(executionId, 'aborted');
-            }
-            else {
-                await this.store.updateStatus(executionId, 'failed');
-                await this.store.addLog(executionId, `分析失败: ${error.message}`);
-            }
-        }
-        finally {
-            this.abortControllers.delete(executionId);
-        }
-    }
-    /**
-     * 执行任务 - 依次执行子任务
+     * 执行 Agent — 解析结构化事件，生成 thoughts/steps 数据
      */
     async execute(executionId) {
         const execution = await this.store.get(executionId);
         if (!execution)
-            throw new Error(`Execution not found: ${executionId}`);
-        if (execution.status !== 'ready')
-            throw new Error(`Execution not ready: ${execution.status}`);
+            throw new Error('Execution not found');
         const controller = new AbortController();
         this.abortControllers.set(executionId, controller);
         try {
             await this.store.updateStatus(executionId, 'running');
             this.broadcastStatus(executionId, 'running');
-            for (const subTask of execution.subTasks) {
-                if (controller.signal.aborted)
-                    throw new Error('Aborted');
-                try {
-                    await this.executeSubTask(executionId, subTask, controller.signal);
-                }
-                catch (error) {
-                    console.error(`Subtask failed:`, error);
+            const cwd = execution.workspacePath || this.config.workspacePath || process.cwd();
+            // 从日志中提取用户回复消息，拼入 prompt 让 Agent 看到后续指令
+            const userReplies = execution.logs
+                .filter(log => log.startsWith('**User:**'))
+                .map(log => log.replace('**User:** ', ''));
+            let prompt;
+            if (userReplies.length > 0 && execution.sessionId) {
+                // 续接会话：带上用户补充信息
+                const repliesText = userReplies.map(r => `- ${r}`).join('\n');
+                prompt = `用户补充了以下信息：\n\n${repliesText}\n\n请根据以上补充继续工作。`;
+            }
+            else {
+                // 首次执行
+                prompt = `请完成以下需求：\n\n${execution.requirementText}\n\n工作区：${cwd}\n\n请开始工作。`;
+            }
+            const result = await this.config.cliRunner.runBridge({
+                prompt,
+                cwd,
+                ...(execution.sessionId ? { sessionId: execution.sessionId } : {}),
+                maxTurns: 10,
+            }, {
+                workspacePath: cwd,
+                signal: controller.signal,
+                onOutput: (data, meta) => {
+                    // 日志记录：tool_result 可能包含完整文件内容（几KB~几十KB），
+                    // 只截取摘要存入日志，避免上下文爆炸
+                    if (data) {
+                        const logData = meta?.type === 'tool_result'
+                            ? data.slice(0, 200) + (data.length > 200 ? '...' : '')
+                            : data;
+                        this.store.addLog(executionId, logData).catch(err => {
+                            console.error(`[coordinator] addLog failed for ${executionId}:`, err);
+                        });
+                        this.broadcastLog(executionId, logData);
+                    }
+                    // 结构化事件 → 写 store + 广播 rich events
+                    if (!meta)
+                        return;
+                    switch (meta.type) {
+                        case 'thinking':
+                            this.handleThinking(executionId, data).catch(err => {
+                                console.error(`[coordinator] handleThinking failed:`, err);
+                            });
+                            break;
+                        case 'tool_use':
+                            this.handleToolUse(executionId, meta).catch(err => {
+                                console.error(`[coordinator] handleToolUse failed:`, err);
+                            });
+                            break;
+                        case 'tool_result':
+                            this.handleToolResult(executionId, meta).catch(err => {
+                                console.error(`[coordinator] handleToolResult failed:`, err);
+                            });
+                            break;
+                    }
+                },
+            });
+            // 保存 sessionId 用于续接
+            if (result.sessionId) {
+                const exec = await this.store.get(executionId);
+                if (exec) {
+                    exec.sessionId = result.sessionId;
+                    await this.store.save(exec);
                 }
             }
-            await this.store.updateStatus(executionId, 'completed');
-            this.broadcastComplete(executionId, 'completed');
-        }
-        catch (error) {
-            if (controller.signal.aborted) {
+            if (result.aborted) {
                 await this.store.updateStatus(executionId, 'aborted');
+                this.broadcastStatus(executionId, 'aborted');
+                await this.finalizeSteps(executionId, 'aborted');
+            }
+            else if (result.exitCode === 0) {
+                await this.store.updateStatus(executionId, 'completed');
+                this.broadcastStatus(executionId, 'completed');
+                await this.finalizeSteps(executionId, 'completed');
             }
             else {
                 await this.store.updateStatus(executionId, 'failed');
+                await this.store.addLog(executionId, `执行失败，退出码: ${result.exitCode}`);
+                this.broadcastStatus(executionId, 'failed');
+                await this.finalizeSteps(executionId, 'failed');
             }
+        }
+        catch (error) {
+            console.error(`[coordinator] execute error:`, error);
+            await this.store.updateStatus(executionId, 'failed');
+            await this.store.addLog(executionId, `执行失败: ${error.message}`);
+            this.broadcastStatus(executionId, 'failed');
+            await this.finalizeSteps(executionId, 'failed');
         }
         finally {
             this.abortControllers.delete(executionId);
         }
     }
-    /**
-     * 执行单个子任务 - 让Agent自己决定怎么做
-     */
-    async executeSubTask(executionId, subTask, signal) {
-        await this.store.updateSubTask(executionId, subTask.id, {
-            status: 'running',
-            startedAt: new Date().toISOString(),
-        });
-        this.broadcastSubTask(executionId, subTask.id, 'running');
-        await this.store.addLog(executionId, `\n## ${subTask.order}. ${subTask.title}`);
-        try {
-            const execution = await this.store.get(executionId);
-            if (!execution)
-                throw new Error('Execution not found');
-            const cwd = execution.workspacePath || this.config.workspacePath || process.cwd();
-            // 构建Agent提示词 - 让Agent自己决定怎么做
-            const agentPrompt = `你是${subTask.agent}。
-
-## 你的任务
-${subTask.title}
-${subTask.description ? `详细说明：${subTask.description}` : ''}
-
-## 原始需求
-${execution.requirementText || ''}
-
-## 可用工具
-- **Claude API** - 直接生成代码/文本
-- **Skills** - 如果需要，可以调用预定义工作流
-- **MCP工具** - 可以读写文件、运行命令等
-
-## 执行方式
-你自己决定如何完成这个任务：
-- 如果是简单任务，直接用Claude完成
-- 如果需要文件操作，说明你要读写什么文件
-- 如果复杂，可以分步骤说明
-
-请开始执行：`;
-            let accumulatedOutput = '';
-            const result = await this.config.cliRunner.runBridge({
-                prompt: agentPrompt,
-                cwd,
-                sessionId: `agent-task-${executionId}-${subTask.id}`,
-                maxTurns: 5,
-            }, {
-                workspacePath: cwd,
-                signal,
-                onOutput: (data) => {
-                    accumulatedOutput += data;
-                    this.store.addLog(executionId, data);
-                    this.broadcastLog(executionId, data);
-                },
-            });
-            await this.store.updateSubTask(executionId, subTask.id, {
-                status: 'completed',
-                completedAt: new Date().toISOString(),
-                output: accumulatedOutput || 'Task completed',
-            });
-            this.broadcastSubTask(executionId, subTask.id, 'completed');
-            await this.store.addLog(executionId, `✅ 完成: ${subTask.title}`);
-        }
-        catch (error) {
-            await this.store.updateSubTask(executionId, subTask.id, {
-                status: 'failed',
-                completedAt: new Date().toISOString(),
-                error: error.message,
-            });
-            this.broadcastSubTask(executionId, subTask.id, 'failed');
-            await this.store.addLog(executionId, `❌ 失败: ${subTask.title}`);
-            throw error;
-        }
-    }
-    /**
-     * 解析子任务
-     */
-    parseSubTasks(output) {
-        try {
-            const jsonMatch = output.match(/```json\s*([\s\S]*?)\s*```/) || output.match(/\[[\s\S]*\]/);
-            if (jsonMatch) {
-                const jsonStr = jsonMatch[1] || jsonMatch[0];
-                const parsed = JSON.parse(jsonStr);
-                if (Array.isArray(parsed)) {
-                    return parsed.map((item, index) => ({
-                        id: (0, uuid_1.v4)(),
-                        title: item.title || `Task ${index + 1}`,
-                        description: item.description || '',
-                        agent: item.agent || 'coordinator',
-                        order: item.order || (index + 1),
-                        status: 'pending',
-                    }));
-                }
-            }
-        }
-        catch {
-        }
-        // 默认任务
-        return [{
-                id: (0, uuid_1.v4)(),
-                title: '执行需求',
-                description: output.substring(0, 200),
-                agent: 'coordinator',
-                order: 1,
-                status: 'pending',
-            }];
-    }
-    /**
-     * 中止执行
-     */
     abort(executionId) {
         const controller = this.abortControllers.get(executionId);
         if (controller)
             controller.abort();
     }
     /**
-     * 暂停执行
+     * 处理 thinking 事件 → 写 thoughts + 广播
      */
-    async pause(executionId) {
-        await this.store.updateStatus(executionId, 'paused');
-        this.broadcastStatus(executionId, 'paused');
+    async handleThinking(executionId, content) {
+        const display = content.length > 2000
+            ? content.slice(0, 2000) + '...'
+            : content;
+        await this.store.addThought(executionId, {
+            type: 'analysis',
+            content: display,
+            timestamp: new Date().toISOString(),
+        });
+        (0, websocket_js_1.broadcast)({
+            type: 'agent-execution:thought',
+            data: {
+                executionId,
+                thought: {
+                    type: 'analysis',
+                    content: display,
+                    timestamp: new Date().toISOString(),
+                },
+            },
+        });
     }
     /**
-     * 继续执行
+     * 处理 tool_use 事件 → 写操作工具创建 step + 广播，读操作只广播日志
      */
-    async resume(executionId) {
-        await this.store.updateStatus(executionId, 'running');
-        this.broadcastStatus(executionId, 'running');
-        this.execute(executionId).catch(console.error);
+    async handleToolUse(executionId, meta) {
+        const toolName = meta.toolName || 'Tool';
+        const toolUseId = meta.toolUseId || (0, crypto_1.randomUUID)();
+        const toolInput = meta.toolInput;
+        const execution = await this.store.get(executionId);
+        if (!execution)
+            return;
+        // 避免重复（tool_use_id 去重）
+        if (execution.steps.some(s => s.id === toolUseId))
+            return;
+        // 只有写操作工具才创建独立步骤，读操作（Read/Glob/Grep 等）不创建
+        if (!STEP_TOOLS.has(toolName))
+            return;
+        await this.store.updateSteps(executionId, [
+            ...execution.steps,
+            {
+                id: toolUseId,
+                title: toolName,
+                status: 'running',
+                startedAt: new Date().toISOString(),
+                logs: toolInput ? [JSON.stringify(toolInput).slice(0, 500)] : [],
+            },
+        ]);
+        (0, websocket_js_1.broadcast)({
+            type: 'agent-execution:subtask',
+            data: {
+                executionId,
+                subTaskId: toolUseId,
+                title: toolName,
+                status: 'running',
+            },
+        });
     }
     /**
-     * WebSocket广播
+     * 处理 tool_result 事件 → 标记 step completed/failed + 广播
      */
+    async handleToolResult(executionId, meta) {
+        const toolUseId = meta.toolUseId;
+        const isError = meta.isError;
+        if (!toolUseId)
+            return;
+        const execution = await this.store.get(executionId);
+        if (!execution)
+            return;
+        const stepIdx = execution.steps.findIndex(s => s.id === toolUseId);
+        if (stepIdx < 0)
+            return;
+        const step = execution.steps[stepIdx];
+        step.status = isError ? 'failed' : 'completed';
+        step.completedAt = new Date().toISOString();
+        execution.steps[stepIdx] = step;
+        await this.store.updateSteps(executionId, execution.steps);
+        (0, websocket_js_1.broadcast)({
+            type: 'agent-execution:subtask',
+            data: {
+                executionId,
+                subTaskId: toolUseId,
+                title: step.title,
+                status: isError ? 'failed' : 'completed',
+            },
+        });
+    }
+    /**
+     * 执行结束后，将所有仍为 running 的步骤标记为终态，防止前端永久转圈
+     */
+    async finalizeSteps(executionId, terminalStatus) {
+        const execution = await this.store.get(executionId);
+        if (!execution)
+            return;
+        const now = new Date().toISOString();
+        const changed = execution.steps.some(s => s.status === 'running');
+        if (!changed)
+            return;
+        execution.steps.forEach(s => {
+            if (s.status === 'running') {
+                s.status = terminalStatus === 'completed' ? 'completed' : 'failed';
+                s.completedAt = now;
+            }
+        });
+        await this.store.updateSteps(executionId, execution.steps);
+    }
     broadcastStatus(executionId, status) {
         (0, websocket_js_1.broadcast)({ type: 'agent-execution:status', data: { executionId, status } });
-    }
-    broadcastSubTask(executionId, subTaskId, status) {
-        (0, websocket_js_1.broadcast)({ type: 'agent-execution:subtask', data: { executionId, subTaskId, status } });
-    }
-    broadcastPlan(executionId, subTasks) {
-        (0, websocket_js_1.broadcast)({ type: 'agent-execution:plan', data: { executionId, subTasks } });
-    }
-    broadcastComplete(executionId, status) {
-        (0, websocket_js_1.broadcast)({ type: 'agent-execution:complete', data: { executionId, status } });
     }
     broadcastLog(executionId, log) {
         (0, websocket_js_1.broadcast)({ type: 'agent-execution:log', data: { executionId, log } });

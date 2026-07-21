@@ -56,15 +56,6 @@ export default function ContextIndicator({
         const used = estimateTokens(content);
         const pct = calculateUsagePercentage(used, maxTokens);
 
-        // 调试输出
-        console.log('[ContextIndicator]', {
-            logsLength: logs?.length || 0,
-            contentLength: content.length,
-            usedTokens: used,
-            maxTokens: maxTokens,
-            percentage: pct
-        });
-
         return {
             usedTokens: used,
             percentage: pct,

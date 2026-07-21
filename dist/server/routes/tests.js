@@ -399,7 +399,6 @@ function createTestRoutes(testExecutorService, cliRunnerService, skillsService, 
             const prompt = customPrompt || `Analyze the code changes in this workspace and write appropriate tests.\n\n## Context\n- Workspace: ${workspacePath}${changedContext}\n## Instructions\n1. Review the changed files listed above (or the overall codebase if no changes detected)\n2. Map each changed source file to its corresponding test file using project conventions (e.g., foo.ts → foo.test.ts, Bar.java → BarTest.java)\n3. Write appropriate unit and/or integration tests covering the changed functionality\n4. Run the tests and report results\n5. If tests fail, fix the issues and re-run\n\nRespond in the same language as the project.`;
             let accumulatedOutput = '';
             try {
-                console.log(`[tests:ai] calling runBridge, taskId=${run.id}`);
                 const result = await cliRunnerService.runBridge({
                     prompt: (0, prompt_enrichment_js_1.enrichPrompt)(prompt, memoryService, workspacePath),
                     cwd: workspacePath,

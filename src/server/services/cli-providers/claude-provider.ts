@@ -59,7 +59,7 @@ function loadClaudeSettingsEnv(): Record<string, string> {
 
 /** 待处理请求的内部数据结构 */
 interface PendingRequest {
-    onOutput?: (data: string) => void;
+    onOutput?: (data: string, meta?: Record<string, unknown>) => void;
     onError?: (data: string) => void;
     resolve: (result: CLIProviderResult) => void;
     reject: (err: Error) => void;
@@ -238,7 +238,6 @@ export class ClaudeProvider implements CLIProvider {
 
     private start(): Promise<void> {
         return new Promise((resolve, reject) => {
-            console.log(`[claude-provider] spawning: node ${BRIDGE_SCRIPT}`);
             // 清除 NODE_OPTIONS 中的 inspector 参数，避免子进程启动 debugger
             const env = {...process.env, ...loadClaudeSettingsEnv()};
             if (env.NODE_OPTIONS) {
@@ -276,7 +275,7 @@ export class ClaudeProvider implements CLIProvider {
 
             child.stderr.on('data', (chunk: Buffer) => {
                 const text = chunk.toString();
-                console.error(`[claude-provider] stderr: ${text.trim()}`);
+                console.error(`[claude-provider] stderr: ${text.trim().slice(0, 500)}`);
                 for (const req of this.pendingRequests.values()) {
                     req.onError?.(text);
                 }
@@ -376,6 +375,30 @@ export class ClaudeProvider implements CLIProvider {
                     req.stdout += msg.content as string;
                     req.onOutput?.(msg.content as string);
                 }
+                break;
+
+            case 'thinking':
+                if (msg.content) {
+                    req.stdout += msg.content as string;
+                    req.onOutput?.(msg.content as string, {type: 'thinking'});
+                }
+                break;
+
+            case 'tool_use':
+                req.onOutput?.('', {
+                    type: 'tool_use',
+                    toolName: msg.toolName as string,
+                    toolInput: msg.toolInput,
+                    toolUseId: msg.toolUseId as string,
+                });
+                break;
+
+            case 'tool_result':
+                req.onOutput?.(msg.content as string, {
+                    type: 'tool_result',
+                    toolUseId: msg.toolUseId as string,
+                    isError: msg.isError as boolean,
+                });
                 break;
 
             case 'session':

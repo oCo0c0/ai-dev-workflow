@@ -8,11 +8,23 @@
  * - 存储Agent思考过程、子任务状态、执行日志
  */
 
-import {v4 as uuidv4} from 'uuid';
+import {v4 as uuid} from 'uuid';
 import {join, dirname} from 'path';
 import {mkdir, writeFile, readFile, readdir} from 'fs/promises';
 import {existsSync} from 'fs';
 import {APP_DATA_DIR} from '../utils/constants.js';
+
+/**
+ * 执行步骤
+ */
+export interface ExecutionStep {
+    id: string;
+    title: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    startedAt?: string;
+    completedAt?: string;
+    logs: string[];
+}
 
 /**
  * 子任务状态
@@ -54,6 +66,8 @@ export interface AgentExecutionSummary {
     updatedAt: string;
     subTasksCount?: number;
     completedSubTasks?: number;
+    currentStep?: number;
+    totalSteps?: number;
 }
 
 /**
@@ -63,6 +77,7 @@ export interface AgentExecution extends AgentExecutionSummary {
     requirementText?: string;
     thoughts: AgentThought[];
     subTasks: SubTask[];
+    steps: ExecutionStep[];
     logs: string[];
     error?: string;
     sessionId?: string;
@@ -91,14 +106,15 @@ export class AgentExecutionStore {
     /**
      * 创建新执行记录
      */
-    async create(data: Omit<AgentExecution, 'id' | 'createdAt' | 'updatedAt' | 'subTasks' | 'thoughts' | 'logs'>): Promise<AgentExecution> {
+    async create(data: Omit<AgentExecution, 'id' | 'createdAt' | 'updatedAt' | 'subTasks' | 'thoughts' | 'logs' | 'steps'>): Promise<AgentExecution> {
         const now = new Date().toISOString();
         const execution: AgentExecution = {
-            id: uuidv4(),
+            id: uuid(),
             ...data,
             subTasks: [],
             thoughts: [],
             logs: [],
+            steps: [],
             createdAt: now,
             updatedAt: now,
         };
@@ -162,6 +178,11 @@ export class AgentExecutionStore {
 
                     const completedCount = execution.subTasks.filter(t => t.status === 'completed').length;
 
+                    // 计算当前执行的步骤
+                    const totalSteps = execution.steps.length || 5; // 默认5步
+                    const currentStep = execution.steps.findIndex(s => s.status === 'running') + 1 ||
+                        execution.steps.filter(s => s.status === 'completed').length + 1;
+
                     executions.push({
                         id: execution.id,
                         requirementId: execution.requirementId,
@@ -173,6 +194,8 @@ export class AgentExecutionStore {
                         updatedAt: execution.updatedAt,
                         subTasksCount: execution.subTasks.length,
                         completedSubTasks: completedCount,
+                        currentStep,
+                        totalSteps,
                     });
                 } catch {
                     // 跳过损坏的文件
@@ -275,6 +298,50 @@ export class AgentExecutionStore {
         }
 
         execution.subTasks = subTasks;
+        await this.save(execution);
+    }
+
+    /**
+     * 添加单个子任务
+     */
+    async addSubTask(executionId: string, subTask: SubTask): Promise<void> {
+        const execution = await this.get(executionId);
+        if (!execution) {
+            throw new Error(`Execution not found: ${executionId}`);
+        }
+
+        execution.subTasks.push(subTask);
+        await this.save(execution);
+    }
+
+    /**
+     * 更新执行步骤
+     */
+    async updateSteps(executionId: string, steps: ExecutionStep[]): Promise<void> {
+        const execution = await this.get(executionId);
+        if (!execution) {
+            throw new Error(`Execution not found: ${executionId}`);
+        }
+
+        execution.steps = steps;
+        await this.save(execution);
+    }
+
+    /**
+     * 更新单个步骤
+     */
+    async updateStep(executionId: string, stepIndex: number, step: ExecutionStep): Promise<void> {
+        const execution = await this.get(executionId);
+        if (!execution) {
+            throw new Error(`Execution not found: ${executionId}`);
+        }
+
+        if (!execution.steps[stepIndex]) {
+            execution.steps[stepIndex] = step;
+        } else {
+            Object.assign(execution.steps[stepIndex], step);
+        }
+
         await this.save(execution);
     }
 }

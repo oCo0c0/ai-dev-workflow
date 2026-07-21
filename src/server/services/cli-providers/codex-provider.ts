@@ -247,8 +247,8 @@ export class CodexProvider implements CLIProvider {
 
                 switch (event.type) {
                     case 'item.completed': {
-                        // 提取 agent 消息文本
                         const item = event.item as Record<string, unknown>;
+                        // 提取 agent 消息文本
                         if (item.type === 'agentMessage' && typeof item.text === 'string') {
                             stdout += item.text;
                             options?.onOutput?.(item.text);
@@ -257,6 +257,29 @@ export class CodexProvider implements CLIProvider {
                         if (item.type === 'commandExecution' && typeof item.output === 'string') {
                             stdout += item.output;
                             options?.onOutput?.(item.output);
+                        }
+                        // 提取思考/推理过程（Codex SDK reasoning item）
+                        if (item.type === 'reasoning' && typeof item.text === 'string') {
+                            options?.onOutput?.(item.text, {type: 'thinking'});
+                        }
+                        // tool 调用开始 + 完成
+                        if (item.type === 'toolCall' || item.type === 'tool_use') {
+                            const toolUseId = (item.id as string) || (item.callId as string) || '';
+                            // 先广播 tool_use（running）
+                            const funcInfo = (item.function as Record<string, unknown>) || {};
+                            options?.onOutput?.('', {
+                                type: 'tool_use',
+                                toolName: (item.name as string) || (funcInfo.name as string) || 'Tool',
+                                toolInput: (item.input as Record<string, unknown>) || (funcInfo.arguments as Record<string, unknown>) || {},
+                                toolUseId,
+                            });
+                            // 再广播 tool_result（completed）
+                            const isError = item.isError === true || item.error != null;
+                            options?.onOutput?.(typeof item.output === 'string' ? item.output : '', {
+                                type: 'tool_result',
+                                toolUseId,
+                                isError,
+                            });
                         }
                         break;
                     }
