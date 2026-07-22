@@ -126,9 +126,8 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
             const userMsg = `**User:** ${message}`;
             await store.addLog(id, userMsg);
 
-            // 如果执行已完成/失败/中止，自动重新启动继续对话
+            // 如果执行已完成/失败/中止，直接重新执行（coordinator 内部会设 running 并广播）
             if (execution.status === 'completed' || execution.status === 'failed' || execution.status === 'aborted') {
-                await store.updateStatus(id, 'ready');
                 coordinator.execute(id).catch(error => {
                     console.error('Auto-execute after reply error:', error);
                     broadcast({type: 'agent-execution:status', data: {executionId: id, status: 'failed'}});
