@@ -29,6 +29,20 @@ If a prior planning skill produced a plan document, read it first to extract all
 
 Use ONLY the categories listed below. Each decomposed task must map to exactly one category.
 
+### Granularity Rules
+
+**Split by feature point, NOT by implementation artifact.**
+
+- ✅ DO: One task per user-facing feature or business capability (e.g., "实现订单列表查询", "新增导出功能").
+- ❌ DON'T: Split by internal artifacts like "创建 DTO", "写 Entity", "添加配置项", "建数据库表".
+
+These are implementation details that belong in the task **description**, not as separate tasks.
+
+**When to merge:**
+- If a "task" is just creating a DTO/model/config that supports another task, merge it into that task's scope.
+- If a "task" is pure scaffolding (boilerplate, interface definitions) with no standalone value, merge into the related feature task.
+- Minimum estimate per task: **1 hour**. Anything below 1h must be merged into a related task.
+
 ### Frontend (前端)
 
 | Code | Category (EN) | Category (ZH) |
@@ -114,7 +128,7 @@ Estimates must account for ALL work a developer performs before handing off to Q
 
 Read `references/estimation_guide.md` for detailed per-category multipliers. Key principles:
 
-- **Minimum granularity**: 0.5 hour (30 min). Anything smaller merges into a related task.
+- **Minimum granularity**: 1 hour. Anything smaller merges into a related task.
 - **Typical ranges** per complexity:
   - **Low** (simple config, field addition, minor UI tweak): 0.5 – 2 h
   - **Medium** (new CRUD, API with 3–5 fields, standard form): 2 – 8 h
@@ -172,7 +186,7 @@ Factors:
 | 8 | 所属产品 | Skill auto-matches | MUST pick closest value from `所属产品` enum below based on requirement analysis. If truly unknown, fill `—` |
 | 9 | 工作项类型 | Auto | `开发` |
 | 10 | 优先级 | Skill assigns | `P0` / `P1` / `P2` / `P3` |
-| 11 | 预估工时(h) | Skill estimates | Number, 0.5h minimum, round to 0.5h |
+| 11 | 预估工时(h) | Skill estimates | Number, 1h minimum, round to 0.5h |
 | 12 | 计划开始 | User input or derived | `YYYY-MM-DD` format |
 | 13 | 计划完成 | User input or derived | `YYYY-MM-DD` format |
 | 14 | 任务拆解类型 | Skill assigns | MUST use ZH label from category table |
@@ -307,25 +321,39 @@ Skill MUST analyze requirement content and pick the closest matching product fro
 
 ### Step 1 — Gather Inputs
 
-Collect requirement ID, change-point list, assignee, project/product, leads, and date range.
-If a prior planning skill produced output, read it now.
+Collect requirement ID, assignee, project/product, leads, and date range.
+Read the **product requirements document (PRD)** to identify all feature points.
+If a prior planning skill produced a development plan, read it now for implementation details.
 
 ### Step 2 — Decompose Tasks
 
-For each change point, create one or more atomic tasks:
-- Each task maps to exactly one category from the category table.
-- Task title: concise, action-oriented (e.g., "Add AR invoice list query API").
-- Task description: 1–2 sentences covering scope and acceptance criteria.
-- Avoid tasks larger than 24h — split into sub-tasks if needed.
+**Task titles come from the PRD feature points. Task descriptions come from the development plan.**
+
+For each feature point listed in the product requirements document:
+
+1. **Title**: Use the feature point name from the PRD as-is or with minimal rephrasing (e.g., PRD says "订单列表查询" → task title "订单列表查询"). The title must be directly traceable to a specific section/paragraph in the PRD — anyone reading the task title should immediately know which PRD feature it corresponds to.
+
+2. **Category**: Map the feature to exactly one category from the category table.
+
+3. **Description**: Based on the development plan, write a detailed description covering:
+   - Scope and acceptance criteria
+   - Implementation details: API changes, database changes, DTO/Entity modifications, config updates, etc.
+   - These implementation details go **in the description**, never as separate tasks.
+
+4. Follow the Granularity Rules above. Merge scaffolding/artifact tasks into their parent feature task.
+
+5. **24h total limit**: After estimating all tasks, check the total. If total exceeds 24h, this requirement must be split into multiple separate requirements (tickets). In the 风险与说明 section, explicitly state: "⚠️ 总工时 XXh 超过 24h，建议拆分为 N 个独立需求" with a proposed split plan.
 
 ### Step 3 — Estimate Effort
 
 For each task:
-1. Assess complexity (Low / Medium / High / Very High).
-2. Apply estimation heuristics from `references/estimation_guide.md`.
-3. Include self-test + integration overhead.
-4. Round to nearest 0.5h.
-5. If uncertainty >30%, flag in risk section.
+1. **Break down internally**: List the concrete implementation items for the task (API development, database changes, frontend page, unit tests, integration tests, etc.).
+2. **Estimate each item**: Apply estimation heuristics from `references/estimation_guide.md` per item (0.5h granularity for internal items).
+3. **Sum up**: Add all item estimates to get the task total. This is the task's 预估工时.
+4. **Round** the task total to nearest 0.5h. Minimum task total: 1h.
+5. Assess complexity (Low / Medium / High / Very High) based on the overall task.
+6. Include self-test + integration overhead in the item estimates.
+7. If uncertainty >30%, flag in risk section.
 
 ### Step 4 — Assign Priority
 

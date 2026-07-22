@@ -1,6 +1,6 @@
 {
   "name": "@along/ai-dev-workbench",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "AI-powered development workbench integrating requirements, coding, and testing",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
@@ -21,7 +21,7 @@
     "build": "pnpm run build:frontend && pnpm run build:backend && pnpm run build:bridge",
     "build:frontend": "vite build",
     "build:backend": "node -e \"const fs=require('fs');['dist/server','dist/cli'].forEach(d=>{try{fs.rmSync(d,{recursive:true})}catch{}})\" && tsc -p tsconfig.server.json",
-    "build:bridge": "node -e \"const fs=require('fs');const p=require('path');const d=p.join('dist','bridge');fs.mkdirSync(d,{recursive:true});fs.copyFileSync(p.join('src','bridge','claude-bridge.mjs'),p.join(d,'claude-bridge.mjs'));const t=p.join('dist','templates');fs.mkdirSync(t,{recursive:true});fs.copyFileSync(p.join('templates','task-split-effort-template.xlsx'),p.join(t,'task-split-effort-template.xlsx'));const sk=p.join('dist','skills');fs.mkdirSync(sk,{recursive:true});const src=p.join('skills');if(fs.existsSync(src)){for(const e of fs.readdirSync(src,{withFileTypes:true})){if(e.isDirectory()){const sDir=p.join(src,e.name);const dDir=p.join(sk,e.name);fs.mkdirSync(dDir,{recursive:true});const md=p.join(sDir,'SKILL.md');if(fs.existsSync(md))fs.copyFileSync(md,p.join(dDir,'SKILL.md'))}}}\"",
+    "build:bridge": "node -e \"const fs=require('fs');const p=require('path');function cpDir(src,dest){fs.mkdirSync(dest,{recursive:true});for(const e of fs.readdirSync(src,{withFileTypes:true})){const s=p.join(src,e.name),d=p.join(dest,e.name);e.isDirectory()?cpDir(s,d):fs.copyFileSync(s,d)}}const d=p.join('dist','bridge');fs.mkdirSync(d,{recursive:true});fs.copyFileSync(p.join('src','bridge','claude-bridge.mjs'),p.join(d,'claude-bridge.mjs'));const t=p.join('dist','templates');fs.mkdirSync(t,{recursive:true});fs.copyFileSync(p.join('templates','task-split-effort-template.xlsx'),p.join(t,'task-split-effort-template.xlsx'));const sk=p.join('dist','skills');const src=p.join('skills');if(fs.existsSync(src))cpDir(src,sk);\"",
     "dev": "concurrently -n fe,be -c blue,green \"vite\" \"tsx src/dev-server.ts\"",
     "dev:be": "tsx src/dev-server.ts",
     "start": "node dist/cli/index.js",
