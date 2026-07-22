@@ -19,6 +19,7 @@ const express_1 = require("express");
 const crypto_1 = __importDefault(require("crypto"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const os_1 = __importDefault(require("os"));
 const adm_zip_1 = __importDefault(require("adm-zip"));
 const xlsx_1 = __importDefault(require("xlsx"));
 const mcp_config_service_js_1 = require("../services/mcp-config-service.js");
@@ -1068,7 +1069,23 @@ ${planContent}
             };
             const rows = tasks.map((t, idx) => buildExportRow(t, idx + 1, headers, dropdowns, ctx));
             // 4. 直接 XML 注入到模板（保样式 + 下拉 + 主题）
-            const outputPath = req.body.outputPath?.trim() || path_1.default.join(require('os').homedir(), 'Desktop', `tasks-${plan.id.substring(0, 8)}.xlsx`);
+            const allowedRoots = [os_1.default.homedir()];
+            if (plan.workspacePath) {
+                allowedRoots.push(plan.workspacePath);
+            }
+            const requestedOutputPath = req.body.outputPath?.trim();
+            let outputPath;
+            if (requestedOutputPath) {
+                const outputCheck = (0, validation_js_1.validateOutputPath)(requestedOutputPath, allowedRoots);
+                if (!outputCheck.valid) {
+                    res.status(400).json({ code: 'VALIDATION_ERROR', message: outputCheck.error });
+                    return;
+                }
+                outputPath = outputCheck.path;
+            }
+            else {
+                outputPath = path_1.default.join(os_1.default.homedir(), 'Desktop', `tasks-${plan.id.substring(0, 8)}.xlsx`);
+            }
             injectTasksToTemplate(templatePath, outputPath, headers, rows);
             res.json({ success: true, path: outputPath, count: rows.length });
         }

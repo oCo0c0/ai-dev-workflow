@@ -10,92 +10,49 @@
 
 import {v4 as uuid} from 'uuid';
 import {join, dirname} from 'path';
-import {mkdir, writeFile, readFile, readdir} from 'fs/promises';
+import {mkdir, writeFile, readFile, readdir, unlink} from 'fs/promises';
 import {existsSync} from 'fs';
 import {APP_DATA_DIR} from '../utils/constants.js';
+import type {
+    ExecutionStep,
+    SubTask,
+    AgentThought,
+    AgentExecutionSummary,
+    AgentExecution,
+} from '../../types/agent-execution.js';
+
+/** 当执行步骤为空时，摘要中使用的默认总步数 */
+const DEFAULT_TOTAL_STEPS = 5;
 
 /**
- * 执行步骤
+ * 对从磁盘读取的对象做最小限度的结构校验。
+ * 不校验每个字段类型，仅确保关键字段存在且类型基本正确。
  */
-export interface ExecutionStep {
-    id: string;
-    title: string;
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    startedAt?: string;
-    completedAt?: string;
-    logs: string[];
-}
-
-/**
- * 子任务状态
- */
-export interface SubTask {
-    id: string;
-    title: string;
-    description?: string;
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    agent?: string;
-    startedAt?: string;
-    completedAt?: string;
-    output?: string;
-    error?: string;
-    order: number;
-}
-
-/**
- * Agent思考过程
- */
-export interface AgentThought {
-    type: 'analysis' | 'planning' | 'decision' | 'tool_selection' | 'error';
-    content: string;
-    timestamp: string;
-    confidence?: number;
-}
-
-/**
- * Agent执行摘要
- */
-export interface AgentExecutionSummary {
-    id: string;
-    requirementId: string;
-    requirementNumber?: string;
-    requirementTitle?: string;
-    workspacePath: string;
-    status: 'analyzing' | 'ready' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
-    createdAt: string;
-    updatedAt: string;
-    subTasksCount?: number;
-    completedSubTasks?: number;
-    currentStep?: number;
-    totalSteps?: number;
-}
-
-/**
- * 完整的Agent执行信息
- */
-export interface AgentExecution extends AgentExecutionSummary {
-    requirementText?: string;
-    thoughts: AgentThought[];
-    subTasks: SubTask[];
-    steps: ExecutionStep[];
-    logs: string[];
-    error?: string;
-    sessionId?: string;
+function isAgentExecution(value: unknown): value is AgentExecution {
+    if (typeof value !== 'object' || value === null) return false;
+    const obj = value as Record<string, unknown>;
+    return typeof obj.id === 'string'
+        && typeof obj.requirementId === 'string'
+        && typeof obj.workspacePath === 'string'
+        && typeof obj.status === 'string'
+        && Array.isArray(obj.thoughts)
+        && Array.isArray(obj.subTasks)
+        && Array.isArray(obj.steps)
+        && Array.isArray(obj.logs);
 }
 
 /**
  * Agent执行存储服务
+ *
+ * 注意：该类不应被外部直接实例化。请使用 {@link getAgentExecutionStore} 获取单例。
  */
 export class AgentExecutionStore {
     private basePath: string;
     /** 每个 executionId 的写操作队列，串行化读-改-写避免并发覆盖/读到截断文件 */
     private writeQueues = new Map<string, Promise<unknown>>();
 
-    constructor() {
+    private constructor() {
         this.basePath = join(APP_DATA_DIR, 'agent-executions');
-        if (!existsSync(this.basePath)) {
-            mkdir(this.basePath, {recursive: true});
-        }
     }
 
     /**
@@ -121,6 +78,20 @@ export class AgentExecutionStore {
     }
 
     /**
+     * 内部保存方法：直接写文件，调用方必须已经处于写队列中或确保串行。
+     */
+    private async saveInternal(execution: AgentExecution): Promise<void> {
+        const filePath = this.getExecutionPath(execution.id);
+        const dir = dirname(filePath);
+
+        // mkdir recursive 是幂等的，无需先 existsSync 检查
+        await mkdir(dir, {recursive: true});
+
+        execution.updatedAt = new Date().toISOString();
+        await writeFile(filePath, JSON.stringify(execution, null, 2), 'utf-8');
+    }
+
+    /**
      * 创建新执行记录
      */
     async create(data: Omit<AgentExecution, 'id' | 'createdAt' | 'updatedAt' | 'subTasks' | 'thoughts' | 'logs' | 'steps'>): Promise<AgentExecution> {
@@ -136,39 +107,30 @@ export class AgentExecutionStore {
             updatedAt: now,
         };
 
-        await this.save(execution);
+        await this.saveInternal(execution);
         return execution;
-    }
-
-    /**
-     * 保存执行记录（直接写文件，调用方需自行入队或确保串行）
-     */
-    async save(execution: AgentExecution): Promise<void> {
-        const path = this.getExecutionPath(execution.id);
-        const dir = dirname(path);
-
-        if (!existsSync(dir)) {
-            await mkdir(dir, {recursive: true});
-        }
-
-        execution.updatedAt = new Date().toISOString();
-        await writeFile(path, JSON.stringify(execution, null, 2), 'utf-8');
     }
 
     /**
      * 获取执行记录
      */
     async get(executionId: string): Promise<AgentExecution | null> {
-        const path = this.getExecutionPath(executionId);
+        const filePath = this.getExecutionPath(executionId);
 
-        if (!existsSync(path)) {
+        if (!existsSync(filePath)) {
             return null;
         }
 
         try {
-            const content = await readFile(path, 'utf-8');
-            return JSON.parse(content);
-        } catch {
+            const content = await readFile(filePath, 'utf-8');
+            const parsed = JSON.parse(content);
+            if (!isAgentExecution(parsed)) {
+                console.warn(`[agent-execution-store] Corrupted execution file: ${filePath}`);
+                return null;
+            }
+            return parsed;
+        } catch (err) {
+            console.warn(`[agent-execution-store] Failed to read execution ${executionId}: ${err instanceof Error ? err.message : err}`);
             return null;
         }
     }
@@ -188,15 +150,19 @@ export class AgentExecutionStore {
             for (const file of files) {
                 if (!file.endsWith('.json')) continue;
 
-                const path = join(this.basePath, file);
+                const filePath = join(this.basePath, file);
                 try {
-                    const content = await readFile(path, 'utf-8');
-                    const execution: AgentExecution = JSON.parse(content);
+                    const content = await readFile(filePath, 'utf-8');
+                    const execution = JSON.parse(content);
+                    if (!isAgentExecution(execution)) {
+                        console.warn(`[agent-execution-store] Skipping corrupted file: ${filePath}`);
+                        continue;
+                    }
 
                     const completedCount = execution.subTasks.filter(t => t.status === 'completed').length;
 
                     // 计算当前执行的步骤
-                    const totalSteps = execution.steps.length || 5; // 默认5步
+                    const totalSteps = execution.steps.length || DEFAULT_TOTAL_STEPS;
                     const currentStep = execution.steps.findIndex(s => s.status === 'running') + 1 ||
                         execution.steps.filter(s => s.status === 'completed').length + 1;
 
@@ -214,8 +180,8 @@ export class AgentExecutionStore {
                         currentStep,
                         totalSteps,
                     });
-                } catch {
-                    // 跳过损坏的文件
+                } catch (err) {
+                    console.warn(`[agent-execution-store] Failed to list file ${filePath}: ${err instanceof Error ? err.message : err}`);
                 }
             }
 
@@ -223,7 +189,8 @@ export class AgentExecutionStore {
             return executions.sort((a, b) =>
                 new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
             );
-        } catch {
+        } catch (err) {
+            console.warn(`[agent-execution-store] Failed to list executions: ${err instanceof Error ? err.message : err}`);
             return [];
         }
     }
@@ -232,18 +199,17 @@ export class AgentExecutionStore {
      * 删除执行记录
      */
     async delete(executionId: string): Promise<boolean> {
-        const path = this.getExecutionPath(executionId);
+        const filePath = this.getExecutionPath(executionId);
 
-        if (!existsSync(path)) {
+        if (!existsSync(filePath)) {
             return false;
         }
 
         try {
-            // 在Windows上使用del模块，在Unix上使用unlink
-            const {unlink} = await import('fs/promises');
-            await unlink(path);
+            await unlink(filePath);
             return true;
-        } catch {
+        } catch (err) {
+            console.warn(`[agent-execution-store] Failed to delete execution ${executionId}: ${err instanceof Error ? err.message : err}`);
             return false;
         }
     }
@@ -259,7 +225,32 @@ export class AgentExecutionStore {
             }
 
             execution.status = status;
-            await this.save(execution);
+            await this.saveInternal(execution);
+        });
+    }
+
+    /**
+     * 更新 sessionId，传 undefined 表示清空
+     */
+    async updateSessionId(executionId: string, sessionId: string | undefined): Promise<void> {
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+
+            execution.sessionId = sessionId;
+            await this.saveInternal(execution);
+        });
+    }
+
+    /**
+     * 更新整个执行记录（供 coordinator 等内部模块使用）。
+     * 写操作会进入队列以保证并发安全。
+     */
+    async updateFull(execution: AgentExecution): Promise<void> {
+        return this.enqueue(execution.id, async () => {
+            await this.saveInternal(execution);
         });
     }
 
@@ -274,7 +265,7 @@ export class AgentExecutionStore {
             }
 
             execution.thoughts.push(thought);
-            await this.save(execution);
+            await this.saveInternal(execution);
         });
     }
 
@@ -289,7 +280,7 @@ export class AgentExecutionStore {
             }
 
             execution.logs.push(log);
-            await this.save(execution);
+            await this.saveInternal(execution);
         });
     }
 
@@ -309,7 +300,7 @@ export class AgentExecutionStore {
             }
 
             Object.assign(subTask, updates);
-            await this.save(execution);
+            await this.saveInternal(execution);
         });
     }
 
@@ -324,7 +315,7 @@ export class AgentExecutionStore {
             }
 
             execution.subTasks = subTasks;
-            await this.save(execution);
+            await this.saveInternal(execution);
         });
     }
 
@@ -339,7 +330,7 @@ export class AgentExecutionStore {
             }
 
             execution.subTasks.push(subTask);
-            await this.save(execution);
+            await this.saveInternal(execution);
         });
     }
 
@@ -354,7 +345,7 @@ export class AgentExecutionStore {
             }
 
             execution.steps = steps;
-            await this.save(execution);
+            await this.saveInternal(execution);
         });
     }
 
@@ -374,17 +365,16 @@ export class AgentExecutionStore {
                 Object.assign(execution.steps[stepIndex], step);
             }
 
-            await this.save(execution);
+            await this.saveInternal(execution);
         });
     }
-}
 
-// 导出单例
-let storeInstance: AgentExecutionStore | null = null;
+    static #instance: AgentExecutionStore | null = null;
 
-export function getAgentExecutionStore(): AgentExecutionStore {
-    if (!storeInstance) {
-        storeInstance = new AgentExecutionStore();
+    static getInstance(): AgentExecutionStore {
+        if (!AgentExecutionStore.#instance) {
+            AgentExecutionStore.#instance = new AgentExecutionStore();
+        }
+        return AgentExecutionStore.#instance;
     }
-    return storeInstance;
 }

@@ -10,39 +10,6 @@
  *              - 执行完成后自动触发测试阶段（根据 Pipeline 配置）
  *              - 执行数据同时存储在内存（活跃执行）和文件持久化层
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -50,6 +17,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createExecutionRoutes = createExecutionRoutes;
 const express_1 = require("express");
 const crypto_1 = __importDefault(require("crypto"));
+const os_1 = __importDefault(require("os"));
 const validation_js_1 = require("../middleware/validation.js");
 const websocket_js_1 = require("../websocket.js");
 const plan_js_1 = require("./plan.js");
@@ -132,6 +100,7 @@ function buildSkillArgs(execution, plan, services) {
  * @param testExecutorService - 可选的测试执行器服务实例，用于执行完成后自动运行测试
  * @param memoryService
  * @param sandboxService
+ * @param workspaceService
  * @returns 配置好的 Express Router 实例
  *
  * @example
@@ -140,7 +109,7 @@ function buildSkillArgs(execution, plan, services) {
  * app.use('/api/execution', router);
  * ```
  */
-function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService) {
+function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService) {
     const persistStore = new execution_store_service_js_1.ExecutionStoreService();
     const planFileStore = new plan_store_service_js_1.PlanStoreService();
     const testPersistStore = new test_store_service_js_1.TestStoreService();
@@ -290,7 +259,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
                 });
                 finalizeRunResult(execution, result, persistStore, websocket_js_1.broadcast);
                 if (execution.status === 'completed' && plan.pipelineId && pipelineService && testExecutorService) {
-                    void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                    void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService, workspaceService);
                 }
             }
         }
@@ -400,7 +369,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             });
             finalizeRunResult(execution, result, persistStore, websocket_js_1.broadcast);
             if (execution.status === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
-                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService, workspaceService);
             }
         }
         catch (err) {
@@ -473,7 +442,7 @@ function createExecutionRoutes(cliRunnerService, pipelineService, testExecutorSe
             });
             finalizeRunResult(execution, result, persistStore, websocket_js_1.broadcast);
             if (execution.status === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
-                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService, workspaceService);
             }
         }
         catch (err) {
@@ -876,8 +845,9 @@ async function runNextExecutionSkill(execution, plan, opts, persistStore) {
  * @param testExecutorService - 测试执行器服务实例，用于运行已有测试
  * @param testPersistStore - 测试持久化存储服务实例，用于保存测试结果
  * @param sandboxService - 沙箱测试接入
+ * @param workspaceService - 工作区服务实例，用于获取 git 变更文件
  */
-async function triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService) {
+async function triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService, workspaceService) {
     const pipeline = pipelineService.get(plan.pipelineId);
     if (!pipeline?.steps)
         return;
@@ -892,28 +862,17 @@ async function triggerTestPhase(execution, plan, pipelineService, cliRunnerServi
     const testSkills = (phaseConfig && typeof phaseConfig === 'object' && 'mode' in phaseConfig && phaseConfig.mode === 'agent')
         ? undefined
         : phaseConfig;
-    // 如果配置了 changedFilesOnly，通过 git 命令获取变更文件列表
-    // 包含已修改、已暂存和未跟踪的新文件
+    // 如果配置了 changedFilesOnly，获取变更文件列表
     let changedFiles;
-    if (testStrategy.changedFilesOnly) {
-        try {
-            const { execSync } = await Promise.resolve().then(() => __importStar(require('child_process')));
-            const changed = new Set();
-            const run = (cmd) => {
-                try {
-                    const output = execSync(cmd, { cwd: plan.workspacePath, encoding: 'utf-8', timeout: 10000 });
-                    output.split('\n').map(f => f.trim()).filter(Boolean).forEach(f => changed.add(f));
-                }
-                catch {
-                }
-            };
-            run('git diff --name-only HEAD');
-            run('git diff --cached --name-only');
-            run('git ls-files --others --exclude-standard');
-            changedFiles = [...changed];
-        }
-        catch {
-            // git 命令失败时忽略，跑全量测试
+    if (testStrategy.changedFilesOnly && plan.workspacePath && workspaceService) {
+        const wsCheck = (0, validation_js_1.validateWorkspacePath)(plan.workspacePath, [os_1.default.homedir()]);
+        if (wsCheck.valid) {
+            try {
+                changedFiles = await workspaceService.getChangedFiles(wsCheck.path);
+            }
+            catch {
+                changedFiles = [];
+            }
         }
     }
     if (testStrategy.mode === 'run_existing') {

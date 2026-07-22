@@ -25,6 +25,9 @@ exports.resolveSkills = resolveSkills;
 exports.getPhaseSkills = getPhaseSkills;
 exports.getPhaseMcpServers = getPhaseMcpServers;
 exports.resolveMcpServerMap = resolveMcpServerMap;
+exports.findSkillMdFile = findSkillMdFile;
+const fs_1 = require("fs");
+const path_1 = require("path");
 /**
  * 将 SkillSetConfig 配置对象解析为 Claude Bridge 可直接使用的技能参数。
  *
@@ -135,5 +138,27 @@ function resolveMcpServerMap(names, mcpService) {
         }
     }
     return { map: Object.keys(map).length > 0 ? map : undefined, missing };
+}
+/**
+ * 在技能子目录中查找主 .md 文件。
+ * 优先 SKILL.md > index.md > 第一个 .md 文件。
+ */
+function findSkillMdFile(dirPath) {
+    try {
+        const files = (0, fs_1.readdirSync)(dirPath);
+        const skillMd = files.find(f => f === 'SKILL.md');
+        if (skillMd)
+            return (0, path_1.join)(dirPath, skillMd);
+        const indexMd = files.find(f => f === 'index.md');
+        if (indexMd)
+            return (0, path_1.join)(dirPath, indexMd);
+        const firstMd = files.find(f => f.endsWith('.md'));
+        if (firstMd)
+            return (0, path_1.join)(dirPath, firstMd);
+        return null;
+    }
+    catch {
+        return null;
+    }
 }
 //# sourceMappingURL=skill-utils.js.map

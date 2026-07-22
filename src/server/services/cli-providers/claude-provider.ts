@@ -13,6 +13,7 @@ import fs from 'fs';
 import os from 'os';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {extractDescription} from '../../utils/markdown-utils.js';
+import {findSkillMdFile} from '../../utils/skill-utils.js';
 import type {
     CLIProvider,
     CLIProviderInput,
@@ -430,22 +431,6 @@ export class ClaudeProvider implements CLIProvider {
                 });
                 break;
         }
-    }
-}
-
-/** 在技能子目录中查找主 .md 文件 */
-function findSkillMdFile(dirPath: string): string | null {
-    try {
-        const files = fs.readdirSync(dirPath);
-        const skillMd = files.find(f => f === 'SKILL.md');
-        if (skillMd) return path.join(dirPath, skillMd);
-        const indexMd = files.find(f => f === 'index.md');
-        if (indexMd) return path.join(dirPath, indexMd);
-        const firstMd = files.find(f => f.endsWith('.md'));
-        if (firstMd) return path.join(dirPath, firstMd);
-        return null;
-    } catch {
-        return null;
     }
 }
 

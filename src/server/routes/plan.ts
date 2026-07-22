@@ -13,13 +13,14 @@ import {Router} from 'express';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import AdmZip from 'adm-zip';
 import XLSX from 'xlsx';
 import {CLIRunnerService} from '../services/cli-runner-service.js';
 import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {MCPConfigService} from '../services/mcp-config-service.js';
 import {PipelineService} from '../services/pipeline-service.js';
-import {validateBody, validateWorkspacePath} from '../middleware/validation.js';
+import {validateBody, validateWorkspacePath, validateOutputPath} from '../middleware/validation.js';
 import {broadcast} from '../websocket.js';
 import {PlanStoreService, type PersistedPlan} from '../services/plan-store-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
@@ -1311,7 +1312,22 @@ ${planContent}
             const rows: Record<string, unknown>[] = tasks.map((t, idx) => buildExportRow(t, idx + 1, headers, dropdowns, ctx));
 
             // 4. 直接 XML 注入到模板（保样式 + 下拉 + 主题）
-            const outputPath = (req.body.outputPath as string)?.trim() || path.join(require('os').homedir(), 'Desktop', `tasks-${plan.id.substring(0, 8)}.xlsx`);
+            const allowedRoots = [os.homedir()];
+            if (plan.workspacePath) {
+                allowedRoots.push(plan.workspacePath);
+            }
+            const requestedOutputPath = (req.body.outputPath as string)?.trim();
+            let outputPath: string;
+            if (requestedOutputPath) {
+                const outputCheck = validateOutputPath(requestedOutputPath, allowedRoots);
+                if (!outputCheck.valid) {
+                    res.status(400).json({code: 'VALIDATION_ERROR', message: outputCheck.error});
+                    return;
+                }
+                outputPath = outputCheck.path!;
+            } else {
+                outputPath = path.join(os.homedir(), 'Desktop', `tasks-${plan.id.substring(0, 8)}.xlsx`);
+            }
             injectTasksToTemplate(templatePath, outputPath, headers, rows);
 
             res.json({success: true, path: outputPath, count: rows.length});

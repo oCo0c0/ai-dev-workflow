@@ -9,9 +9,12 @@ import {Daytona, Sandbox, SandboxState} from '@daytona/sdk';
 import {execSync} from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import type {AppConfig} from './config-service.js';
 import {DAYTONA_DEFAULTS, TIMEOUTS} from '../utils/constants.js';
 import {getErrorMessage} from '../utils/error-utils.js';
+import {validateWorkspacePath} from '../middleware/validation.js';
+
+/** 禁止出现在沙箱命令中的 shell 元字符 */
+const SHELL_METACHARACTERS = /[;|&$()<>\`"']/;
 
 /** Daytona 沙箱配置（从 AppConfig['daytona'] 提取） */
 export interface DaytonaConfig {
@@ -144,6 +147,10 @@ export class SandboxService {
         env?: Record<string, string>,
         sandboxId?: string,
     ): Promise<SandboxExecResult | null> {
+        if (SHELL_METACHARACTERS.test(command)) {
+            throw new Error('Sandbox command contains invalid shell characters');
+        }
+
         const sandbox = await this.getSandbox(workspacePath, sandboxId);
         if (!sandbox) return null;
 
@@ -177,30 +184,37 @@ export class SandboxService {
      * @returns 是否同步成功
      */
     async syncChangedFiles(localPath: string, sandboxId?: string): Promise<boolean> {
-        const sandbox = await this.getSandbox(localPath, sandboxId);
+        // 校验本地路径：禁止路径遍历，且必须位于用户主目录下
+        const wsCheck = validateWorkspacePath(localPath, [require('os').homedir()]);
+        if (!wsCheck.valid) {
+            console.error(`[sandbox] Invalid localPath for sync: ${wsCheck.error}`);
+            return false;
+        }
+        const safeLocalPath = wsCheck.path!;
+
+        const sandbox = await this.getSandbox(safeLocalPath, sandboxId);
         if (!sandbox) return false;
 
         try {
             // 获取变更文件列表：git 索引中的所有文件 + 未跟踪的新文件
-            let filesToSync: string[] = [];
+            let filesToSync: string[];
             try {
-                const tracked = execSync('git ls-files', {cwd: localPath, encoding: 'utf-8'}).trim();
+                const tracked = execSync('git ls-files', {cwd: safeLocalPath, encoding: 'utf-8'}).trim();
                 const untracked = execSync('git ls-files --others --exclude-standard', {
-                    cwd: localPath,
+                    cwd: safeLocalPath,
                     encoding: 'utf-8'
                 }).trim();
-                const allFiles = [...tracked.split('\n'), ...untracked.split('\n')]
+                filesToSync = [...tracked.split('\n'), ...untracked.split('\n')]
                     .map(f => f.trim())
                     .filter(f => f.length > 0);
-                filesToSync = allFiles;
             } catch {
                 // 无 git 仓库，尝试获取最近修改的文件
-                console.warn(`[sandbox] Not a git repo, falling back to recent file scan: ${localPath}`);
-                filesToSync = this.getRecentFiles(localPath);
+                console.warn(`[sandbox] Not a git repo, falling back to recent file scan: ${safeLocalPath}`);
+                filesToSync = this.getRecentFiles(safeLocalPath);
             }
 
             if (filesToSync.length === 0) {
-                console.warn(`[sandbox] No files to sync from ${localPath}`);
+                console.warn(`[sandbox] No files to sync from ${safeLocalPath}`);
                 return true;
             }
 
@@ -210,11 +224,11 @@ export class SandboxService {
                 const batch = filesToSync.slice(i, i + BATCH_SIZE);
                 const uploads = batch
                     .filter(f => {
-                        const fullPath = path.join(localPath, f);
+                        const fullPath = path.join(safeLocalPath, f);
                         return fs.existsSync(fullPath) && fs.statSync(fullPath).isFile();
                     })
                     .map(f => ({
-                        source: path.join(localPath, f),
+                        source: path.join(safeLocalPath, f),
                         destination: `/workspace/${f}`,
                     }));
 
@@ -270,7 +284,7 @@ export class SandboxService {
         if (!this.isEnabled() || !this.client) return [];
 
         try {
-            const iterator = await this.client.list();
+            const iterator = this.client.list();
             const items: Sandbox[] = [];
             for await (const s of iterator) items.push(s);
             return items
@@ -279,7 +293,7 @@ export class SandboxService {
                     id: s.id,
                     name: s.name ?? '',
                     state: s.state ?? 'unknown',
-                    workspacePath: s.labels?.['aiwb-workspace'] ?? '',
+                    workspacePath: s.labels?.['airbag-workspace'] ?? '',
                 }));
         } catch {
             return [];

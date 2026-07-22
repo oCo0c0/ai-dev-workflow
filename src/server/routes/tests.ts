@@ -15,9 +15,11 @@
 
 import {Router} from 'express';
 import crypto from 'crypto';
+import os from 'os';
+import path from 'path';
 import {TestExecutorService} from '../services/test-executor-service.js';
 import {TestStoreService, type PersistedTestRun} from '../services/test-store-service.js';
-import {validateBody} from '../middleware/validation.js';
+import {validateBody, validateWorkspacePath, validateShellSafeInput} from '../middleware/validation.js';
 import {broadcast} from '../websocket.js';
 import type {CLIRunnerService} from '../services/cli-runner-service.js';
 import type {SkillsService} from '../services/skills-service.js';
@@ -25,6 +27,7 @@ import type {MemoryService} from '../services/memory/memory-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import type {SandboxService} from '../services/sandbox-service.js';
+import type {WorkspaceService} from '../services/workspace-service.js';
 import type {TestPhaseRecord} from '../services/test-store-service.js';
 
 // === 活跃测试运行的内存存储 ===
@@ -92,7 +95,8 @@ export function createTestRoutes(
     cliRunnerService?: CLIRunnerService,
     skillsService?: SkillsService,
     memoryService?: MemoryService,
-    sandboxService?: SandboxService
+    sandboxService?: SandboxService,
+    workspaceService?: WorkspaceService
 ): Router {
     const persistStore = new TestStoreService();
     const router = Router();
@@ -273,6 +277,41 @@ export function createTestRoutes(
             skills: requestSkills, customPrompt,
             environment, sandboxId,
         } = req.body;
+
+        // 工作区路径基础校验：禁止路径遍历，且必须位于用户主目录下
+        const wsCheck = validateWorkspacePath(workspacePath as string, [os.homedir()]);
+        if (!wsCheck.valid) {
+            res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
+            return;
+        }
+
+        // 自定义命令安全校验
+        let safeCommand: string | undefined;
+        if (command !== undefined && command !== null && command !== '') {
+            try {
+                safeCommand = validateShellSafeInput(command, 'command');
+            } catch (err) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: getErrorMessage(err)});
+                return;
+            }
+        }
+
+        // 变更文件列表安全校验
+        let safeChangedFiles: string[] | undefined;
+        if (changedFiles !== undefined && changedFiles !== null) {
+            if (!Array.isArray(changedFiles) || changedFiles.some((f: unknown) => typeof f !== 'string')) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'changedFiles must be an array of strings'});
+                return;
+            }
+            for (const f of changedFiles as string[]) {
+                if (f.includes('..') || path.isAbsolute(f)) {
+                    res.status(400).json({code: 'VALIDATION_ERROR', message: 'changedFiles contains invalid path'});
+                    return;
+                }
+            }
+            safeChangedFiles = changedFiles as string[];
+        }
+
         const taskId = crypto.randomUUID();
         const abortController = new AbortController();
         const resolvedMode = requestMode || 'run_existing';
@@ -284,12 +323,12 @@ export function createTestRoutes(
                 : resolvedMode === 'ai_generate_e2e' ? 'manual_ai_generate_e2e'
                     : (executionId ? 'pipeline_run_existing' : 'manual'),
             framework,
-            workspacePath,
+            workspacePath: wsCheck.path!,
             startedAt: new Date().toISOString(),
             executionId,
             planId,
             pipelineId,
-            changedFiles,
+            changedFiles: safeChangedFiles,
             abortController,
             environment: environment || 'local',
             sandboxId,
@@ -304,13 +343,13 @@ export function createTestRoutes(
 
         if (resolvedMode === 'ai_generate') {
             // --- AI 生成模式：Claude 分析代码、编写测试、运行并报告 ---
-            await handleAiGenerateMode(run, workspacePath, requestSkills, customPrompt, environment, sandboxId);
+            await handleAiGenerateMode(run, wsCheck.path!, requestSkills, customPrompt, environment, sandboxId);
         } else if (resolvedMode === 'ai_generate_e2e') {
             // --- AI E2E 模式：两阶段（生成 Playwright 文件 → Provider 执行） ---
-            await handleAiE2EMode(run, workspacePath, requestSkills, customPrompt);
+            await handleAiE2EMode(run, wsCheck.path!, requestSkills, customPrompt);
         } else {
             // --- 运行已有测试（默认，保持原有逻辑不变） ---
-            await handleRunExistingMode(run, workspacePath, framework, command, changedFiles);
+            await handleRunExistingMode(run, wsCheck.path!, framework, safeCommand, safeChangedFiles);
         }
     });
 
@@ -322,12 +361,28 @@ export function createTestRoutes(
      * - git diff --cached --name-only: 已暂存但未提交的文件
      */
     async function getChangedFiles(workspacePath: string, existingChangedFiles?: string[]): Promise<string[]> {
+        // 工作区路径基础校验：禁止路径遍历，且必须位于用户主目录下
+        const wsCheck = validateWorkspacePath(workspacePath, [os.homedir()]);
+        if (!wsCheck.valid) {
+            return [];
+        }
+        const safeWorkspacePath = wsCheck.path!;
+
         // 前端已传入变更文件列表
         if (existingChangedFiles && existingChangedFiles.length > 0) {
             return existingChangedFiles;
         }
 
-        // 自动通过 git 获取变更文件
+        // 优先使用 WorkspaceService 统一获取变更文件
+        if (workspaceService) {
+            try {
+                return await workspaceService.getChangedFiles(safeWorkspacePath);
+            } catch {
+                return [];
+            }
+        }
+
+        // 回退：本地直接执行 git 命令
         try {
             const {execSync} = await import('child_process');
             const changed = new Set<string>();
@@ -335,7 +390,7 @@ export function createTestRoutes(
             const run = (cmd: string) => {
                 try {
                     const output = execSync(cmd, {
-                        cwd: workspacePath,
+                        cwd: safeWorkspacePath,
                         encoding: 'utf-8',
                         timeout: 10000,
                     });

@@ -18,6 +18,7 @@ import type { CLIRunnerService } from '../services/cli-runner-service.js';
 import type { SkillsService } from '../services/skills-service.js';
 import type { MemoryService } from '../services/memory/memory-service.js';
 import type { SandboxService } from '../services/sandbox-service.js';
+import type { WorkspaceService } from '../services/workspace-service.js';
 /**
  * 创建测试管理路由
  * @param testExecutorService - 测试执行器服务（必需）
@@ -26,5 +27,5 @@ import type { SandboxService } from '../services/sandbox-service.js';
  * @param memoryService
  * @param sandboxService
  */
-export declare function createTestRoutes(testExecutorService: TestExecutorService, cliRunnerService?: CLIRunnerService, skillsService?: SkillsService, memoryService?: MemoryService, sandboxService?: SandboxService): Router;
+export declare function createTestRoutes(testExecutorService: TestExecutorService, cliRunnerService?: CLIRunnerService, skillsService?: SkillsService, memoryService?: MemoryService, sandboxService?: SandboxService, workspaceService?: WorkspaceService): Router;
 //# sourceMappingURL=tests.d.ts.map

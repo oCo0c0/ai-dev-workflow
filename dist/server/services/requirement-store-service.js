@@ -109,8 +109,13 @@ class RequirementStoreService {
     }
     /** 获取本地图片文件路径，不存在返回 null */
     getImagePath(reqId, filename) {
-        const imgDir = this.getImageDir(reqId);
-        const filePath = path_1.default.join(imgDir, filename);
+        // 清理 ID 和文件名中的路径分隔符/遍历片段
+        const safeReqId = reqId.replace(/[\\/]/g, '-').replace(/\.{2,}/g, '');
+        const safeFilename = filename.replace(/[\\/]/g, '-').replace(/\.{2,}/g, '');
+        if (!safeReqId || !safeFilename)
+            return null;
+        const imgDir = this.getImageDir(safeReqId);
+        const filePath = path_1.default.join(imgDir, safeFilename);
         // 路径安全检查
         if (!filePath.startsWith(this.rootDir))
             return null;

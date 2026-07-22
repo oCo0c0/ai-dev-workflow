@@ -23,6 +23,8 @@
 import type {SkillSetConfig, PhaseToolsConfig, MCPToolSetConfig} from '../services/pipeline-service.js';
 import type {MCPConfigService} from '../services/mcp-config-service.js';
 import type {McpStdioMap} from '../services/cli-providers/types.js';
+import {readdirSync} from 'fs';
+import {join} from 'path';
 
 /**
  * 将 SkillSetConfig 配置对象解析为 Claude Bridge 可直接使用的技能参数。
@@ -158,4 +160,23 @@ export function resolveMcpServerMap(
         }
     }
     return {map: Object.keys(map).length > 0 ? map : undefined, missing};
+}
+
+/**
+ * 在技能子目录中查找主 .md 文件。
+ * 优先 SKILL.md > index.md > 第一个 .md 文件。
+ */
+export function findSkillMdFile(dirPath: string): string | null {
+    try {
+        const files = readdirSync(dirPath);
+        const skillMd = files.find(f => f === 'SKILL.md');
+        if (skillMd) return join(dirPath, skillMd);
+        const indexMd = files.find(f => f === 'index.md');
+        if (indexMd) return join(dirPath, indexMd);
+        const firstMd = files.find(f => f.endsWith('.md'));
+        if (firstMd) return join(dirPath, firstMd);
+        return null;
+    } catch {
+        return null;
+    }
 }

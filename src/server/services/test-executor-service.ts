@@ -283,12 +283,37 @@ export class TestExecutorService {
     // === 私有方法 ===
 
     /**
-     * 将命令字符串解析为命令和参数数组
+     * 将命令字符串解析为命令和参数数组。
+     * 支持简单单/双引号包裹的参数，避免空格分割破坏带空格的参数值。
      */
     private parseCommand(command: string): { cmd: string; args: string[] } {
-        const parts = command.split(/\s+/);
-        const cmd = parts[0];
-        const args = parts.slice(1);
+        const args: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        let quoteChar = '';
+
+        for (let i = 0; i < command.length; i++) {
+            const ch = command[i];
+            if (!inQuotes && (ch === '"' || ch === "'")) {
+                inQuotes = true;
+                quoteChar = ch;
+            } else if (inQuotes && ch === quoteChar) {
+                inQuotes = false;
+                quoteChar = '';
+            } else if (!inQuotes && /\s/.test(ch)) {
+                if (current !== '') {
+                    args.push(current);
+                    current = '';
+                }
+            } else {
+                current += ch;
+            }
+        }
+        if (current !== '') {
+            args.push(current);
+        }
+
+        const cmd = args.shift() || '';
         return {cmd, args};
     }
 
@@ -316,7 +341,9 @@ export class TestExecutorService {
                     cwd,
                     env: {...process.env, FORCE_COLOR: '0', CI: 'true'},
                     stdio: ['pipe', 'pipe', 'pipe'],
-                    shell: true,
+                    // Windows 平台部分命令（如 .cmd/.bat）需要通过 shell 解析；
+                    // 非 Windows 平台使用参数数组直接执行，避免 shell 注入。
+                    shell: process.platform === 'win32',
                 });
             } catch (err) {
                 reject(new Error(`Failed to spawn test command "${cmd}": ${getErrorMessage(err)}`));

@@ -53,6 +53,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createTestRoutes = createTestRoutes;
 const express_1 = require("express");
 const crypto_1 = __importDefault(require("crypto"));
+const os_1 = __importDefault(require("os"));
+const path_1 = __importDefault(require("path"));
 const test_store_service_js_1 = require("../services/test-store-service.js");
 const validation_js_1 = require("../middleware/validation.js");
 const websocket_js_1 = require("../websocket.js");
@@ -70,7 +72,7 @@ const activeRuns = new Map();
  * @param memoryService
  * @param sandboxService
  */
-function createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService) {
+function createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService) {
     const persistStore = new test_store_service_js_1.TestStoreService();
     const router = (0, express_1.Router)();
     /**
@@ -238,6 +240,38 @@ function createTestRoutes(testExecutorService, cliRunnerService, skillsService, 
         { field: 'workspacePath', required: true, type: 'string' },
     ]), async (req, res) => {
         const { framework, command, workspacePath, mode: requestMode, executionId, planId, pipelineId, changedFiles, skills: requestSkills, customPrompt, environment, sandboxId, } = req.body;
+        // 工作区路径基础校验：禁止路径遍历，且必须位于用户主目录下
+        const wsCheck = (0, validation_js_1.validateWorkspacePath)(workspacePath, [os_1.default.homedir()]);
+        if (!wsCheck.valid) {
+            res.status(400).json({ code: 'VALIDATION_ERROR', message: wsCheck.error });
+            return;
+        }
+        // 自定义命令安全校验
+        let safeCommand;
+        if (command !== undefined && command !== null && command !== '') {
+            try {
+                safeCommand = (0, validation_js_1.validateShellSafeInput)(command, 'command');
+            }
+            catch (err) {
+                res.status(400).json({ code: 'VALIDATION_ERROR', message: (0, error_utils_js_1.getErrorMessage)(err) });
+                return;
+            }
+        }
+        // 变更文件列表安全校验
+        let safeChangedFiles;
+        if (changedFiles !== undefined && changedFiles !== null) {
+            if (!Array.isArray(changedFiles) || changedFiles.some((f) => typeof f !== 'string')) {
+                res.status(400).json({ code: 'VALIDATION_ERROR', message: 'changedFiles must be an array of strings' });
+                return;
+            }
+            for (const f of changedFiles) {
+                if (f.includes('..') || path_1.default.isAbsolute(f)) {
+                    res.status(400).json({ code: 'VALIDATION_ERROR', message: 'changedFiles contains invalid path' });
+                    return;
+                }
+            }
+            safeChangedFiles = changedFiles;
+        }
         const taskId = crypto_1.default.randomUUID();
         const abortController = new AbortController();
         const resolvedMode = requestMode || 'run_existing';
@@ -248,12 +282,12 @@ function createTestRoutes(testExecutorService, cliRunnerService, skillsService, 
                 : resolvedMode === 'ai_generate_e2e' ? 'manual_ai_generate_e2e'
                     : (executionId ? 'pipeline_run_existing' : 'manual'),
             framework,
-            workspacePath,
+            workspacePath: wsCheck.path,
             startedAt: new Date().toISOString(),
             executionId,
             planId,
             pipelineId,
-            changedFiles,
+            changedFiles: safeChangedFiles,
             abortController,
             environment: environment || 'local',
             sandboxId,
@@ -265,15 +299,15 @@ function createTestRoutes(testExecutorService, cliRunnerService, skillsService, 
         // === 模式分流 ===
         if (resolvedMode === 'ai_generate') {
             // --- AI 生成模式：Claude 分析代码、编写测试、运行并报告 ---
-            await handleAiGenerateMode(run, workspacePath, requestSkills, customPrompt, environment, sandboxId);
+            await handleAiGenerateMode(run, wsCheck.path, requestSkills, customPrompt, environment, sandboxId);
         }
         else if (resolvedMode === 'ai_generate_e2e') {
             // --- AI E2E 模式：两阶段（生成 Playwright 文件 → Provider 执行） ---
-            await handleAiE2EMode(run, workspacePath, requestSkills, customPrompt);
+            await handleAiE2EMode(run, wsCheck.path, requestSkills, customPrompt);
         }
         else {
             // --- 运行已有测试（默认，保持原有逻辑不变） ---
-            await handleRunExistingMode(run, workspacePath, framework, command, changedFiles);
+            await handleRunExistingMode(run, wsCheck.path, framework, safeCommand, safeChangedFiles);
         }
     });
     /**
@@ -284,18 +318,33 @@ function createTestRoutes(testExecutorService, cliRunnerService, skillsService, 
      * - git diff --cached --name-only: 已暂存但未提交的文件
      */
     async function getChangedFiles(workspacePath, existingChangedFiles) {
+        // 工作区路径基础校验：禁止路径遍历，且必须位于用户主目录下
+        const wsCheck = (0, validation_js_1.validateWorkspacePath)(workspacePath, [os_1.default.homedir()]);
+        if (!wsCheck.valid) {
+            return [];
+        }
+        const safeWorkspacePath = wsCheck.path;
         // 前端已传入变更文件列表
         if (existingChangedFiles && existingChangedFiles.length > 0) {
             return existingChangedFiles;
         }
-        // 自动通过 git 获取变更文件
+        // 优先使用 WorkspaceService 统一获取变更文件
+        if (workspaceService) {
+            try {
+                return await workspaceService.getChangedFiles(safeWorkspacePath);
+            }
+            catch {
+                return [];
+            }
+        }
+        // 回退：本地直接执行 git 命令
         try {
             const { execSync } = await Promise.resolve().then(() => __importStar(require('child_process')));
             const changed = new Set();
             const run = (cmd) => {
                 try {
                     const output = execSync(cmd, {
-                        cwd: workspacePath,
+                        cwd: safeWorkspacePath,
                         encoding: 'utf-8',
                         timeout: 10000,
                     });

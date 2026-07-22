@@ -268,6 +268,14 @@ export declare class WorkspaceService {
      * @returns {Promise<GitDiffResult>} 差异结果，包含 diff 内容及增删行数统计
      */
     gitDiff(workspacePath: string, filePath?: string): Promise<GitDiffResult>;
+    /**
+     * 获取工作区中的 git 变更文件列表。
+     * 包含已跟踪文件的修改/删除、已暂存文件、未跟踪的新文件。
+     *
+     * @param workspacePath - 工作区路径
+     * @returns 变更文件相对路径列表（无 git 仓库时返回空数组）
+     */
+    getChangedFiles(workspacePath: string): Promise<string[]>;
     gitBranchList(workspacePath: string): Promise<GitBranchListResult>;
     gitCheckout(workspacePath: string, branch: string): Promise<GitCheckoutResult>;
     gitStash(workspacePath: string, message?: string): Promise<GitStashResult>;

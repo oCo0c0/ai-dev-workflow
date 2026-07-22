@@ -55,15 +55,6 @@ export declare class SkillsService {
      */
     private ensureCommandsDir;
     /**
-     * 从技能文件内容中提取描述信息
-     * @description 优先使用第一个非空的非标题行作为描述；
-     *   如果第一个有意义的行就是 Markdown 标题，则使用标题文本。
-     *   描述文本超过 100 个字符时自动截断并添加省略号。
-     * @param content - 技能的 Markdown 文件内容
-     * @returns 提取的描述文本，无法提取时返回空字符串
-     */
-    private extractDescription;
-    /**
      * 从文件名推导技能名称
      * @description 移除 .md 文件扩展名，得到技能名称
      * @param filename - 文件名（如 "my-skill.md"）
@@ -79,12 +70,7 @@ export declare class SkillsService {
      * @returns 合并后的技能列表
      */
     list(): Skill[];
-    /**
-     * 在技能子目录中查找主要的 .md 文件
-     * @description 优先查找 SKILL.md（Claude Code 标准入口），其次 index.md，再次第一个 .md 文件
-     * @param dirPath - 技能子目录的完整路径
-     * @returns 找到的 .md 文件完整路径，未找到时返回 null
-     */
+    /** 委托到 skill-utils.findSkillMdFile */
     private findSkillMdFile;
     /**
      * 获取指定技能的完整详情（包括内容）

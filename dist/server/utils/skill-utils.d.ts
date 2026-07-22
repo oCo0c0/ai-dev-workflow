@@ -99,4 +99,9 @@ export declare function resolveMcpServerMap(names: string[] | undefined, mcpServ
     map: McpStdioMap | undefined;
     missing: string[];
 };
+/**
+ * 在技能子目录中查找主 .md 文件。
+ * 优先 SKILL.md > index.md > 第一个 .md 文件。
+ */
+export declare function findSkillMdFile(dirPath: string): string | null;
 //# sourceMappingURL=skill-utils.d.ts.map

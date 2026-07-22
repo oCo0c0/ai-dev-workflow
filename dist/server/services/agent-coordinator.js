@@ -16,7 +16,7 @@ const STEP_TOOLS = new Set([
     'Workflow', 'Skill', 'CronCreate', 'CronDelete',
 ]);
 class AgentCoordinator {
-    store = (0, agent_execution_store_js_1.getAgentExecutionStore)();
+    store = agent_execution_store_js_1.AgentExecutionStore.getInstance();
     abortControllers = new Map();
     config;
     constructor(config) {
@@ -96,7 +96,7 @@ class AgentCoordinator {
                 const exec = await this.store.get(executionId);
                 if (exec) {
                     exec.sessionId = result.sessionId;
-                    await this.store.save(exec);
+                    await this.store.updateFull(exec);
                 }
             }
             if (result.aborted) {

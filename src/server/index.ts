@@ -69,14 +69,9 @@ import {createAgentExecutionRoutes} from './routes/agent-execution.js';
 export async function createServer(port: number): Promise<http.Server> {
     const app = express();
 
-    // 全局中间件
-    app.use(cors());
-    app.use(express.json({limit: '50mb'}));
-    app.use(requestLogger);
-
-    // 加载应用配置（必须在服务实例化之前）
+    // 加载应用配置（必须在中间件和服务实例化之前）
     const configService = new ConfigService();
-    let config;
+    let config: import('./services/config-service.js').AppConfig;
     try {
         config = configService.load();
         console.log(`[config] loaded from ${configService.getConfigFile()}`);
@@ -84,6 +79,38 @@ export async function createServer(port: number): Promise<http.Server> {
         console.warn(`[config] failed to load config, using defaults: ${err instanceof Error ? err.message : err}`);
         config = configService.getDefaultConfig();
     }
+
+    // 可选的 API Key 认证：仅在配置中显式设置时启用，避免默认锁定本地开发
+    if (config.auth?.apiKey) {
+        app.use((req, res, next) => {
+            if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
+                const provided = req.headers['x-api-key'] || req.query.apiKey;
+                if (provided !== config.auth!.apiKey) {
+                    res.status(401).json({code: 'UNAUTHORIZED', message: 'Invalid or missing API key'});
+                    return;
+                }
+            }
+            next();
+        });
+    }
+
+    // 全局中间件
+    if (config.security?.corsOrigin) {
+        app.use(cors({origin: config.security.corsOrigin, credentials: true}));
+    } else {
+        app.use(cors());
+    }
+    app.use(express.json({limit: config.security?.maxRequestSize ?? '50mb'}));
+
+    // 基础安全响应头
+    app.use((_req, res, next) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('X-XSS-Protection', '1; mode=block');
+        next();
+    });
+
+    app.use(requestLogger);
 
     // 实例化业务服务
     const mcpConfigService = new MCPConfigService();
@@ -165,8 +192,8 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/requirements', createRequirementsRoutes(mcpBridgeService, requirementStore, mineruService));
     app.use('/api/workspace', createWorkspaceRoutes(workspaceService));
     app.use('/api/plan', createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
-    app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService));
-    app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService));
+    app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService));
+    app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService));
     app.use('/api/skills', createSkillsRoutes(skillsService, cliRunnerService));
     app.use('/api/mcp-servers', createMCPServersRoutes(mcpConfigService, cliRunnerService));
     app.use('/api/pipelines', createPipelineRoutes(pipelineService));
@@ -211,8 +238,9 @@ export async function createServer(port: number): Promise<http.Server> {
     setupWebSocket(server);
 
     // 开始监听
+    const host = config.server?.host ?? '127.0.0.1';
     return new Promise((resolve) => {
-        server.listen(port, '0.0.0.0', () => {
+        server.listen(port, host, () => {
             // graceful shutdown: 清理 Daytona 沙箱
             const cleanup = async () => {
                 await taskScheduler.dispose();

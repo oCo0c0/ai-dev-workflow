@@ -15,6 +15,7 @@ import { PipelineService } from '../services/pipeline-service.js';
 import { TestExecutorService } from '../services/test-executor-service.js';
 import type { MemoryService } from '../services/memory/memory-service.js';
 import type { SandboxService } from '../services/sandbox-service.js';
+import type { WorkspaceService } from '../services/workspace-service.js';
 /**
  * 创建执行管理路由
  * @param cliRunnerService - CLI 运行器服务实例，用于调用 Claude CLI 执行代码
@@ -22,6 +23,7 @@ import type { SandboxService } from '../services/sandbox-service.js';
  * @param testExecutorService - 可选的测试执行器服务实例，用于执行完成后自动运行测试
  * @param memoryService
  * @param sandboxService
+ * @param workspaceService
  * @returns 配置好的 Express Router 实例
  *
  * @example
@@ -30,5 +32,5 @@ import type { SandboxService } from '../services/sandbox-service.js';
  * app.use('/api/execution', router);
  * ```
  */
-export declare function createExecutionRoutes(cliRunnerService: CLIRunnerService, pipelineService?: PipelineService, testExecutorService?: TestExecutorService, memoryService?: MemoryService, sandboxService?: SandboxService): Router;
+export declare function createExecutionRoutes(cliRunnerService: CLIRunnerService, pipelineService?: PipelineService, testExecutorService?: TestExecutorService, memoryService?: MemoryService, sandboxService?: SandboxService, workspaceService?: WorkspaceService): Router;
 //# sourceMappingURL=execution.d.ts.map

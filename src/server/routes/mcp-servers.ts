@@ -51,6 +51,35 @@ export function createMCPServersRoutes(mcpConfigService: MCPConfigService, cliRu
         {field: 'command', required: true, type: 'string'},
     ]), (req, res) => {
         try {
+            const rawArgs = req.body.args;
+            const rawEnv = req.body.env;
+
+            // 校验 args 必须是字符串数组（如果提供）
+            let args: string[] = [];
+            if (rawArgs !== undefined && rawArgs !== null) {
+                if (!Array.isArray(rawArgs) || rawArgs.some(a => typeof a !== 'string')) {
+                    res.status(400).json({code: 'VALIDATION_ERROR', message: 'args must be an array of strings'});
+                    return;
+                }
+                args = rawArgs;
+            }
+
+            // 校验 env 必须是字符串键值对象（如果提供）
+            let env: Record<string, string> = {};
+            if (rawEnv !== undefined && rawEnv !== null) {
+                if (typeof rawEnv !== 'object' || Array.isArray(rawEnv)) {
+                    res.status(400).json({code: 'VALIDATION_ERROR', message: 'env must be an object'});
+                    return;
+                }
+                for (const [k, v] of Object.entries(rawEnv)) {
+                    if (typeof v !== 'string') {
+                        res.status(400).json({code: 'VALIDATION_ERROR', message: 'env values must be strings'});
+                        return;
+                    }
+                    env[k] = v;
+                }
+            }
+
             // 组装服务器配置对象，为可选字段提供合理的默认值
             const config = {
                 name: req.body.name,
@@ -58,9 +87,9 @@ export function createMCPServersRoutes(mcpConfigService: MCPConfigService, cliRu
                 type: req.body.type ?? 'custom',
                 command: req.body.command,
                 // 启动参数默认为空数组
-                args: req.body.args ?? [],
+                args,
                 // 环境变量默认为空对象
-                env: req.body.env ?? {},
+                env,
                 // 新添加的服务器默认启用
                 enabled: req.body.enabled ?? true,
             };

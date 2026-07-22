@@ -27,10 +27,11 @@ import {join} from 'path';
 import os from 'os';
 import readline from 'readline';
 
-// 轻量诊断日志（529/异常复发时排查用，正常无影响；不需要可删）
-const DBG_FILE = 'D:\\bridge-debug.log';
+// 轻量诊断日志开关：通过环境变量 BRIDGE_DEBUG_LOG 指定日志文件路径，未指定则关闭
+const DBG_FILE = process.env.BRIDGE_DEBUG_LOG || '';
 
 function dbg(tag, data) {
+    if (!DBG_FILE) return;
     try {
         const text = typeof data === 'string' ? data : JSON.stringify(data).slice(0, 1200);
         appendFileSync(DBG_FILE, `[${new Date().toISOString()}] ${tag}: ${text}\n`);
@@ -50,9 +51,13 @@ function dbg(tag, data) {
  * @returns CLI 路径字符串，未找到时返回 null
  */
 function resolveClaudeCliPath() {
+    // 允许通过环境变量显式指定 CLI 路径
+    if (process.env.CLAUDE_CODE_CLI_PATH) {
+        return existsSync(process.env.CLAUDE_CODE_CLI_PATH) ? process.env.CLAUDE_CODE_CLI_PATH : null;
+    }
+
     const candidates = [
         join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
-        join('D:', 'javaSE', 'nvm', 'nodejs', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
         join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js'),
     ];
 
@@ -166,6 +171,26 @@ async function runQueryOnce(prompt, requestId, options) {
 }
 
 /**
+ * 发送限流重试通知，并按指数退避等待。
+ *
+ * @param requestId - 请求 ID
+ * @param attempt - 当前尝试次数（从 0 开始）
+ * @param errorMsg - 错误信息，用于判断是 429 还是 529
+ * @param maxRetries - 最大重试次数
+ * @returns {Promise<void>}
+ */
+async function waitForRetry(requestId, attempt, errorMsg, maxRetries) {
+    const wait = Math.min(2 ** attempt * 1000, 8000);
+    emit({
+        requestId,
+        type: 'output',
+        content: `\n\n[模型限流(${errorMsg?.includes('429') ? '429' : '529'})，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
+    });
+    dbg('retry-rate-limit', {attempt: attempt + 1, wait, error: errorMsg});
+    await sleep(wait);
+}
+
+/**
  * 处理单个 AI 查询请求（含 529 限流自动重试）
  *
  * 中转 API（如 open.bigmodel.cn）高峰期对 claude agent 多轮密集调用限流，
@@ -184,6 +209,11 @@ async function handleRequest(request) {
         reasoningEffort,
         extendedThinking
     } = request;
+
+    if (!requestId) {
+        emit({type: 'error', message: 'requestId is required'});
+        return;
+    }
 
     dbg('req-start', {
         requestId,
@@ -246,7 +276,6 @@ async function handleRequest(request) {
     // 529/429 限流指数退避重试：1s/2s/4s（封顶 8s），最多 3 次。
     // 次数不宜多：每次重试 claude CLI 重新启动 + MCP 重连，开销大（多时数十秒）。
     const maxRetries = 3;
-    let lastError = '';
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             const runResult = await runQueryOnce(prompt, requestId, options);
@@ -254,35 +283,21 @@ async function handleRequest(request) {
                 emit({requestId, type: 'done', exitCode: 0});
                 return;
             }
-            lastError = runResult.error || 'Unknown error';
+            const lastError = runResult.error || 'Unknown error';
             if (runResult.status === 'overloaded' && attempt < maxRetries) {
-                const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
-                emit({
-                    requestId,
-                    type: 'output',
-                    content: `\n\n[模型限流(${runResult.error?.includes('429') ? '429' : '529'})，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
-                });
-                dbg('retry-rate-limit', {attempt: attempt + 1, wait, error: lastError});
-                await sleep(wait);
+                await waitForRetry(requestId, attempt, lastError, maxRetries);
                 continue;
             }
             emit({requestId, type: 'error', message: lastError});
             return;
         } catch (err) {
-            dbg('catch', {attempt, message: err.message});
-            lastError = err.message;
-            if (isOverloaded(err.message) && attempt < maxRetries) {
-                const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
-                emit({
-                    requestId,
-                    type: 'output',
-                    content: `\n\n[模型限流(${err.message?.includes('429') ? '429' : '529'})，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
-                });
-                dbg('retry-rate-limit-catch', {attempt: attempt + 1, wait, error: lastError});
-                await sleep(wait);
+            const lastError = err.message || String(err);
+            dbg('catch', {attempt, message: lastError});
+            if (isOverloaded(lastError) && attempt < maxRetries) {
+                await waitForRetry(requestId, attempt, lastError, maxRetries);
                 continue;
             }
-            emit({requestId, type: 'error', message: err.message});
+            emit({requestId, type: 'error', message: lastError});
             return;
         }
     }
@@ -309,6 +324,11 @@ rl.on('line', (line) => {
         return;
     }
 
+    if (!request || typeof request.requestId !== 'string' || request.requestId.trim() === '') {
+        emit({type: 'error', message: 'requestId is required'});
+        return;
+    }
+
     // 异步处理每个请求
     handleRequest(request).catch((err) => {
         emit({requestId: request.requestId, type: 'error', message: err.message});
@@ -322,4 +342,6 @@ rl.on('close', () => {
 // 全局异常捕获，防止进程崩溃
 process.on('uncaughtException', (err) => {
     emit({type: 'error', message: `Uncaught: ${err.message}`});
+    // 不可恢复的错误，优雅退出
+    process.exit(1);
 });

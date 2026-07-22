@@ -111,7 +111,8 @@ export declare class TestExecutorService {
      */
     clearCache(workspacePath?: string): void;
     /**
-     * 将命令字符串解析为命令和参数数组
+     * 将命令字符串解析为命令和参数数组。
+     * 支持简单单/双引号包裹的参数，避免空格分割破坏带空格的参数值。
      */
     private parseCommand;
     /**

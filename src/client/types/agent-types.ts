@@ -1,57 +1,22 @@
 /** Agent 执行相关共享类型 */
 
-export type ExecutionStatus = 'analyzing' | 'ready' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
+import type {
+    ExecutionStep,
+    SubTask,
+    AgentThought,
+    AgentExecutionSummary,
+    AgentExecution,
+} from '../../types/agent-execution';
 
-export interface AgentExecutionSummary {
-    id: string;
-    requirementId: string;
-    requirementNumber?: string;
-    requirementTitle?: string;
-    workspacePath: string;
-    status: ExecutionStatus;
-    createdAt: string;
-    updatedAt: string;
-    subTasksCount?: number;
-    completedSubTasks?: number;
-    currentStep?: number;
-    totalSteps?: number;
-}
+export type {
+    ExecutionStep,
+    SubTask,
+    AgentThought,
+    AgentExecutionSummary,
+    AgentExecution,
+};
 
-export interface SubTask {
-    id: string;
-    title: string;
-    description?: string;
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    agent?: string;
-    startedAt?: string;
-    completedAt?: string;
-    output?: string;
-    error?: string;
-    order: number;
-}
+export type ExecutionStatus = AgentExecutionSummary['status'];
 
-export interface ExecutionStep {
-    id: string;
-    title: string;
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    startedAt?: string;
-    completedAt?: string;
-    logs: string[];
-}
-
-export interface AgentThought {
-    type: 'analysis' | 'planning' | 'decision' | 'tool_selection' | 'error';
-    content: string;
-    timestamp: string;
-    confidence?: number;
-}
-
-export interface AgentExecutionDetail extends AgentExecutionSummary {
-    requirementText?: string;
-    thoughts: AgentThought[];
-    subTasks: SubTask[];
-    steps: ExecutionStep[];
-    logs: string[];
-    error?: string;
-    sessionId?: string;
-}
+/** 前端使用的 AgentExecution 详情别名，与后端 AgentExecution 完全一致 */
+export type AgentExecutionDetail = AgentExecution;

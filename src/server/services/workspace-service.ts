@@ -595,6 +595,33 @@ export class WorkspaceService {
         return {path: filePath || '', diff, additions, deletions};
     }
 
+    /**
+     * 获取工作区中的 git 变更文件列表。
+     * 包含已跟踪文件的修改/删除、已暂存文件、未跟踪的新文件。
+     *
+     * @param workspacePath - 工作区路径
+     * @returns 变更文件相对路径列表（无 git 仓库时返回空数组）
+     */
+    async getChangedFiles(workspacePath: string): Promise<string[]> {
+        const cwd = path.resolve(workspacePath);
+        const changed = new Set<string>();
+
+        const run = async (args: string[]) => {
+            try {
+                const output = await this.execGit(cwd, args);
+                output.split('\n').map(f => f.trim()).filter(Boolean).forEach(f => changed.add(f));
+            } catch {
+                // 单条命令失败不影响其他命令
+            }
+        };
+
+        await run(['diff', '--name-only', 'HEAD']);
+        await run(['diff', '--cached', '--name-only']);
+        await run(['ls-files', '--others', '--exclude-standard']);
+
+        return [...changed];
+    }
+
     // ==================== Git 分支操作 ====================
 
     async gitBranchList(workspacePath: string): Promise<GitBranchListResult> {

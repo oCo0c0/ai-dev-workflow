@@ -113,6 +113,26 @@ function openSystemFolderPicker(title: string): Promise<string | null> {
 export function createWorkspaceRoutes(workspaceService: WorkspaceService): Router {
     const router = Router();
 
+    /**
+     * 获取允许作为工作区/浏览根目录的列表。
+     * 包含用户主目录和所有已保存工作区，避免前端随意访问任意系统目录。
+     */
+    function getAllowedRoots(): string[] {
+        const saved = workspaceService.listSavedWorkspaces().map(w => w.path);
+        return [os.homedir(), ...saved];
+    }
+
+    /**
+     * 校验传入的 workspacePath 是否在允许根目录内。
+     * 用于 Git 等会以此为 cwd 执行命令的接口。
+     */
+    function requireAllowedWorkspace(workspacePath: string): { valid: boolean; path?: string; error?: string } {
+        if (!workspacePath) {
+            return {valid: false, error: 'workspacePath is required'};
+        }
+        return validateWorkspacePath(workspacePath, getAllowedRoots());
+    }
+
     // ─── 已保存的工作区 ────────────────────────────────────────────────────────
 
     /**
@@ -230,8 +250,17 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.get('/browse', (req, res) => {
         try {
             const dirPath = (req.query.path as string) || '';
-            // 空路径时回退到用户主目录
-            const resolvedPath = dirPath.trim() === '' ? os.homedir() : dirPath;
+            let resolvedPath: string;
+            if (dirPath.trim() === '') {
+                resolvedPath = os.homedir();
+            } else {
+                const check = validateWorkspacePath(dirPath, getAllowedRoots());
+                if (!check.valid) {
+                    res.status(400).json({code: 'VALIDATION_ERROR', message: check.error});
+                    return;
+                }
+                resolvedPath = check.path!;
+            }
             const entries = workspaceService.browse(resolvedPath);
             res.json(entries);
         } catch (err) {
@@ -257,7 +286,13 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
                 return;
             }
 
-            const result = workspaceService.readFileContent(filePath, workspacePath);
+            const wsCheck = validateWorkspacePath(workspacePath, getAllowedRoots());
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
+                return;
+            }
+
+            const result = workspaceService.readFileContent(filePath, wsCheck.path!);
             res.json(result);
         } catch (err) {
             res.status(400).json({code: 'WORKSPACE_ERROR', message: getErrorMessage(err)});
@@ -292,11 +327,12 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.get('/git/status', async (req, res) => {
         try {
             const workspacePath = req.query.workspacePath as string;
-            if (!workspacePath) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath is required'});
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
                 return;
             }
-            const result = await workspaceService.gitStatus(workspacePath);
+            const result = await workspaceService.gitStatus(wsCheck.path!);
             res.json(result);
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
@@ -315,11 +351,12 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
         try {
             const workspacePath = req.query.workspacePath as string;
             const file = req.query.file as string | undefined;
-            if (!workspacePath) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath is required'});
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
                 return;
             }
-            const result = await workspaceService.gitDiff(workspacePath, file);
+            const result = await workspaceService.gitDiff(wsCheck.path!, file);
             res.json(result);
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
@@ -332,11 +369,12 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.get('/git/branches', async (req, res) => {
         try {
             const workspacePath = req.query.workspacePath as string;
-            if (!workspacePath) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath is required'});
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
                 return;
             }
-            res.json(await workspaceService.gitBranchList(workspacePath));
+            res.json(await workspaceService.gitBranchList(wsCheck.path!));
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
         }
@@ -346,11 +384,16 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.post('/git/checkout', async (req, res) => {
         try {
             const {workspacePath, branch} = req.body as { workspacePath: string; branch: string };
-            if (!workspacePath || !branch) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath and branch are required'});
+            if (!branch) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'branch is required'});
                 return;
             }
-            res.json(await workspaceService.gitCheckout(workspacePath, branch));
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
+                return;
+            }
+            res.json(await workspaceService.gitCheckout(wsCheck.path!, branch));
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
         }
@@ -360,11 +403,12 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.post('/git/stash', async (req, res) => {
         try {
             const {workspacePath, message} = req.body as { workspacePath: string; message?: string };
-            if (!workspacePath) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath is required'});
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
                 return;
             }
-            res.json(await workspaceService.gitStash(workspacePath, message));
+            res.json(await workspaceService.gitStash(wsCheck.path!, message));
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
         }
@@ -374,11 +418,12 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.post('/git/stash-pop', async (req, res) => {
         try {
             const {workspacePath} = req.body as { workspacePath: string };
-            if (!workspacePath) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath is required'});
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
                 return;
             }
-            res.json(await workspaceService.gitStashPop(workspacePath));
+            res.json(await workspaceService.gitStashPop(wsCheck.path!));
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
         }
@@ -388,11 +433,16 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.post('/git/checkout-force', async (req, res) => {
         try {
             const {workspacePath, branch} = req.body as { workspacePath: string; branch: string };
-            if (!workspacePath || !branch) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath and branch are required'});
+            if (!branch) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'branch is required'});
                 return;
             }
-            res.json(await workspaceService.gitCheckoutForce(workspacePath, branch));
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
+                return;
+            }
+            res.json(await workspaceService.gitCheckoutForce(wsCheck.path!, branch));
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
         }
@@ -402,14 +452,19 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
     router.post('/git/merge', async (req, res) => {
         try {
             const {workspacePath, sourceBranch} = req.body as { workspacePath: string; sourceBranch: string };
-            if (!workspacePath || !sourceBranch) {
+            if (!sourceBranch) {
                 res.status(400).json({
                     code: 'VALIDATION_ERROR',
-                    message: 'workspacePath and sourceBranch are required'
+                    message: 'sourceBranch is required'
                 });
                 return;
             }
-            res.json(await workspaceService.gitMergeBranch(workspacePath, sourceBranch));
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
+                return;
+            }
+            res.json(await workspaceService.gitMergeBranch(wsCheck.path!, sourceBranch));
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});
         }
@@ -420,11 +475,16 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
         try {
             const workspacePath = req.query.workspacePath as string;
             const file = req.query.file as string;
-            if (!workspacePath || !file) {
-                res.status(400).json({code: 'VALIDATION_ERROR', message: 'workspacePath and file are required'});
+            if (!file) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'file is required'});
                 return;
             }
-            const content = await workspaceService.gitConflictDiff(workspacePath, file);
+            const wsCheck = requireAllowedWorkspace(workspacePath);
+            if (!wsCheck.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: wsCheck.error});
+                return;
+            }
+            const content = await workspaceService.gitConflictDiff(wsCheck.path!, file);
             res.json({path: file, content});
         } catch (err) {
             res.status(500).json({code: 'GIT_ERROR', message: getErrorMessage(err)});

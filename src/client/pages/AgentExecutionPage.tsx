@@ -36,6 +36,7 @@ import {
     FolderOpen,
     FileText,
     Bot,
+    Plus,
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
@@ -183,7 +184,7 @@ function LogEntry({kind, content, theme}: { kind: LogKind; content: string; them
 // === 主组件 ===
 
 export default function AgentExecutionPage() {
-    const {t} = useTranslation();
+    useTranslation();
     const theme = useAppStore((s) => s.ui.theme);
 
     const agentLogs = useAppStore((s) => s.agents.logs);
@@ -209,6 +210,10 @@ export default function AgentExecutionPage() {
     // 回复
     const [replyText, setReplyText] = useState('');
     const [replying, setReplying] = useState(false);
+
+    // 创建弹窗
+    const [showCreateDialog, setShowCreateDialog] = useState(false);
+    const dialogRef = useRef<HTMLDialogElement>(null);
 
     // UI 折叠
     const [thoughtsExpanded, setThoughtsExpanded] = useState(true);
@@ -241,8 +246,8 @@ export default function AgentExecutionPage() {
         try {
             const data = await apiGet<AgentExecutionSummary[]>('/agent-execution/list');
             setHistory(data);
-        } catch {
-            // 忽略
+        } catch (err) {
+            console.error('[AgentExec] loadHistory error:', err);
         } finally {
             setLoadingHistory(false);
         }
@@ -258,8 +263,8 @@ export default function AgentExecutionPage() {
         try {
             const data = await apiGet<string[]>('/workspace/history');
             setWorkspaceHistory(data);
-        } catch {
-            // 忽略
+        } catch (err) {
+            console.error('[AgentExec] loadWorkspaceHistory error:', err);
         }
     }, []);
 
@@ -267,8 +272,8 @@ export default function AgentExecutionPage() {
         try {
             const data = await apiGet<SavedRequirement[]>('/requirements/saved');
             setSavedRequirements(data);
-        } catch {
-            // 忽略
+        } catch (err) {
+            console.error('[AgentExec] loadSavedRequirements error:', err);
         }
     }, []);
 
@@ -285,7 +290,23 @@ export default function AgentExecutionPage() {
         }
     }, [setAgentLogs]);
 
+    const openCreateDialog = () => {
+        setSelectedRequirement(null);
+        setManualRequirementText('');
+        setReqMode('saved');
+        setShowCreateDialog(true);
+        // 延迟调用 showModal，确保 DOM 已渲染
+        requestAnimationFrame(() => dialogRef.current?.showModal());
+    };
+
+    const closeCreateDialog = () => {
+        dialogRef.current?.close();
+        setShowCreateDialog(false);
+    };
+
     const handleCreate = async () => {
+        if (!workspacePath) return;
+
         let requirementText = '';
         let requirementId = '';
         let requirementNumber = '';
@@ -298,16 +319,18 @@ export default function AgentExecutionPage() {
             requirementTitle = selectedRequirement.title || '';
         } else if (reqMode === 'manual') {
             requirementText = manualRequirementText;
-            if (!requirementText.trim()) return;
-        } else {
-            return;
         }
+        // 需求可选：无需求时用占位文本，用户后续通过回复补充
 
         try {
             const res = await apiPost<{ executionId: string }>('/agent-execution/create', {
-                requirementText, requirementId, requirementNumber, requirementTitle,
-                workspacePath: workspacePath || undefined,
+                requirementText: requirementText || '（待补充需求）',
+                requirementId: requirementId || undefined,
+                requirementNumber: requirementNumber || undefined,
+                requirementTitle: requirementTitle || undefined,
+                workspacePath,
             });
+            closeCreateDialog();
             await loadDetail(res.executionId);
             loadHistory();
         } catch (err) {
@@ -368,8 +391,8 @@ export default function AgentExecutionPage() {
                 setActiveId(null);
                 clearAgentLogs();
             }
-        } catch {
-            // 忽略
+        } catch (err) {
+            console.error('[AgentExec] delete error:', err);
         }
     };
 
@@ -442,11 +465,17 @@ export default function AgentExecutionPage() {
         return groups;
     }, [agentLogs]);
 
-    // 步骤统计
-    const stepsTotal = detail?.steps?.length || 0;
-    const stepsCompleted = (detail?.steps || []).filter(s => s.status === 'completed').length;
-    const stepsFailed = (detail?.steps || []).filter(s => s.status === 'failed').length;
-    const stepsRunning = (detail?.steps || []).filter(s => s.status === 'running').length;
+    // 步骤统计（单次遍历）
+    const stepsStats = useMemo(() => {
+        const steps = detail?.steps || [];
+        const stats = {total: steps.length, completed: 0, failed: 0, running: 0};
+        for (const s of steps) {
+            if (s.status === 'completed') stats.completed++;
+            else if (s.status === 'failed') stats.failed++;
+            else if (s.status === 'running') stats.running++;
+        }
+        return stats;
+    }, [detail?.steps]);
 
     return (
         <div className="flex h-full">
@@ -456,7 +485,16 @@ export default function AgentExecutionPage() {
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                         执行历史
                     </span>
-                    {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={openCreateDialog}
+                            className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+                            title="新建执行"
+                        >
+                            <Plus className="h-4 w-4"/>
+                        </button>
+                        {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
@@ -553,122 +591,14 @@ export default function AgentExecutionPage() {
                 {/* 右侧内容区（未选择 / 已选择） */}
                 <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
 
-                    {/* ====== 未选择执行：需求选择区 ====== */}
+                    {/* ====== 未选择执行：空状态提示 ====== */}
                     {!activeId && (
-                        <Card>
-                            <CardContent className="p-6 space-y-4">
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        onClick={() => setReqMode('saved')}
-                                        className={cn(
-                                            'flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-all',
-                                            reqMode === 'saved'
-                                                ? 'border-primary bg-primary/10 text-primary'
-                                                : 'border-border text-muted-foreground hover:bg-accent/30'
-                                        )}
-                                    >
-                                        <FolderOpen className="h-3.5 w-3.5"/>
-                                        已保存的需求
-                                    </button>
-                                    <button
-                                        onClick={() => setReqMode('manual')}
-                                        className={cn(
-                                            'flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-all',
-                                            reqMode === 'manual'
-                                                ? 'border-primary bg-primary/10 text-primary'
-                                                : 'border-border text-muted-foreground hover:bg-accent/30'
-                                        )}
-                                    >
-                                        <FileText className="h-3.5 w-3.5"/>
-                                        手动输入
-                                    </button>
-                                </div>
-
-                                {reqMode === 'saved' && (
-                                    <div>
-                                        <label
-                                            className="block text-xs font-medium text-muted-foreground mb-1.5">选择需求</label>
-                                        {savedRequirements.length === 0 ? (
-                                            <div
-                                                className="flex flex-col items-center justify-center py-6 gap-2 rounded-lg border border-dashed border-border">
-                                                <FileText className="h-7 w-7 text-muted-foreground/30"/>
-                                                <p className="text-xs text-muted-foreground">暂无已保存的需求</p>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                                                {savedRequirements.map((req) => (
-                                                    <div
-                                                        key={req.id}
-                                                        onClick={() => setSelectedRequirement(req)}
-                                                        className={cn(
-                                                            'flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-all',
-                                                            selectedRequirement?.id === req.id
-                                                                ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                                                                : 'border-border hover:border-primary/40 hover:bg-accent/30'
-                                                        )}
-                                                    >
-                                                        <div className={cn(
-                                                            'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors',
-                                                            selectedRequirement?.id === req.id
-                                                                ? 'border-primary bg-primary'
-                                                                : 'border-muted-foreground/40'
-                                                        )}>
-                                                            {selectedRequirement?.id === req.id && <div
-                                                                className="w-1.5 h-1.5 rounded-full bg-primary-foreground"/>}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-sm font-medium truncate">{req.number ? `${req.number} ` : ''}{req.title}</p>
-                                                            <p className="text-xs text-muted-foreground mt-0.5 truncate">{req.id}</p>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {reqMode === 'manual' && (
-                                    <div>
-                                        <label
-                                            className="block text-xs font-medium text-muted-foreground mb-1.5">需求描述</label>
-                                        <textarea
-                                            value={manualRequirementText}
-                                            onChange={(e) => setManualRequirementText(e.target.value)}
-                                            placeholder="描述你的需求，Agent将自主分析并执行..."
-                                            rows={6}
-                                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-                                        />
-                                    </div>
-                                )}
-
-                                <div>
-                                    <label
-                                        className="block text-xs font-medium text-muted-foreground mb-1.5">工作空间</label>
-                                    <select
-                                        value={workspacePath}
-                                        onChange={(e) => setWorkspacePath(e.target.value)}
-                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    >
-                                        <option value="">选择工作空间...</option>
-                                        {workspaceHistory.map((path) => (
-                                            <option key={path} value={path}>{path}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <Button
-                                    onClick={handleCreate}
-                                    disabled={
-                                        (reqMode === 'saved' && !selectedRequirement) ||
-                                        (reqMode === 'manual' && !manualRequirementText.trim())
-                                    }
-                                    className="w-full"
-                                >
-                                    <Sparkles className="h-4 w-4 mr-2"/>
-                                    创建执行
-                                </Button>
-                            </CardContent>
-                        </Card>
+                        <div className="flex items-center justify-center h-full">
+                            <div className="flex flex-col items-center gap-3">
+                                <Terminal className="h-10 w-10 text-muted-foreground/30"/>
+                                <p className="text-sm text-muted-foreground">点击左上角 + 新建执行</p>
+                            </div>
+                        </div>
                     )}
 
                     {/* ====== 已选择执行：详情面板 ====== */}
@@ -676,7 +606,7 @@ export default function AgentExecutionPage() {
                         <>
 
                             {/* --- 执行步骤进度线 --- */}
-                            {stepsTotal > 0 && (
+                            {stepsStats.total > 0 && (
                                 <Card className="border-primary/15">
                                     <CardContent className="p-4">
                                         <button
@@ -687,11 +617,11 @@ export default function AgentExecutionPage() {
                                                 <Bot className="h-4 w-4 text-primary"/>
                                                 <span className="text-sm font-semibold">执行步骤</span>
                                                 <span className="text-xs text-muted-foreground font-normal">
-                                                    {stepsCompleted}/{stepsTotal} 完成
+                                                    {stepsStats.completed}/{stepsStats.total} 完成
                                                 </span>
-                                                {stepsFailed > 0 && (
+                                                {stepsStats.failed > 0 && (
                                                     <span className="text-xs text-destructive font-normal">
-                                                        {stepsFailed} 失败
+                                                        {stepsStats.failed} 失败
                                                     </span>
                                                 )}
                                             </div>
@@ -733,7 +663,7 @@ export default function AgentExecutionPage() {
                                                                         {formatTime(step.startedAt)}
                                                                     </span>
                                                                 )}
-                                                                {step.status === 'running' && stepsRunning > 0 && (
+                                                                {step.status === 'running' && stepsStats.running > 0 && (
                                                                     <span className="relative flex h-1.5 w-1.5">
                                                                         <span
                                                                             className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"/>
@@ -749,7 +679,7 @@ export default function AgentExecutionPage() {
                                         )}
 
                                         {/* 紧凑进度条（折叠时） */}
-                                        {!stepsExpanded && stepsTotal > 0 && (
+                                        {!stepsExpanded && stepsStats.total > 0 && (
                                             <div className="h-1.5 bg-muted rounded-full overflow-hidden flex">
                                                 {(detail?.steps || []).map((step) => (
                                                     <div
@@ -911,6 +841,120 @@ export default function AgentExecutionPage() {
                     )}
                 </div>
             </div>
+
+            {/* ====== 新建执行弹窗 ====== */}
+            <dialog
+                ref={dialogRef}
+                onClose={() => setShowCreateDialog(false)}
+                className="backdrop:bg-black/50 bg-transparent p-0 m-auto"
+            >
+                <div className="bg-background border border-border rounded-lg shadow-xl w-[480px] p-6 space-y-4">
+                    <h2 className="text-sm font-semibold">新建 Agent 执行</h2>
+
+                    {/* 工作空间（必选） */}
+                    <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                            工作空间 <span className="text-destructive">*</span>
+                        </label>
+                        <select
+                            value={workspacePath}
+                            onChange={(e) => setWorkspacePath(e.target.value)}
+                            className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                            <option value="">选择工作空间...</option>
+                            {workspaceHistory.map((p) => (
+                                <option key={p} value={p}>{p}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* 需求（可选） */}
+                    <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                            需求文档 <span className="text-muted-foreground/60">（可选，也可创建后手动输入）</span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                            <button
+                                onClick={() => setReqMode('saved')}
+                                className={cn(
+                                    'flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-all',
+                                    reqMode === 'saved'
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-border text-muted-foreground hover:bg-accent/30'
+                                )}
+                            >
+                                <FolderOpen className="h-3 w-3"/>
+                                已保存需求
+                            </button>
+                            <button
+                                onClick={() => setReqMode('manual')}
+                                className={cn(
+                                    'flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-all',
+                                    reqMode === 'manual'
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-border text-muted-foreground hover:bg-accent/30'
+                                )}
+                            >
+                                <FileText className="h-3 w-3"/>
+                                手动输入
+                            </button>
+                        </div>
+
+                        {reqMode === 'saved' && (
+                            <div className="max-h-40 overflow-y-auto rounded-md border border-border">
+                                {savedRequirements.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground p-3 text-center">暂无已保存的需求</p>
+                                ) : (
+                                    savedRequirements.map((req) => (
+                                        <div
+                                            key={req.id}
+                                            onClick={() => setSelectedRequirement(req)}
+                                            className={cn(
+                                                'flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors border-b border-border/50 last:border-0',
+                                                selectedRequirement?.id === req.id ? 'bg-primary/5' : 'hover:bg-accent/30'
+                                            )}
+                                        >
+                                            <div className={cn(
+                                                'w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center',
+                                                selectedRequirement?.id === req.id
+                                                    ? 'border-primary bg-primary'
+                                                    : 'border-muted-foreground/40'
+                                            )}>
+                                                {selectedRequirement?.id === req.id &&
+                                                    <div className="w-1 h-1 rounded-full bg-primary-foreground"/>}
+                                            </div>
+                                            <p className="text-xs truncate">{req.number ? `${req.number} ` : ''}{req.title}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+
+                        {reqMode === 'manual' && (
+                            <textarea
+                                value={manualRequirementText}
+                                onChange={(e) => setManualRequirementText(e.target.value)}
+                                placeholder="描述你的需求，Agent将自主分析并执行..."
+                                rows={4}
+                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                            />
+                        )}
+                    </div>
+
+                    {/* 操作按钮 */}
+                    <div className="flex justify-end gap-2 pt-1">
+                        <Button variant="outline" size="sm" onClick={closeCreateDialog}>取消</Button>
+                        <Button
+                            size="sm"
+                            onClick={handleCreate}
+                            disabled={!workspacePath}
+                        >
+                            <Sparkles className="h-3.5 w-3.5 mr-1.5"/>
+                            创建
+                        </Button>
+                    </div>
+                </div>
+            </dialog>
         </div>
     );
 }

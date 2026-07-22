@@ -5,7 +5,7 @@
  */
 
 import {randomUUID} from 'crypto';
-import {getAgentExecutionStore} from './agent-execution-store.js';
+import {AgentExecutionStore} from './agent-execution-store.js';
 import {CLIRunnerService} from './cli-runner-service.js';
 import {broadcast} from '../websocket.js';
 
@@ -21,7 +21,7 @@ const STEP_TOOLS = new Set([
 ]);
 
 export class AgentCoordinator {
-    private store = getAgentExecutionStore();
+    private store = AgentExecutionStore.getInstance();
     private abortControllers = new Map<string, AbortController>();
     private config: CoordinatorConfig;
 
@@ -112,7 +112,7 @@ export class AgentCoordinator {
                 const exec = await this.store.get(executionId);
                 if (exec) {
                     exec.sessionId = result.sessionId;
-                    await this.store.save(exec);
+                    await this.store.updateFull(exec);
                 }
             }
 

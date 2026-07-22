@@ -83,6 +83,18 @@ export interface AppConfig {
         /** 最大并行任务数（默认 3） */
         maxConcurrent?: number;
     };
+    /** 可选的 API Key 认证配置。未设置时服务端不对请求鉴权 */
+    auth?: {
+        /** API Key，请求头 X-API-Key 或查询参数 apiKey 需与其匹配 */
+        apiKey?: string;
+    };
+    /** 安全相关配置 */
+    security?: {
+        /** CORS 允许的 Origin（如 'http://localhost:5173'），未设置时允许所有来源 */
+        corsOrigin?: string | string[];
+        /** 请求体大小限制（默认 '50mb'） */
+        maxRequestSize?: string;
+    };
 }
 /**
  * 配置验证错误接口

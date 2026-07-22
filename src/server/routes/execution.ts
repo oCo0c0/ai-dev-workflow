@@ -12,10 +12,11 @@
 
 import {Router} from 'express';
 import crypto from 'crypto';
+import os from 'os';
 import {CLIRunnerService} from '../services/cli-runner-service.js';
 import {PipelineService} from '../services/pipeline-service.js';
 import {TestExecutorService} from '../services/test-executor-service.js';
-import {validateBody} from '../middleware/validation.js';
+import {validateBody, validateWorkspacePath} from '../middleware/validation.js';
 import {broadcast, type WSMessage} from '../websocket.js';
 import {getPlanStore} from './plan.js';
 import {PlanStoreService} from '../services/plan-store-service.js';
@@ -28,6 +29,7 @@ import {RequirementStoreService} from '../services/requirement-store-service.js'
 import type {StoredPlan} from './plan.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import type {SandboxService} from '../services/sandbox-service.js';
+import type {WorkspaceService} from '../services/workspace-service.js';
 import type {TestStrategyConfig} from '../services/pipeline-service.js';
 
 /**
@@ -161,6 +163,7 @@ function buildSkillArgs(
  * @param testExecutorService - 可选的测试执行器服务实例，用于执行完成后自动运行测试
  * @param memoryService
  * @param sandboxService
+ * @param workspaceService
  * @returns 配置好的 Express Router 实例
  *
  * @example
@@ -175,6 +178,7 @@ export function createExecutionRoutes(
     testExecutorService?: TestExecutorService,
     memoryService?: MemoryService,
     sandboxService?: SandboxService,
+    workspaceService?: WorkspaceService,
 ): Router {
     const persistStore = new ExecutionStoreService();
     const planFileStore = new PlanStoreService();
@@ -344,7 +348,7 @@ export function createExecutionRoutes(
                 finalizeRunResult(execution, result, persistStore, broadcast);
 
                 if (execution.status === 'completed' && plan.pipelineId && pipelineService && testExecutorService) {
-                    void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                    void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService, workspaceService);
                 }
             }
         } catch (err) {
@@ -462,7 +466,7 @@ export function createExecutionRoutes(
             finalizeRunResult(execution, result, persistStore, broadcast);
 
             if ((execution.status as string) === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
-                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService, workspaceService);
             }
         } catch (err) {
             execution.status = 'failed';
@@ -543,7 +547,7 @@ export function createExecutionRoutes(
             finalizeRunResult(execution, result, persistStore, broadcast);
 
             if ((execution.status as string) === 'completed' && plan?.pipelineId && pipelineService && testExecutorService) {
-                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService);
+                void triggerTestPhase(execution, plan, pipelineService, cliRunnerService, testExecutorService, testPersistStore, sandboxService, workspaceService);
             }
         } catch (err) {
             execution.status = 'failed';
@@ -997,6 +1001,7 @@ async function runNextExecutionSkill(
  * @param testExecutorService - 测试执行器服务实例，用于运行已有测试
  * @param testPersistStore - 测试持久化存储服务实例，用于保存测试结果
  * @param sandboxService - 沙箱测试接入
+ * @param workspaceService - 工作区服务实例，用于获取 git 变更文件
  */
 async function triggerTestPhase(
     execution: StoredExecution,
@@ -1005,7 +1010,8 @@ async function triggerTestPhase(
     cliRunnerService: CLIRunnerService,
     testExecutorService: TestExecutorService,
     testPersistStore: TestStoreService,
-    sandboxService?: SandboxService
+    sandboxService?: SandboxService,
+    workspaceService?: WorkspaceService
 ): Promise<void> {
     const pipeline = pipelineService.get(plan.pipelineId!);
     if (!pipeline?.steps) return;
@@ -1022,26 +1028,16 @@ async function triggerTestPhase(
         ? undefined
         : phaseConfig as string[] | 'all' | undefined;
 
-    // 如果配置了 changedFilesOnly，通过 git 命令获取变更文件列表
-    // 包含已修改、已暂存和未跟踪的新文件
+    // 如果配置了 changedFilesOnly，获取变更文件列表
     let changedFiles: string[] | undefined;
-    if (testStrategy.changedFilesOnly) {
-        try {
-            const {execSync} = await import('child_process');
-            const changed = new Set<string>();
-            const run = (cmd: string) => {
-                try {
-                    const output = execSync(cmd, {cwd: plan.workspacePath, encoding: 'utf-8', timeout: 10000});
-                    output.split('\n').map(f => f.trim()).filter(Boolean).forEach(f => changed.add(f));
-                } catch {
-                }
-            };
-            run('git diff --name-only HEAD');
-            run('git diff --cached --name-only');
-            run('git ls-files --others --exclude-standard');
-            changedFiles = [...changed];
-        } catch {
-            // git 命令失败时忽略，跑全量测试
+    if (testStrategy.changedFilesOnly && plan.workspacePath && workspaceService) {
+        const wsCheck = validateWorkspacePath(plan.workspacePath, [os.homedir()]);
+        if (wsCheck.valid) {
+            try {
+                changedFiles = await workspaceService.getChangedFiles(wsCheck.path!);
+            } catch {
+                changedFiles = [];
+            }
         }
     }
 

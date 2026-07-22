@@ -70,11 +70,7 @@ const agent_execution_js_1 = require("./routes/agent-execution.js");
  */
 async function createServer(port) {
     const app = (0, express_1.default)();
-    // 全局中间件
-    app.use((0, cors_1.default)());
-    app.use(express_1.default.json({ limit: '50mb' }));
-    app.use(logger_js_1.requestLogger);
-    // 加载应用配置（必须在服务实例化之前）
+    // 加载应用配置（必须在中间件和服务实例化之前）
     const configService = new config_service_js_1.ConfigService();
     let config;
     try {
@@ -85,6 +81,35 @@ async function createServer(port) {
         console.warn(`[config] failed to load config, using defaults: ${err instanceof Error ? err.message : err}`);
         config = configService.getDefaultConfig();
     }
+    // 可选的 API Key 认证：仅在配置中显式设置时启用，避免默认锁定本地开发
+    if (config.auth?.apiKey) {
+        app.use((req, res, next) => {
+            if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
+                const provided = req.headers['x-api-key'] || req.query.apiKey;
+                if (provided !== config.auth.apiKey) {
+                    res.status(401).json({ code: 'UNAUTHORIZED', message: 'Invalid or missing API key' });
+                    return;
+                }
+            }
+            next();
+        });
+    }
+    // 全局中间件
+    if (config.security?.corsOrigin) {
+        app.use((0, cors_1.default)({ origin: config.security.corsOrigin, credentials: true }));
+    }
+    else {
+        app.use((0, cors_1.default)());
+    }
+    app.use(express_1.default.json({ limit: config.security?.maxRequestSize ?? '50mb' }));
+    // 基础安全响应头
+    app.use((_req, res, next) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('X-XSS-Protection', '1; mode=block');
+        next();
+    });
+    app.use(logger_js_1.requestLogger);
     // 实例化业务服务
     const mcpConfigService = new mcp_config_service_js_1.MCPConfigService();
     const mcpBridgeService = new mcp_bridge_service_js_1.MCPBridgeService(mcpConfigService);
@@ -156,8 +181,8 @@ async function createServer(port) {
     app.use('/api/requirements', (0, requirements_js_1.createRequirementsRoutes)(mcpBridgeService, requirementStore, mineruService));
     app.use('/api/workspace', (0, workspace_js_1.createWorkspaceRoutes)(workspaceService));
     app.use('/api/plan', (0, plan_js_1.createPlanRoutes)(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
-    app.use('/api/execution', (0, execution_js_1.createExecutionRoutes)(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService));
-    app.use('/api/tests', (0, tests_js_1.createTestRoutes)(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService));
+    app.use('/api/execution', (0, execution_js_1.createExecutionRoutes)(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService));
+    app.use('/api/tests', (0, tests_js_1.createTestRoutes)(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService));
     app.use('/api/skills', (0, skills_js_1.createSkillsRoutes)(skillsService, cliRunnerService));
     app.use('/api/mcp-servers', (0, mcp_servers_js_1.createMCPServersRoutes)(mcpConfigService, cliRunnerService));
     app.use('/api/pipelines', (0, pipelines_js_1.createPipelineRoutes)(pipelineService));
@@ -196,8 +221,9 @@ async function createServer(port) {
     // 初始化 WebSocket
     (0, websocket_js_1.setupWebSocket)(server);
     // 开始监听
+    const host = config.server?.host ?? '127.0.0.1';
     return new Promise((resolve) => {
-        server.listen(port, '0.0.0.0', () => {
+        server.listen(port, host, () => {
             // graceful shutdown: 清理 Daytona 沙箱
             const cleanup = async () => {
                 await taskScheduler.dispose();

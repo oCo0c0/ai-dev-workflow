@@ -31,6 +31,56 @@ const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
 const child_process_1 = require("child_process");
 const error_utils_js_1 = require("../utils/error-utils.js");
+/** 禁止出现在 MCP 命令/参数中的 shell 元字符，防止命令注入 */
+const SHELL_METACHARACTERS = /[;|&$()<>\`\"']/;
+/**
+ * 校验 MCP 命令字符串是否安全。
+ * 允许普通可执行文件路径和名称，禁止 shell 元字符。
+ */
+function validateMcpCommand(command) {
+    if (!command || command.trim() === '') {
+        throw new Error('MCP Server command is required');
+    }
+    if (SHELL_METACHARACTERS.test(command)) {
+        throw new Error('MCP Server command contains invalid characters');
+    }
+}
+/**
+ * 校验 MCP 参数数组是否安全。
+ * 要求必须是字符串数组，且每个参数不包含 shell 元字符。
+ */
+function validateMcpArgs(args) {
+    if (args === undefined || args === null) {
+        return [];
+    }
+    if (!Array.isArray(args) || args.some(a => typeof a !== 'string')) {
+        throw new Error('MCP Server args must be an array of strings');
+    }
+    for (const arg of args) {
+        if (SHELL_METACHARACTERS.test(arg)) {
+            throw new Error('MCP Server args contain invalid characters');
+        }
+    }
+    return args;
+}
+/**
+ * 校验 MCP 环境变量对象是否安全。
+ * 要求键值均为字符串。
+ */
+function validateMcpEnv(env) {
+    if (env === undefined || env === null) {
+        return {};
+    }
+    if (typeof env !== 'object' || Array.isArray(env)) {
+        throw new Error('MCP Server env must be an object');
+    }
+    for (const [k, v] of Object.entries(env)) {
+        if (typeof v !== 'string') {
+            throw new Error(`MCP Server env value for "${k}" must be a string`);
+        }
+    }
+    return env;
+}
 /** Claude 配置目录：用户主目录下的 .claude */
 const CLAUDE_DIR = path_1.default.join(os_1.default.homedir(), '.claude');
 /** Claude 设置文件路径：~/.claude/settings.json（项目级） */
@@ -204,9 +254,9 @@ class MCPConfigService {
         if (!config.name || config.name.trim() === '') {
             throw new Error('MCP Server name is required');
         }
-        if (!config.command || config.command.trim() === '') {
-            throw new Error('MCP Server command is required');
-        }
+        validateMcpCommand(config.command);
+        const validatedArgs = validateMcpArgs(config.args);
+        const validatedEnv = validateMcpEnv(config.env);
         const settings = this.loadSettings();
         if (!settings.mcpServers) {
             settings.mcpServers = {};
@@ -218,13 +268,15 @@ class MCPConfigService {
         // 写入配置：空数组和空对象不写入文件，保持配置文件简洁
         settings.mcpServers[config.name] = {
             command: config.command,
-            args: config.args.length > 0 ? config.args : undefined,
-            env: Object.keys(config.env).length > 0 ? config.env : undefined,
+            args: validatedArgs.length > 0 ? validatedArgs : undefined,
+            env: Object.keys(validatedEnv).length > 0 ? validatedEnv : undefined,
         };
         this.saveSettings(settings);
         return {
             ...config,
-            type: this.inferType(config.command, config.args),
+            args: validatedArgs,
+            env: validatedEnv,
+            type: this.inferType(config.command, validatedArgs),
             status: 'disconnected',
         };
     }
@@ -252,19 +304,22 @@ class MCPConfigService {
         const updatedCommand = config.command ?? existing.command;
         const updatedArgs = config.args ?? existing.args ?? [];
         const updatedEnv = config.env ?? existing.env ?? {};
+        validateMcpCommand(updatedCommand);
+        const validatedArgs = validateMcpArgs(updatedArgs);
+        const validatedEnv = validateMcpEnv(updatedEnv);
         // 写入更新后的配置
         settings.mcpServers[name] = {
             command: updatedCommand,
-            args: updatedArgs.length > 0 ? updatedArgs : undefined,
-            env: Object.keys(updatedEnv).length > 0 ? updatedEnv : undefined,
+            args: validatedArgs.length > 0 ? validatedArgs : undefined,
+            env: Object.keys(validatedEnv).length > 0 ? validatedEnv : undefined,
         };
         this.saveSettings(settings);
         return {
             name,
-            type: this.inferType(updatedCommand, updatedArgs),
+            type: this.inferType(updatedCommand, validatedArgs),
             command: updatedCommand,
-            args: updatedArgs,
-            env: updatedEnv,
+            args: validatedArgs,
+            env: validatedEnv,
             enabled: config.enabled ?? true,
             status: 'disconnected',
         };
@@ -306,11 +361,16 @@ class MCPConfigService {
         }
         return new Promise((resolve) => {
             try {
+                // 再次校验，确保从文件读取的配置也符合安全要求
+                validateMcpCommand(config.command);
+                const safeArgs = validateMcpArgs(config.args);
+                const safeEnv = validateMcpEnv(config.env);
                 // 启动 MCP 服务器进程，合并当前环境变量和服务器自定义环境变量
-                const child = (0, child_process_1.spawn)(config.command, config.args, {
-                    env: { ...process.env, ...config.env },
+                const child = (0, child_process_1.spawn)(config.command, safeArgs, {
+                    env: { ...process.env, ...safeEnv },
                     stdio: ['pipe', 'pipe', 'pipe'],
-                    // Windows 平台需要通过 shell 启动以正确解析命令路径
+                    // Windows 平台需要通过 shell 启动以正确解析命令路径（.cmd/.bat）。
+                    // 命令和参数已在上层校验不含 shell 元字符，降低注入风险。
                     shell: process.platform === 'win32',
                 });
                 // 防止多次 resolve 的标志位

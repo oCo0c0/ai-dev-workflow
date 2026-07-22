@@ -15,6 +15,8 @@ exports.SkillsService = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
+const markdown_utils_js_1 = require("../utils/markdown-utils.js");
+const skill_utils_js_1 = require("../utils/skill-utils.js");
 /** Claude 配置根目录 */
 const CLAUDE_DIR = path_1.default.join(os_1.default.homedir(), '.claude');
 /** 全局命令目录，存放扁平结构的 .md 命令文件 */
@@ -53,30 +55,6 @@ class SkillsService {
         }
     }
     /**
-     * 从技能文件内容中提取描述信息
-     * @description 优先使用第一个非空的非标题行作为描述；
-     *   如果第一个有意义的行就是 Markdown 标题，则使用标题文本。
-     *   描述文本超过 100 个字符时自动截断并添加省略号。
-     * @param content - 技能的 Markdown 文件内容
-     * @returns 提取的描述文本，无法提取时返回空字符串
-     */
-    extractDescription(content) {
-        const lines = content.split('\n');
-        for (const line of lines) {
-            const trimmed = line.trim();
-            // 跳过 Markdown 标题行，使用第一个非标题内容行
-            if (trimmed && !trimmed.startsWith('#')) {
-                return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
-            }
-            // 如果第一个有意义的行是标题，使用标题文本
-            if (trimmed.startsWith('#')) {
-                const headerText = trimmed.replace(/^#+\s*/, '');
-                return headerText.length > 100 ? headerText.substring(0, 100) + '...' : headerText;
-            }
-        }
-        return '';
-    }
-    /**
      * 从文件名推导技能名称
      * @description 移除 .md 文件扩展名，得到技能名称
      * @param filename - 文件名（如 "my-skill.md"）
@@ -106,7 +84,7 @@ class SkillsService {
                             const content = fs_1.default.readFileSync(filePath, 'utf-8');
                             skills.push({
                                 name: this.fileNameToSkillName(entry.name),
-                                description: this.extractDescription(content),
+                                description: (0, markdown_utils_js_1.extractDescription)(content),
                                 enabled: true,
                                 filePath,
                                 isAutoDerived: entry.name.startsWith('auto-derived-'),
@@ -136,7 +114,7 @@ class SkillsService {
                                 const content = fs_1.default.readFileSync(mdFile, 'utf-8');
                                 skills.push({
                                     name: entry.name,
-                                    description: this.extractDescription(content),
+                                    description: (0, markdown_utils_js_1.extractDescription)(content),
                                     enabled: true,
                                     filePath: mdFile,
                                 });
@@ -153,7 +131,7 @@ class SkillsService {
                             const content = fs_1.default.readFileSync(filePath, 'utf-8');
                             skills.push({
                                 name: this.fileNameToSkillName(entry.name),
-                                description: this.extractDescription(content),
+                                description: (0, markdown_utils_js_1.extractDescription)(content),
                                 enabled: true,
                                 filePath,
                                 isAutoDerived: entry.name.startsWith('auto-derived-'),
@@ -171,32 +149,9 @@ class SkillsService {
         }
         return skills;
     }
-    /**
-     * 在技能子目录中查找主要的 .md 文件
-     * @description 优先查找 SKILL.md（Claude Code 标准入口），其次 index.md，再次第一个 .md 文件
-     * @param dirPath - 技能子目录的完整路径
-     * @returns 找到的 .md 文件完整路径，未找到时返回 null
-     */
+    /** 委托到 skill-utils.findSkillMdFile */
     findSkillMdFile(dirPath) {
-        try {
-            const files = fs_1.default.readdirSync(dirPath);
-            // 优先使用 SKILL.md（Claude Code 标准技能入口）
-            const skillMd = files.find(f => f === 'SKILL.md');
-            if (skillMd)
-                return path_1.default.join(dirPath, skillMd);
-            // 其次使用 index.md
-            const indexMd = files.find(f => f === 'index.md');
-            if (indexMd)
-                return path_1.default.join(dirPath, indexMd);
-            // 最后使用第一个 .md 文件
-            const firstMd = files.find(f => f.endsWith('.md'));
-            if (firstMd)
-                return path_1.default.join(dirPath, firstMd);
-            return null;
-        }
-        catch {
-            return null;
-        }
+        return (0, skill_utils_js_1.findSkillMdFile)(dirPath);
     }
     /**
      * 获取指定技能的完整详情（包括内容）
@@ -212,7 +167,7 @@ class SkillsService {
                 const content = fs_1.default.readFileSync(commandFile, 'utf-8');
                 return {
                     name,
-                    description: this.extractDescription(content),
+                    description: (0, markdown_utils_js_1.extractDescription)(content),
                     enabled: true,
                     filePath: commandFile,
                     content,
@@ -233,7 +188,7 @@ class SkillsService {
                         const content = fs_1.default.readFileSync(mdFile, 'utf-8');
                         return {
                             name,
-                            description: this.extractDescription(content),
+                            description: (0, markdown_utils_js_1.extractDescription)(content),
                             enabled: true,
                             filePath: mdFile,
                             content,
@@ -252,7 +207,7 @@ class SkillsService {
                 const content = fs_1.default.readFileSync(skillFile, 'utf-8');
                 return {
                     name,
-                    description: this.extractDescription(content),
+                    description: (0, markdown_utils_js_1.extractDescription)(content),
                     enabled: true,
                     filePath: skillFile,
                     content,
@@ -290,7 +245,7 @@ class SkillsService {
         fs_1.default.writeFileSync(filePath, content, 'utf-8');
         return {
             name: sanitizedName,
-            description: this.extractDescription(content),
+            description: (0, markdown_utils_js_1.extractDescription)(content),
             enabled: true,
             filePath,
             content,
@@ -308,14 +263,23 @@ class SkillsService {
         if (!content || content.trim() === '') {
             throw new Error('Skill content cannot be empty');
         }
-        const filePath = path_1.default.join(this.commandsDir, `${name}.md`);
+        if (!name || name.trim() === '') {
+            throw new Error('Skill name is required');
+        }
+        // 清理技能名称：仅保留字母、数字、连字符和下划线，与 create 保持一致
+        const sanitizedName = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
+        const filePath = path_1.default.join(this.commandsDir, `${sanitizedName}.md`);
+        // 确保目标路径在 commandsDir 内，防止 ../ 绕过
+        if (!filePath.startsWith(this.commandsDir)) {
+            throw new Error(`Skill "${name}" is outside commands directory`);
+        }
         if (!fs_1.default.existsSync(filePath)) {
-            throw new Error(`Skill "${name}" not found`);
+            throw new Error(`Skill "${sanitizedName}" not found`);
         }
         fs_1.default.writeFileSync(filePath, content, 'utf-8');
         return {
-            name,
-            description: this.extractDescription(content),
+            name: sanitizedName,
+            description: (0, markdown_utils_js_1.extractDescription)(content),
             enabled: true,
             filePath,
             content,
@@ -328,7 +292,16 @@ class SkillsService {
      * @returns 是否删除成功（false 表示技能不存在）
      */
     delete(name) {
-        const filePath = path_1.default.join(this.commandsDir, `${name}.md`);
+        if (!name || name.trim() === '') {
+            throw new Error('Skill name is required');
+        }
+        // 清理技能名称：仅保留字母、数字、连字符和下划线
+        const sanitizedName = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
+        const filePath = path_1.default.join(this.commandsDir, `${sanitizedName}.md`);
+        // 确保目标路径在 commandsDir 内
+        if (!filePath.startsWith(this.commandsDir)) {
+            throw new Error(`Skill "${name}" is outside commands directory`);
+        }
         if (!fs_1.default.existsSync(filePath)) {
             return false;
         }

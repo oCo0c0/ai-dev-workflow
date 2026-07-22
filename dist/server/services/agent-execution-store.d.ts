@@ -7,78 +7,18 @@
  * - 支持执行记录的CRUD操作
  * - 存储Agent思考过程、子任务状态、执行日志
  */
-/**
- * 执行步骤
- */
-export interface ExecutionStep {
-    id: string;
-    title: string;
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    startedAt?: string;
-    completedAt?: string;
-    logs: string[];
-}
-/**
- * 子任务状态
- */
-export interface SubTask {
-    id: string;
-    title: string;
-    description?: string;
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    agent?: string;
-    startedAt?: string;
-    completedAt?: string;
-    output?: string;
-    error?: string;
-    order: number;
-}
-/**
- * Agent思考过程
- */
-export interface AgentThought {
-    type: 'analysis' | 'planning' | 'decision' | 'tool_selection' | 'error';
-    content: string;
-    timestamp: string;
-    confidence?: number;
-}
-/**
- * Agent执行摘要
- */
-export interface AgentExecutionSummary {
-    id: string;
-    requirementId: string;
-    requirementNumber?: string;
-    requirementTitle?: string;
-    workspacePath: string;
-    status: 'analyzing' | 'ready' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
-    createdAt: string;
-    updatedAt: string;
-    subTasksCount?: number;
-    completedSubTasks?: number;
-    currentStep?: number;
-    totalSteps?: number;
-}
-/**
- * 完整的Agent执行信息
- */
-export interface AgentExecution extends AgentExecutionSummary {
-    requirementText?: string;
-    thoughts: AgentThought[];
-    subTasks: SubTask[];
-    steps: ExecutionStep[];
-    logs: string[];
-    error?: string;
-    sessionId?: string;
-}
+import type { ExecutionStep, SubTask, AgentThought, AgentExecutionSummary, AgentExecution } from '../../types/agent-execution.js';
 /**
  * Agent执行存储服务
+ *
+ * 注意：该类不应被外部直接实例化。请使用 {@link getAgentExecutionStore} 获取单例。
  */
 export declare class AgentExecutionStore {
+    #private;
     private basePath;
     /** 每个 executionId 的写操作队列，串行化读-改-写避免并发覆盖/读到截断文件 */
     private writeQueues;
-    constructor();
+    private constructor();
     /**
      * 把操作排入指定 executionId 的写队列，保证同一 execution 的写操作串行执行
      */
@@ -88,13 +28,13 @@ export declare class AgentExecutionStore {
      */
     private getExecutionPath;
     /**
+     * 内部保存方法：直接写文件，调用方必须已经处于写队列中或确保串行。
+     */
+    private saveInternal;
+    /**
      * 创建新执行记录
      */
     create(data: Omit<AgentExecution, 'id' | 'createdAt' | 'updatedAt' | 'subTasks' | 'thoughts' | 'logs' | 'steps'>): Promise<AgentExecution>;
-    /**
-     * 保存执行记录（直接写文件，调用方需自行入队或确保串行）
-     */
-    save(execution: AgentExecution): Promise<void>;
     /**
      * 获取执行记录
      */
@@ -111,6 +51,15 @@ export declare class AgentExecutionStore {
      * 更新执行状态
      */
     updateStatus(executionId: string, status: AgentExecution['status']): Promise<void>;
+    /**
+     * 更新 sessionId，传 undefined 表示清空
+     */
+    updateSessionId(executionId: string, sessionId: string | undefined): Promise<void>;
+    /**
+     * 更新整个执行记录（供 coordinator 等内部模块使用）。
+     * 写操作会进入队列以保证并发安全。
+     */
+    updateFull(execution: AgentExecution): Promise<void>;
     /**
      * 添加思考过程
      */
@@ -139,6 +88,6 @@ export declare class AgentExecutionStore {
      * 更新单个步骤
      */
     updateStep(executionId: string, stepIndex: number, step: ExecutionStep): Promise<void>;
+    static getInstance(): AgentExecutionStore;
 }
-export declare function getAgentExecutionStore(): AgentExecutionStore;
 //# sourceMappingURL=agent-execution-store.d.ts.map

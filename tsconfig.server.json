@@ -11,7 +11,8 @@
   },
   "include": [
     "src/server/**/*",
-    "src/cli/**/*"
+    "src/cli/**/*",
+    "src/types/**/*"
   ],
   "exclude": [
     "node_modules",

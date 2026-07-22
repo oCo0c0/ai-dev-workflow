@@ -18,6 +18,7 @@ const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const error_utils_js_1 = require("../../utils/error-utils.js");
 const markdown_utils_js_1 = require("../../utils/markdown-utils.js");
+const skill_utils_js_1 = require("../../utils/skill-utils.js");
 /** 桥接脚本路径（编译后相对 dist/server/services/） */
 const BRIDGE_SCRIPT = path_1.default.resolve(__dirname, '../../../bridge/claude-bridge.mjs');
 /** Claude 配置根目录 */
@@ -374,25 +375,6 @@ class ClaudeProvider {
     }
 }
 exports.ClaudeProvider = ClaudeProvider;
-/** 在技能子目录中查找主 .md 文件 */
-function findSkillMdFile(dirPath) {
-    try {
-        const files = fs_1.default.readdirSync(dirPath);
-        const skillMd = files.find(f => f === 'SKILL.md');
-        if (skillMd)
-            return path_1.default.join(dirPath, skillMd);
-        const indexMd = files.find(f => f === 'index.md');
-        if (indexMd)
-            return path_1.default.join(dirPath, indexMd);
-        const firstMd = files.find(f => f.endsWith('.md'));
-        if (firstMd)
-            return path_1.default.join(dirPath, firstMd);
-        return null;
-    }
-    catch {
-        return null;
-    }
-}
 /** 读 .md 文件并写入 map（已存在则跳过） */
 function addMdSkill(filePath, name, source, map) {
     if (map.has(name))
@@ -421,7 +403,7 @@ function scanSkillsDir(dir, _prefix, source, map) {
     try {
         for (const entry of fs_1.default.readdirSync(dir, { withFileTypes: true })) {
             if (entry.isDirectory()) {
-                const mdFile = findSkillMdFile(path_1.default.join(dir, entry.name));
+                const mdFile = (0, skill_utils_js_1.findSkillMdFile)(path_1.default.join(dir, entry.name));
                 if (mdFile)
                     addMdSkill(mdFile, entry.name, source, map);
             }
