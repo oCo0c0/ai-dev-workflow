@@ -76,7 +76,13 @@ export interface AgentExecution extends AgentExecutionSummary {
  */
 export declare class AgentExecutionStore {
     private basePath;
+    /** 每个 executionId 的写操作队列，串行化读-改-写避免并发覆盖/读到截断文件 */
+    private writeQueues;
     constructor();
+    /**
+     * 把操作排入指定 executionId 的写队列，保证同一 execution 的写操作串行执行
+     */
+    private enqueue;
     /**
      * 获取执行记录的存储路径
      */
@@ -86,7 +92,7 @@ export declare class AgentExecutionStore {
      */
     create(data: Omit<AgentExecution, 'id' | 'createdAt' | 'updatedAt' | 'subTasks' | 'thoughts' | 'logs' | 'steps'>): Promise<AgentExecution>;
     /**
-     * 保存执行记录
+     * 保存执行记录（直接写文件，调用方需自行入队或确保串行）
      */
     save(execution: AgentExecution): Promise<void>;
     /**

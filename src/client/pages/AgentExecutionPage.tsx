@@ -41,63 +41,7 @@ import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
-
-// === 类型定义 ===
-
-type ExecutionStatus = 'analyzing' | 'ready' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
-
-interface AgentExecutionSummary {
-    id: string;
-    requirementId: string;
-    requirementNumber?: string;
-    requirementTitle?: string;
-    workspacePath: string;
-    status: ExecutionStatus;
-    createdAt: string;
-    updatedAt: string;
-    subTasksCount?: number;
-    completedSubTasks?: number;
-    currentStep?: number;
-    totalSteps?: number;
-}
-
-interface SubTask {
-    id: string;
-    title: string;
-    description?: string;
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    agent?: string;
-    startedAt?: string;
-    completedAt?: string;
-    output?: string;
-    error?: string;
-    order: number;
-}
-
-interface ExecutionStep {
-    id: string;
-    title: string;
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    startedAt?: string;
-    completedAt?: string;
-    logs: string[];
-}
-
-interface AgentThought {
-    type: 'analysis' | 'planning' | 'decision' | 'tool_selection' | 'error';
-    content: string;
-    timestamp: string;
-    confidence?: number;
-}
-
-interface AgentExecutionDetail extends AgentExecutionSummary {
-    requirementText?: string;
-    thoughts: AgentThought[];
-    subTasks: SubTask[];
-    steps: ExecutionStep[];
-    logs: string[];
-    error?: string;
-}
+import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
 
 /** 已保存需求列表项（轻量，不需要完整 RequirementDetail） */
 interface SavedRequirement {

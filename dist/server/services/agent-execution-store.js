@@ -54,11 +54,27 @@ const constants_js_1 = require("../utils/constants.js");
  */
 class AgentExecutionStore {
     basePath;
+    /** 每个 executionId 的写操作队列，串行化读-改-写避免并发覆盖/读到截断文件 */
+    writeQueues = new Map();
     constructor() {
         this.basePath = (0, path_1.join)(constants_js_1.APP_DATA_DIR, 'agent-executions');
         if (!(0, fs_1.existsSync)(this.basePath)) {
             (0, promises_1.mkdir)(this.basePath, { recursive: true });
         }
+    }
+    /**
+     * 把操作排入指定 executionId 的写队列，保证同一 execution 的写操作串行执行
+     */
+    async enqueue(executionId, task) {
+        const prev = this.writeQueues.get(executionId) || Promise.resolve();
+        const next = prev.then(() => task()).finally(() => {
+            // 只在当前任务仍是队尾时清理，避免误删后续任务
+            if (this.writeQueues.get(executionId) === next) {
+                this.writeQueues.delete(executionId);
+            }
+        });
+        this.writeQueues.set(executionId, next);
+        return next;
     }
     /**
      * 获取执行记录的存储路径
@@ -85,7 +101,7 @@ class AgentExecutionStore {
         return execution;
     }
     /**
-     * 保存执行记录
+     * 保存执行记录（直接写文件，调用方需自行入队或确保串行）
      */
     async save(execution) {
         const path = this.getExecutionPath(execution.id);
@@ -182,98 +198,114 @@ class AgentExecutionStore {
      * 更新执行状态
      */
     async updateStatus(executionId, status) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        execution.status = status;
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            execution.status = status;
+            await this.save(execution);
+        });
     }
     /**
      * 添加思考过程
      */
     async addThought(executionId, thought) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        execution.thoughts.push(thought);
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            execution.thoughts.push(thought);
+            await this.save(execution);
+        });
     }
     /**
      * 添加日志
      */
     async addLog(executionId, log) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        execution.logs.push(log);
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            execution.logs.push(log);
+            await this.save(execution);
+        });
     }
     /**
      * 更新子任务状态
      */
     async updateSubTask(executionId, subTaskId, updates) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        const subTask = execution.subTasks.find(t => t.id === subTaskId);
-        if (!subTask) {
-            throw new Error(`SubTask not found: ${subTaskId}`);
-        }
-        Object.assign(subTask, updates);
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            const subTask = execution.subTasks.find(t => t.id === subTaskId);
+            if (!subTask) {
+                throw new Error(`SubTask not found: ${subTaskId}`);
+            }
+            Object.assign(subTask, updates);
+            await this.save(execution);
+        });
     }
     /**
      * 设置子任务列表
      */
     async setSubTasks(executionId, subTasks) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        execution.subTasks = subTasks;
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            execution.subTasks = subTasks;
+            await this.save(execution);
+        });
     }
     /**
      * 添加单个子任务
      */
     async addSubTask(executionId, subTask) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        execution.subTasks.push(subTask);
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            execution.subTasks.push(subTask);
+            await this.save(execution);
+        });
     }
     /**
      * 更新执行步骤
      */
     async updateSteps(executionId, steps) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        execution.steps = steps;
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            execution.steps = steps;
+            await this.save(execution);
+        });
     }
     /**
      * 更新单个步骤
      */
     async updateStep(executionId, stepIndex, step) {
-        const execution = await this.get(executionId);
-        if (!execution) {
-            throw new Error(`Execution not found: ${executionId}`);
-        }
-        if (!execution.steps[stepIndex]) {
-            execution.steps[stepIndex] = step;
-        }
-        else {
-            Object.assign(execution.steps[stepIndex], step);
-        }
-        await this.save(execution);
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            if (!execution.steps[stepIndex]) {
+                execution.steps[stepIndex] = step;
+            }
+            else {
+                Object.assign(execution.steps[stepIndex], step);
+            }
+            await this.save(execution);
+        });
     }
 }
 exports.AgentExecutionStore = AgentExecutionStore;

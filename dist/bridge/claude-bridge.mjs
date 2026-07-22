@@ -96,11 +96,11 @@ function emit(obj) {
  * @param request.skills - 可选，技能配置
  */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const isOverloaded = (msg) => /529|overloaded|访问量过大|rate.?limit|too many requests/i.test(msg || '');
+const isOverloaded = (msg) => /529|429|overloaded|访问量过大|使用上限|rate.?limit|too many requests/i.test(msg || '');
 
 /**
  * 执行一次 SDK query（流式 emit output/session）。
- * @returns {'done'|'overloaded'|'error'} done=成功；overloaded=529 限流（可重试）；error=其他错误
+ * @returns {{status: 'done'|'overloaded'|'error', error?: string}} done=成功；overloaded=限流（可重试）；error=其他错误
  */
 async function runQueryOnce(prompt, requestId, options) {
     for await (const msg of query({prompt, options})) {
@@ -155,11 +155,14 @@ async function runQueryOnce(prompt, requestId, options) {
                 numTurns: msg.num_turns,
             });
             if (msg.is_error) {
-                return isOverloaded(msg.result) ? 'overloaded' : 'error';
+                const errorMsg = typeof msg.result === 'string' ? msg.result : `SDK error: ${msg.subtype || 'unknown'}`;
+                return isOverloaded(errorMsg)
+                    ? {status: 'overloaded', error: errorMsg}
+                    : {status: 'error', error: errorMsg};
             }
         }
     }
-    return 'done';
+    return {status: 'done'};
 }
 
 /**
@@ -240,39 +243,42 @@ async function handleRequest(request) {
         options.pathToClaudeCodeExecutable = CLI_PATH;
     }
 
-    // 529 限流指数退避重试：1s/2s/4s（封顶 8s），最多 3 次。
+    // 529/429 限流指数退避重试：1s/2s/4s（封顶 8s），最多 3 次。
     // 次数不宜多：每次重试 claude CLI 重新启动 + MCP 重连，开销大（多时数十秒）。
     const maxRetries = 3;
+    let lastError = '';
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            const status = await runQueryOnce(prompt, requestId, options);
-            if (status === 'done') {
+            const runResult = await runQueryOnce(prompt, requestId, options);
+            if (runResult.status === 'done') {
                 emit({requestId, type: 'done', exitCode: 0});
                 return;
             }
-            if (status === 'overloaded' && attempt < maxRetries) {
+            lastError = runResult.error || 'Unknown error';
+            if (runResult.status === 'overloaded' && attempt < maxRetries) {
                 const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
                 emit({
                     requestId,
                     type: 'output',
-                    content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
+                    content: `\n\n[模型限流(${runResult.error?.includes('429') ? '429' : '529'})，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
                 });
-                dbg('retry-529', {attempt: attempt + 1, wait});
+                dbg('retry-rate-limit', {attempt: attempt + 1, wait, error: lastError});
                 await sleep(wait);
                 continue;
             }
-            emit({requestId, type: 'error', message: 'Claude returned an error (529 重试耗尽)'});
+            emit({requestId, type: 'error', message: lastError});
             return;
         } catch (err) {
             dbg('catch', {attempt, message: err.message});
+            lastError = err.message;
             if (isOverloaded(err.message) && attempt < maxRetries) {
                 const wait = Math.min(Math.pow(2, attempt) * 1000, 8000);
                 emit({
                     requestId,
                     type: 'output',
-                    content: `\n\n[模型限流(529)，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
+                    content: `\n\n[模型限流(${err.message?.includes('429') ? '429' : '529'})，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`
                 });
-                dbg('retry-529-catch', {attempt: attempt + 1, wait});
+                dbg('retry-rate-limit-catch', {attempt: attempt + 1, wait, error: lastError});
                 await sleep(wait);
                 continue;
             }
