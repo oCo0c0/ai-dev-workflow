@@ -193,6 +193,11 @@ export function useWebSocket() {
                         window.dispatchEvent(new CustomEvent('ws-message', {detail: message}));
                         break;
 
+                    // 需求更新（图片下载完成后 description 中 URL 被重写）
+                    case 'requirement:updated':
+                        window.dispatchEvent(new CustomEvent('requirement:updated', {detail: message.data}));
+                        break;
+
                     // Agent决策过程：展示Think-Act-Observe-Reflect循环
                     case 'agent:progress':
                         const {

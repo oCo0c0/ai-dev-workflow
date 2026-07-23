@@ -252,6 +252,21 @@ export default function RequirementsPage(): JSX.Element {
         loadSaved();
     }, [loadSaved]);
 
+    // 监听后端图片下载完成事件，刷新需求描述（图片 URL 从远程变为本地路径）
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const updated = (e as CustomEvent).detail;
+            if (!updated) return;
+            // 更新列表
+            setSaved(prev => prev.map(r => r.id === updated.id ? updated : r));
+            // 更新当前选中
+            setSelected(prev => prev?.id === updated.id ? updated : prev);
+            setSelectedRequirement(updated.id === selected?.id ? updated : null);
+        };
+        window.addEventListener('requirement:updated', handler);
+        return () => window.removeEventListener('requirement:updated', handler);
+    }, [selected?.id]);
+
     /**
      * 通过 ID 从 MCP 获取需求并保存到本地
      * 获取成功后自动更新列表、选中该需求并同步到全局状态
@@ -910,7 +925,10 @@ export default function RequirementsPage(): JSX.Element {
                                         </div>
                                     ) : selected.description ? (
                                         <div className="prose prose-sm max-w-none dark:prose-invert">
-                                            <MarkdownContent content={selected.description}/>
+                                            <MarkdownContent
+                                                content={selected.description}
+                                                imageBasePath={selected.id ? `/api/requirements/images/${selected.id}` : undefined}
+                                            />
                                         </div>
                                     ) : null}
 

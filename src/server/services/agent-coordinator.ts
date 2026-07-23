@@ -65,7 +65,7 @@ export class AgentCoordinator {
                     prompt,
                     cwd,
                     ...(execution.sessionId ? {sessionId: execution.sessionId} : {}),
-                    maxTurns: 10,
+                    maxTurns: 50,
                 },
                 {
                     workspacePath: cwd,
@@ -129,7 +129,8 @@ export class AgentCoordinator {
             } else {
                 await this.finalizeSteps(executionId, 'failed');
                 await this.store.updateStatus(executionId, 'failed');
-                await this.store.addLog(executionId, `执行失败，退出码: ${result.exitCode}`);
+                const errMsg = result.stderr || `未知错误`;
+                await this.store.addLog(executionId, `执行失败（退出码 ${result.exitCode}）: ${errMsg}`);
                 this.broadcastStatus(executionId, 'failed');
             }
 

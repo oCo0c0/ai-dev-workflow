@@ -14,6 +14,12 @@ interface MarkdownContentProps {
     content: string;
     /** 额外的 CSS 类名 */
     className?: string;
+    /**
+     * 图片基础路径，用于将 [Image: filename] 转为标准 markdown 图片。
+     * 例如 '/api/requirements/images/reqId'
+     * 不传则将 [Image: xxx] 渲染为 alt 文本。
+     */
+    imageBasePath?: string;
 }
 
 /**
@@ -22,7 +28,19 @@ interface MarkdownContentProps {
  *   支持标题、列表、表格、代码块、引用、图片、链接等常见元素。
  *   通过 rehype-raw 支持内嵌 HTML（如 MinerU 返回的 HTML 表格）。
  */
-export function MarkdownContent({content, className = ''}: MarkdownContentProps) {
+/**
+ * 预处理：将 ONES 平台的 [Image: filename.png] 转为标准 markdown 图片语法
+ */
+function preprocessImages(content: string, imageBasePath?: string): string {
+    return content.replace(/\[Image:\s*([^\]]+)\]/g, (_match, imageName: string) => {
+        const trimmed = imageName.trim();
+        const url = imageBasePath ? `${imageBasePath}/${trimmed}` : '';
+        return url ? `![${trimmed}](${url})` : `*${trimmed}*`;
+    });
+}
+
+export function MarkdownContent({content, className = '', imageBasePath}: MarkdownContentProps) {
+    const processed = preprocessImages(content, imageBasePath);
     return (
         <div className={`markdown-body ${className}`}>
             <ReactMarkdown
@@ -166,7 +184,7 @@ export function MarkdownContent({content, className = ''}: MarkdownContentProps)
                     ),
                 }}
             >
-                {content}
+                {processed}
             </ReactMarkdown>
         </div>
     );
