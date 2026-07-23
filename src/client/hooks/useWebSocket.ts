@@ -195,7 +195,16 @@ export function useWebSocket() {
 
                     // Agent决策过程：展示Think-Act-Observe-Reflect循环
                     case 'agent:progress':
-                        const {step, message: progressMessage, logType, timestamp, subtaskId, subtaskStatus, tokensUsed, duration} = message.data as any;
+                        const {
+                            step,
+                            message: progressMessage,
+                            logType,
+                            timestamp,
+                            subtaskId,
+                            subtaskStatus,
+                            tokensUsed,
+                            duration
+                        } = message.data as any;
 
                         // 根据logType添加不同的前缀
                         let prefix = '';
@@ -311,10 +320,13 @@ export function useWebSocket() {
                         const thought = message.data?.thought;
                         if (thought) {
                             const icon = thought.type === 'analysis' ? '🔍' :
-                                       thought.type === 'planning' ? '📋' :
-                                       thought.type === 'decision' ? '🤔' :
-                                       thought.type === 'tool_selection' ? '🔧' : '💭';
+                                thought.type === 'planning' ? '📋' :
+                                    thought.type === 'decision' ? '🤔' :
+                                        thought.type === 'tool_selection' ? '🔧' : '💭';
                             addAgentLog(`${icon} ${thought.content}`);
+                            window.dispatchEvent(new CustomEvent('agent-execution:update', {
+                                detail: {type: 'thought', executionId: message.data?.executionId, thought}
+                            }));
                         }
                         break;
 
@@ -331,10 +343,19 @@ export function useWebSocket() {
                         const subTaskMsg = message.data;
                         if (subTaskMsg) {
                             const statusText = subTaskMsg.status === 'running' ? '执行中' :
-                                             subTaskMsg.status === 'completed' ? '✅ 完成' :
-                                             subTaskMsg.status === 'failed' ? '❌ 失败' : '⏳ 等待';
+                                subTaskMsg.status === 'completed' ? '✅ 完成' :
+                                    subTaskMsg.status === 'failed' ? '❌ 失败' : '⏳ 等待';
                             const title = subTaskMsg.title || subTaskMsg.subTaskId?.substring(0, 8) || '';
                             addAgentLog(`  [${statusText}] ${title}`);
+                            window.dispatchEvent(new CustomEvent('agent-execution:update', {
+                                detail: {
+                                    type: 'subtask',
+                                    executionId: message.data?.executionId,
+                                    subTaskId: subTaskMsg.subTaskId,
+                                    title: subTaskMsg.title,
+                                    status: subTaskMsg.status,
+                                }
+                            }));
                         }
                         break;
 
@@ -343,12 +364,15 @@ export function useWebSocket() {
                         const execStatus = message.data?.status;
                         if (execStatus) {
                             const statusEmoji = execStatus === 'analyzing' ? '🔍' :
-                                             execStatus === 'ready' ? '✅' :
-                                             execStatus === 'running' ? '🚀' :
-                                             execStatus === 'paused' ? '⏸️' :
-                                             execStatus === 'completed' ? '🎉' :
-                                             execStatus === 'failed' ? '❌' : '⏹️';
+                                execStatus === 'ready' ? '✅' :
+                                    execStatus === 'running' ? '🚀' :
+                                        execStatus === 'paused' ? '⏸️' :
+                                            execStatus === 'completed' ? '🎉' :
+                                                execStatus === 'failed' ? '❌' : '⏹️';
                             addAgentLog(`${statusEmoji} 状态: ${execStatus}`);
+                            window.dispatchEvent(new CustomEvent('agent-execution:update', {
+                                detail: {type: 'status', executionId: message.data?.executionId, status: execStatus}
+                            }));
                         }
                         break;
 
@@ -362,6 +386,15 @@ export function useWebSocket() {
                         } else if (completeStatus === 'failed') {
                             addAgentLog('❌ Agent执行失败');
                         }
+                        if (message.data?.executionId && message.data?.status) {
+                            window.dispatchEvent(new CustomEvent('agent-execution:update', {
+                                detail: {
+                                    type: 'status',
+                                    executionId: message.data.executionId,
+                                    status: message.data.status
+                                }
+                            }));
+                        }
                         break;
 
                     // Agent执行页 - 日志消息
@@ -369,6 +402,9 @@ export function useWebSocket() {
                         const logMsg = message.data?.log;
                         if (logMsg) {
                             addAgentLog(logMsg);
+                            window.dispatchEvent(new CustomEvent('agent-execution:update', {
+                                detail: {type: 'log', executionId: message.data?.executionId, log: logMsg}
+                            }));
                         }
                         break;
                 }

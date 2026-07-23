@@ -69,7 +69,10 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
             }
 
             if (execution.status !== 'ready' && execution.status !== 'paused') {
-                return res.status(400).json({code: 'INVALID_STATUS', message: `Execution is not ready: ${execution.status}`});
+                return res.status(400).json({
+                    code: 'INVALID_STATUS',
+                    message: `Execution is not ready: ${execution.status}`
+                });
             }
 
             // 异步执行（不阻塞响应）；coordinator 内部已处理错误（更新状态+广播）
@@ -114,7 +117,10 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
             }
 
             if (message.length > 10000) {
-                return res.status(400).json({code: 'VALIDATION_ERROR', message: 'message is too long (max 10000 characters)'});
+                return res.status(400).json({
+                    code: 'VALIDATION_ERROR',
+                    message: 'message is too long (max 10000 characters)'
+                });
             }
 
             const execution = await store.get(id);
@@ -128,9 +134,9 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
 
             // 如果执行已完成/失败/中止，直接重新执行（coordinator 内部会设 running 并广播）
             if (execution.status === 'completed' || execution.status === 'failed' || execution.status === 'aborted') {
+                // 异步自动执行，无需用户手动点开始
                 coordinator.execute(id).catch(error => {
                     console.error('Auto-execute after reply error:', error);
-                    broadcast({type: 'agent-execution:status', data: {executionId: id, status: 'failed'}});
                 });
             }
 

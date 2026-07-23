@@ -34,6 +34,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 export class ApiError extends Error {
     status: number;
     body: Record<string, unknown>;
+
     constructor(status: number, body: Record<string, unknown>) {
         super((body.message as string) || `HTTP ${status}`);
         this.status = status;

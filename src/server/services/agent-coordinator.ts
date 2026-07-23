@@ -77,10 +77,12 @@ export class AgentCoordinator {
                             const logData = meta?.type === 'tool_result'
                                 ? data.slice(0, 200) + (data.length > 200 ? '...' : '')
                                 : data;
-                            this.store.addLog(executionId, logData).catch(err => {
-                                console.error(`[coordinator] addLog failed for ${executionId}:`, err);
-                            });
-                            this.broadcastLog(executionId, logData);
+                            // Store 写成功后再广播，保证前端收到日志时数据已持久化
+                            this.store.addLog(executionId, logData)
+                                .then(() => this.broadcastLog(executionId, logData))
+                                .catch(err => {
+                                    console.error(`[coordinator] addLog failed for ${executionId}:`, err);
+                                });
                         }
 
                         // 结构化事件 → 写 store + 广播 rich events
@@ -117,26 +119,26 @@ export class AgentCoordinator {
             }
 
             if (result.aborted) {
+                await this.finalizeSteps(executionId, 'aborted');
                 await this.store.updateStatus(executionId, 'aborted');
                 this.broadcastStatus(executionId, 'aborted');
-                await this.finalizeSteps(executionId, 'aborted');
             } else if (result.exitCode === 0) {
+                await this.finalizeSteps(executionId, 'completed');
                 await this.store.updateStatus(executionId, 'completed');
                 this.broadcastStatus(executionId, 'completed');
-                await this.finalizeSteps(executionId, 'completed');
             } else {
+                await this.finalizeSteps(executionId, 'failed');
                 await this.store.updateStatus(executionId, 'failed');
                 await this.store.addLog(executionId, `执行失败，退出码: ${result.exitCode}`);
                 this.broadcastStatus(executionId, 'failed');
-                await this.finalizeSteps(executionId, 'failed');
             }
 
         } catch (error) {
             console.error(`[coordinator] execute error:`, error);
+            await this.finalizeSteps(executionId, 'failed');
             await this.store.updateStatus(executionId, 'failed');
             await this.store.addLog(executionId, `执行失败: ${(error as Error).message}`);
             this.broadcastStatus(executionId, 'failed');
-            await this.finalizeSteps(executionId, 'failed');
         } finally {
             this.abortControllers.delete(executionId);
         }
@@ -263,6 +265,14 @@ export class AgentCoordinator {
             }
         });
         await this.store.updateSteps(executionId, execution.steps);
+
+        // 广播 finalized steps，确保前端看到 step 终态
+        for (const s of execution.steps) {
+            broadcast({
+                type: 'agent-execution:subtask',
+                data: {executionId, subTaskId: s.id, title: s.title, status: s.status},
+            });
+        }
     }
 
     private broadcastStatus(executionId: string, status: string): void {

@@ -407,9 +407,61 @@ export default function AgentExecutionPage() {
         }
     };
 
-    // 轮询当前执行状态
+    // 监听 WebSocket CustomEvent，实时更新 detail 状态（不依赖轮询）
     useEffect(() => {
-        if (!activeId || !isRunning) return;
+        if (!activeId) return;
+
+        const handler = (e: Event) => {
+            const {type, executionId, ...data} = (e as CustomEvent).detail;
+            if (executionId !== activeId) return;
+
+            setDetail(prev => {
+                if (!prev) return prev;
+                switch (type) {
+                    case 'status':
+                        return {...prev, status: data.status as AgentExecutionDetail['status']};
+                    case 'log':
+                        return {...prev, logs: [...prev.logs, data.log as string]};
+                    case 'thought':
+                        return {...prev, thoughts: [...prev.thoughts, data.thought as AgentThought]};
+                    case 'subtask': {
+                        const subTaskId = data.subTaskId as string;
+                        const stepIdx = prev.steps.findIndex(s => s.id === subTaskId);
+                        if (stepIdx >= 0) {
+                            const steps = [...prev.steps];
+                            steps[stepIdx] = {
+                                ...steps[stepIdx],
+                                status: data.status as AgentExecutionDetail['steps'][0]['status']
+                            };
+                            return {...prev, steps};
+                        }
+                        // 新 step（running 状态）
+                        if (data.status === 'running') {
+                            return {
+                                ...prev, steps: [...prev.steps, {
+                                    id: subTaskId,
+                                    title: (data.title as string) || 'Tool',
+                                    status: 'running' as const,
+                                    startedAt: new Date().toISOString(),
+                                    logs: [],
+                                }]
+                            };
+                        }
+                        return prev;
+                    }
+                    default:
+                        return prev;
+                }
+            });
+        };
+
+        window.addEventListener('agent-execution:update', handler);
+        return () => window.removeEventListener('agent-execution:update', handler);
+    }, [activeId]);
+
+    // 轮询当前执行状态（不再被 isRunning 阻断，避免 ready→running 竞态）
+    useEffect(() => {
+        if (!activeId) return;
 
         let cancelled = false;
 
@@ -418,7 +470,7 @@ export default function AgentExecutionPage() {
                 const data = await apiGet<AgentExecutionDetail>(`/agent-execution/${activeId}/detail`);
                 if (cancelled) return;
                 setDetail(data);
-                if (['completed', 'failed', 'aborted', 'ready'].includes(data.status)) {
+                if (['completed', 'failed', 'aborted'].includes(data.status)) {
                     if (pollRef.current) clearInterval(pollRef.current);
                     loadHistory();
                 }
@@ -434,7 +486,7 @@ export default function AgentExecutionPage() {
             cancelled = true;
             if (pollRef.current) clearInterval(pollRef.current);
         };
-    }, [activeId, isRunning, loadHistory]);
+    }, [activeId, loadHistory]);
 
     useEffect(() => {
         return () => {
