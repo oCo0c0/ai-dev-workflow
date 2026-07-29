@@ -26,6 +26,7 @@ import {existsSync, appendFileSync} from 'fs';
 import {join} from 'path';
 import os from 'os';
 import readline from 'readline';
+import crypto from 'crypto';
 
 // 轻量诊断日志开关：通过环境变量 BRIDGE_DEBUG_LOG 指定日志文件路径，未指定则关闭
 const DBG_FILE = process.env.BRIDGE_DEBUG_LOG || '';
@@ -82,6 +83,55 @@ const CLI_PATH = resolveClaudeCliPath();
  */
 function emit(obj) {
     process.stdout.write(JSON.stringify(obj) + '\n');
+}
+
+/**
+ * 等待用户权限决策的 Promise resolver，按 permissionRequestId 索引。
+ * canUseTool 触发时存入，主进程反向写回 permission_response 时唤醒。
+ */
+const pendingPermissionResolvers = new Map();
+
+/**
+ * 创建 canUseTool 回调（仅当调用方启用权限确认时注入到 options）。
+ * 触发时 emit permission_request，等待主进程回传决策；
+ * 叠加 10 分钟超时与 SDK abort 兜底，避免 query 永久挂起。
+ */
+function createCanUseTool(requestId) {
+    return async (toolName, input, o) => {
+        const permissionRequestId = crypto.randomUUID();
+        emit({
+            requestId,
+            type: 'permission_request',
+            permissionRequestId,
+            toolName: toolName || '',
+            toolInput: input || {},
+            toolUseId: o?.toolUseID || '',
+            title: o?.title || '',
+            displayName: o?.displayName || '',
+        });
+
+        // 等待主进程反向写回 permission_response（由 rl.on('line') 唤醒）
+        const resolverPromise = new Promise((resolve) => {
+            pendingPermissionResolvers.set(permissionRequestId, resolve);
+        });
+
+        // 超时兜底：10 分钟无响应自动拒绝
+        const timeoutPromise = new Promise((resolve) => {
+            setTimeout(() => resolve({behavior: 'deny', message: '权限确认超时（10 分钟），已自动拒绝'}), 10 * 60 * 1000);
+        });
+
+        // abort 兜底：SDK 中止该 query 时立即拒绝
+        const signalPromise = o?.signal
+            ? new Promise((resolve) => {
+                if (o.signal.aborted) resolve({behavior: 'deny', message: '执行已中止'});
+                else o.signal.addEventListener('abort', () => resolve({behavior: 'deny', message: '执行已中止'}), {once: true});
+            })
+            : new Promise(() => {}); // 永不 resolve，被 race 忽略
+
+        const decision = await Promise.race([resolverPromise, timeoutPromise, signalPromise]);
+        pendingPermissionResolvers.delete(permissionRequestId);
+        return decision; // {behavior:'allow'} | {behavior:'deny', message}
+    };
 }
 
 /**
@@ -207,7 +257,8 @@ async function handleRequest(request) {
         mcpServers,
         model,
         reasoningEffort,
-        extendedThinking
+        extendedThinking,
+        permission,
     } = request;
 
     if (!requestId) {
@@ -242,6 +293,12 @@ async function handleRequest(request) {
         // 启用自动压缩：限制上下文窗口大小（从 env CLAUUDE_CODE_AUTO_COMPACT_WINDOW 读取）
         compactWindow: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ? parseInt(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, 10) : undefined,
     };
+
+    // 权限确认：仅当调用方启用时注入 canUseTool（permissionMode 保持 acceptEdits，
+    // Bash 等仍需 prompt 的工具会触发回调；Edit/Write 由 acceptEdits 自动放行）
+    if (permission && permission.enabled) {
+        options.canUseTool = createCanUseTool(requestId);
+    }
 
     if (model) {
         options.model = model;
@@ -321,6 +378,20 @@ rl.on('line', (line) => {
         request = JSON.parse(trimmed);
     } catch {
         emit({type: 'error', message: 'Invalid JSON request'});
+        return;
+    }
+
+    // 反向权限响应：唤醒挂起的 canUseTool，不作为新请求处理
+    if (request.type === 'permission_response') {
+        const resolver = pendingPermissionResolvers.get(request.permissionRequestId);
+        if (resolver) {
+            // SDK 的 deny 要求 message 必填，此处兜底；allow 的 message 可空
+            const behavior = request.decision === 'allow' ? 'allow' : 'deny';
+            const message = behavior === 'deny'
+                ? (request.message || '用户拒绝了该工具')
+                : request.message;
+            resolver({behavior, message});
+        }
         return;
     }
 

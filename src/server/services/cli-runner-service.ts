@@ -28,6 +28,8 @@ export interface CLIRunnerOptions {
     onError?: (data: string) => void;
     /** 中止信号 */
     signal?: AbortSignal;
+    /** 工具权限请求回调（agent 执行时注入；不传则 bridge 不启用权限确认） */
+    onPermissionRequest?: (meta: Record<string, unknown>) => void;
 }
 
 /**
@@ -204,6 +206,7 @@ export class CLIRunnerService {
                 signal: options?.signal,
                 onOutput: options?.onOutput,
                 onError: options?.onError,
+                onPermissionRequest: options?.onPermissionRequest,
                 ...modelOptions,
             }
         );
@@ -215,6 +218,13 @@ export class CLIRunnerService {
             aborted: result.aborted ?? false,
             sessionId: result.sessionId,
         };
+    }
+
+    /**
+     * 反向写回工具权限决策（透传给当前 Provider，唤醒挂起的 canUseTool）
+     */
+    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string): void {
+        this.provider.confirmPermission(permissionRequestId, decision, message);
     }
 
     /**

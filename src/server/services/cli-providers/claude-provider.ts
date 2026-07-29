@@ -62,6 +62,7 @@ function loadClaudeSettingsEnv(): Record<string, string> {
 interface PendingRequest {
     onOutput?: (data: string, meta?: Record<string, unknown>) => void;
     onError?: (data: string) => void;
+    onPermissionRequest?: (meta: Record<string, unknown>) => void;
     resolve: (result: CLIProviderResult) => void;
     reject: (err: Error) => void;
     stdout: string;
@@ -128,6 +129,7 @@ export class ClaudeProvider implements CLIProvider {
             const req: PendingRequest = {
                 onOutput: options?.onOutput,
                 onError: options?.onError,
+                onPermissionRequest: options?.onPermissionRequest,
                 resolve,
                 reject,
                 stdout: '',
@@ -152,6 +154,8 @@ export class ClaudeProvider implements CLIProvider {
 
             // 合并模型配置到请求消息（传递给 bridge 进程）
             const messagePayload: Record<string, unknown> = {requestId, ...input};
+            // 启用权限确认：透传给 bridge，由其在 options 注入 canUseTool
+            if (options?.onPermissionRequest) messagePayload.permission = {enabled: true};
             if (options?.model) messagePayload.model = options.model;
             if (options?.reasoningEffort) messagePayload.reasoningEffort = options.reasoningEffort;
             if (options?.extendedThinking !== undefined) messagePayload.extendedThinking = options.extendedThinking;
@@ -402,6 +406,18 @@ export class ClaudeProvider implements CLIProvider {
                 });
                 break;
 
+            case 'permission_request':
+                // bridge 内 canUseTool 触发，转发给调用方（coordinator）走前端确认
+                req.onPermissionRequest?.({
+                    permissionRequestId: msg.permissionRequestId,
+                    toolName: msg.toolName,
+                    toolInput: msg.toolInput,
+                    toolUseId: msg.toolUseId,
+                    title: msg.title,
+                    displayName: msg.displayName,
+                });
+                break;
+
             case 'session':
                 if (msg.sessionId) {
                     req.sessionId = msg.sessionId as string;
@@ -430,6 +446,21 @@ export class ClaudeProvider implements CLIProvider {
                     sessionId: req.sessionId,
                 });
                 break;
+        }
+    }
+
+    /**
+     * 反向写回工具权限决策给 bridge，唤醒挂起的 canUseTool
+     */
+    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string): void {
+        const proc = this.process;
+        if (proc && proc.stdin) {
+            proc.stdin.write(JSON.stringify({
+                type: 'permission_response',
+                permissionRequestId,
+                decision,
+                message,
+            }) + '\n');
         }
     }
 }

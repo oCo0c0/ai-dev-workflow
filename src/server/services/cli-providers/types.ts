@@ -52,6 +52,11 @@ export interface CLIProvider {
      * 释放资源（杀子进程、关闭连接等）
      */
     dispose(): Promise<void>;
+
+    /**
+     * 反向写回工具权限决策，唤醒挂起的 canUseTool（仅 Claude 实现真正逻辑）
+     */
+    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string): void;
 }
 
 /**
@@ -112,6 +117,8 @@ export interface CLIProviderOptions {
     onOutput?: (data: string, meta?: Record<string, unknown>) => void;
     /** 错误输出回调 */
     onError?: (data: string) => void;
+    /** 工具权限请求回调（agent 执行时注入；不传则 bridge 不启用权限确认） */
+    onPermissionRequest?: (meta: Record<string, unknown>) => void;
     /** 模型名称（覆盖配置文件中的默认模型） */
     model?: string;
     /** 推理强度（Claude 专用） */

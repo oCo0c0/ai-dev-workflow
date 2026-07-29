@@ -147,6 +147,29 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
     });
 
     /**
+     * POST /api/agent-execution/:id/confirm-tool
+     * 确认工具权限请求（允许 / 拒绝 / 允许并记住）
+     */
+    router.post('/:id/confirm-tool', async (req, res) => {
+        try {
+            const {id} = req.params;
+            const {permissionRequestId, decision, remember} = req.body || {};
+
+            if (!permissionRequestId || typeof permissionRequestId !== 'string') {
+                return res.status(400).json({code: 'VALIDATION_ERROR', message: 'permissionRequestId is required'});
+            }
+            if (decision !== 'allow' && decision !== 'deny') {
+                return res.status(400).json({code: 'VALIDATION_ERROR', message: 'decision must be allow or deny'});
+            }
+
+            await coordinator.confirmTool(id, permissionRequestId, decision, remember);
+            res.json({success: true});
+        } catch (error) {
+            res.status(500).json({code: 'INTERNAL_ERROR', message: (error as Error).message});
+        }
+    });
+
+    /**
      * POST /api/agent-execution/:id/new-session
      * 创建新会话（清空上下文）
      */

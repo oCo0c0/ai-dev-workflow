@@ -220,6 +220,15 @@ export default function AgentExecutionPage() {
     const [stepsExpanded, setStepsExpanded] = useState(true);
     const [expandedLogGroups, setExpandedLogGroups] = useState<Set<number>>(new Set());
 
+    // 工具权限确认弹框（agent 执行中 canUseTool 触发）
+    const [permConfirm, setPermConfirm] = useState<{
+        open: boolean;
+        permissionRequestId?: string;
+        toolName?: string;
+        toolInput?: Record<string, unknown>;
+        title?: string;
+    }>({open: false});
+
     // DOM 引用
     const logEndRef = useRef<HTMLDivElement>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -375,6 +384,18 @@ export default function AgentExecutionPage() {
         }
     };
 
+    // 确认工具权限：decision=allow/deny，remember 仅 allow 时生效（本次执行内同类工具自动放行）
+    const handleConfirmTool = async (decision: 'allow' | 'deny', remember = false) => {
+        if (!activeId || !permConfirm.permissionRequestId) return;
+        const permissionRequestId = permConfirm.permissionRequestId;
+        setPermConfirm({open: false});
+        try {
+            await apiPost(`/agent-execution/${activeId}/confirm-tool`, {permissionRequestId, decision, remember});
+        } catch (err) {
+            console.error('工具确认失败:', err);
+        }
+    };
+
     const handleDelete = async (id: string, status: ExecutionStatus, e: React.MouseEvent) => {
         e.stopPropagation();
 
@@ -414,6 +435,18 @@ export default function AgentExecutionPage() {
         const handler = (e: Event) => {
             const {type, executionId, ...data} = (e as CustomEvent).detail;
             if (executionId !== activeId) return;
+
+            // 工具权限请求：单独弹确认框，不写入 detail
+            if (type === 'permission_request') {
+                setPermConfirm({
+                    open: true,
+                    permissionRequestId: data.permissionRequestId as string,
+                    toolName: data.toolName as string,
+                    toolInput: data.toolInput as Record<string, unknown>,
+                    title: (data.title as string) || (data.displayName as string) || '',
+                });
+                return;
+            }
 
             setDetail(prev => {
                 if (!prev) return prev;
@@ -1007,6 +1040,39 @@ export default function AgentExecutionPage() {
                     </div>
                 </div>
             </dialog>
+
+            {/* 工具权限确认弹框（agent 执行中 canUseTool 触发） */}
+            {permConfirm.open && permConfirm.permissionRequestId && (
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50">
+                    <div className="bg-background rounded-lg border border-border shadow-xl p-6 max-w-lg w-full mx-4">
+                        <h3 className="text-base font-semibold mb-1">工具权限确认</h3>
+                        <p className="text-sm text-muted-foreground mb-3">
+                            {permConfirm.title || 'Agent 请求使用工具'}
+                        </p>
+                        <div className="bg-muted/50 border border-border rounded-md p-3 mb-4">
+                            <div className="text-xs text-muted-foreground mb-1">工具：{permConfirm.toolName}</div>
+                            {permConfirm.toolInput && (
+                                <pre className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/90 max-h-40 overflow-y-auto">
+                                    {permConfirm.toolInput.command
+                                        ? String(permConfirm.toolInput.command)
+                                        : JSON.stringify(permConfirm.toolInput, null, 2).slice(0, 500)}
+                                </pre>
+                            )}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => handleConfirmTool('deny')}>
+                                拒绝
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => handleConfirmTool('allow', true)}>
+                                允许并记住
+                            </Button>
+                            <Button size="sm" onClick={() => handleConfirmTool('allow')}>
+                                允许
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

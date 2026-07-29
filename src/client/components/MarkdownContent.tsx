@@ -116,22 +116,28 @@ export function MarkdownContent({content, className = '', imageBasePath}: Markdo
                         </pre>
                     ),
 
-                    // 表格
+                    // 表格（支持 ONES/ckeditor 内嵌 HTML 表格，含合并单元格 colspan/rowspan）
                     table: ({children}) => (
-                        <div className="overflow-x-auto mb-3 rounded-lg border border-border">
-                            <table className="w-full text-sm">{children}</table>
+                        <div className="overflow-x-auto mb-3 my-4">
+                            <table className="w-full text-sm border-collapse border border-border">{children}</table>
                         </div>
                     ),
                     thead: ({children}) => (
                         <thead className="bg-muted/50">{children}</thead>
                     ),
-                    th: ({children}) => (
-                        <th className="px-3 py-2 text-left font-medium text-foreground/80 border-b border-border">
+                    th: ({children, ...props}) => (
+                        <th
+                            className="px-3 py-2 text-left font-medium text-foreground/80 border border-border align-top"
+                            {...props}
+                        >
                             {children}
                         </th>
                     ),
-                    td: ({children}) => (
-                        <td className="px-3 py-2 border-b border-border/50 text-foreground/90">
+                    td: ({children, ...props}) => (
+                        <td
+                            className="px-3 py-2 border border-border/60 text-foreground/90 align-top [&_p]:my-0"
+                            {...props}
+                        >
                             {children}
                         </td>
                     ),

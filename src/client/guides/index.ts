@@ -21,7 +21,7 @@ export const guideConfigs: Record<string, GuideConfig> = {
         steps: [
             {
                 target: '[data-tour="req-fetch-input"]',
-                content: '在这里输入需求 ID 或编号（如 #125975），从 ONES 等平台获取需求详情。',
+                content: '在这里输入需求 ID、编号（如 #125975）或 ONES 链接，从 ONES 等平台获取需求详情。',
                 placement: 'bottom',
             },
             {

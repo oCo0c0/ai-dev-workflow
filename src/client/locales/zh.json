@@ -52,7 +52,7 @@
   "requirements": {
     "subtitle": "从 ONES 等平台获取需求并保存，用于流水线执行",
     "searchMcp": "搜索 MCP",
-    "fetchPlaceholder": "输入需求ID或编号（如 #125975）后回车...",
+    "fetchPlaceholder": "输入需求ID、编号（如 #125975）或 ONES 链接后回车...",
     "fetch": "获取并保存",
     "fetching": "获取中...",
     "parseDocuments": "解析文档附件（PDF/DOCX/PPTX/XLSX）",

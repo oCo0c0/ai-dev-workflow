@@ -23,6 +23,10 @@ const STEP_TOOLS = new Set([
 export class AgentCoordinator {
     private store = AgentExecutionStore.getInstance();
     private abortControllers = new Map<string, AbortController>();
+    /** 每个执行已「允许并记住」的工具名白名单（executionId → toolNames） */
+    private allowedTools = new Map<string, Set<string>>();
+    /** 挂起的权限请求：permissionRequestId → {executionId, toolName} */
+    private pendingPermissions = new Map<string, { executionId: string; toolName: string }>();
     private config: CoordinatorConfig;
 
     constructor(config: CoordinatorConfig) {
@@ -106,6 +110,9 @@ export class AgentCoordinator {
                                 break;
                         }
                     },
+                    onPermissionRequest: (meta: Record<string, unknown>) => {
+                        this.handlePermissionRequest(executionId, meta);
+                    },
                 }
             );
 
@@ -142,12 +149,81 @@ export class AgentCoordinator {
             this.broadcastStatus(executionId, 'failed');
         } finally {
             this.abortControllers.delete(executionId);
+            // 执行结束清理本次白名单与挂起权限（bridge 侧超时兜底会处理残留）
+            this.allowedTools.delete(executionId);
+            this.denyPendingPermissions(executionId, '执行已结束');
         }
     }
 
     abort(executionId: string): void {
         const controller = this.abortControllers.get(executionId);
         if (controller) controller.abort();
+        // 中止时拒绝该执行所有挂起的权限请求，避免 bridge query 永久挂起
+        this.denyPendingPermissions(executionId, '执行已中止');
+    }
+
+    /**
+     * 处理工具权限请求：命中白名单直接放行，否则广播给前端等待用户确认
+     */
+    private handlePermissionRequest(executionId: string, meta: Record<string, unknown>): void {
+        const permissionRequestId = meta.permissionRequestId as string;
+        const toolName = meta.toolName as string;
+        if (!permissionRequestId) return;
+
+        // 白名单命中（本次执行内「允许并记住」过的同类工具）：直接放行，不打扰用户
+        const allowed = this.allowedTools.get(executionId);
+        if (allowed && toolName && allowed.has(toolName)) {
+            this.config.cliRunner.confirmPermission(permissionRequestId, 'allow');
+            return;
+        }
+
+        this.pendingPermissions.set(permissionRequestId, {executionId, toolName});
+
+        // 记录日志 + 广播给前端弹确认框
+        this.store.addLog(executionId, `⏸ 等待确认工具：${toolName}`).catch(() => undefined);
+        broadcast({
+            type: 'agent-execution:permission_request',
+            data: {executionId, ...meta},
+        });
+    }
+
+    /**
+     * 用户确认工具权限：remember 入白名单，反向回传决策给 bridge
+     */
+    async confirmTool(
+        executionId: string,
+        permissionRequestId: string,
+        decision: 'allow' | 'deny',
+        remember?: boolean,
+    ): Promise<void> {
+        const pending = this.pendingPermissions.get(permissionRequestId);
+        if (!pending || pending.executionId !== executionId) return;
+
+        // 「允许并记住」：加入本次执行白名单，后续同类工具自动放行
+        if (decision === 'allow' && remember && pending.toolName) {
+            const allowed = this.allowedTools.get(executionId) ?? new Set<string>();
+            allowed.add(pending.toolName);
+            this.allowedTools.set(executionId, allowed);
+        }
+
+        this.pendingPermissions.delete(permissionRequestId);
+        this.config.cliRunner.confirmPermission(permissionRequestId, decision);
+
+        const verb = decision === 'allow' ? '已允许' : '已拒绝';
+        await this.store.addLog(executionId, `${verb}工具：${pending.toolName}`).catch(() => undefined);
+        this.broadcastLog(executionId, `${verb}工具：${pending.toolName}`);
+    }
+
+    /**
+     * 拒绝某执行所有挂起的权限请求（abort / 终态时清理）
+     */
+    private denyPendingPermissions(executionId: string, message: string): void {
+        for (const [permissionRequestId, pending] of this.pendingPermissions) {
+            if (pending.executionId === executionId) {
+                this.pendingPermissions.delete(permissionRequestId);
+                this.config.cliRunner.confirmPermission(permissionRequestId, 'deny', message);
+            }
+        }
     }
 
     /**

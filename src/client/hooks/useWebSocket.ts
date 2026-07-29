@@ -412,6 +412,26 @@ export function useWebSocket() {
                             }));
                         }
                         break;
+
+                    // Agent执行页 - 工具权限请求（需用户确认）
+                    case 'agent-execution:permission_request': {
+                        const pr = message.data;
+                        if (pr?.permissionRequestId) {
+                            addAgentLog(`⏸ 请求确认工具：${pr.toolName || ''}`);
+                            window.dispatchEvent(new CustomEvent('agent-execution:update', {
+                                detail: {
+                                    type: 'permission_request',
+                                    executionId: pr.executionId,
+                                    permissionRequestId: pr.permissionRequestId,
+                                    toolName: pr.toolName,
+                                    toolInput: pr.toolInput,
+                                    title: pr.title,
+                                    displayName: pr.displayName,
+                                }
+                            }));
+                        }
+                        break;
+                    }
                 }
             } catch {
                 // 非标准 JSON 消息，静默忽略（如心跳帧等）

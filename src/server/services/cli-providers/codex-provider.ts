@@ -400,6 +400,11 @@ export class CodexProvider implements CLIProvider {
         this.threadIdToSessionId.clear();
     }
 
+    /** 工具权限确认（Codex 暂不支持，空实现以满足接口） */
+    confirmPermission(_permissionRequestId: string, _decision: 'allow' | 'deny', _message?: string): void {
+        // no-op: Codex 走自有 SDK，无 canUseTool 机制
+    }
+
     /** 动态导入并创建 Codex 客户端 */
     private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {
         // ESM-only SDK 在 CJS 编译产物中需要特殊处理：

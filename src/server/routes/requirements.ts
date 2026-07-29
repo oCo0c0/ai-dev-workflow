@@ -15,6 +15,40 @@ import {getErrorMessage} from '../utils/error-utils.js';
 import {broadcast} from '../websocket.js';
 
 /**
+ * 把用户输入（需求号 / issue key / ONES 链接）规整为 ones-api get_requirement 可用的标识。
+ *
+ * 实测：纯 number（如 129686）与 uuid 可被 get_requirement 接受；issue key
+ * （CWXT-129686）与 issue 链接会被当作 Task 查询而返回 403/404。因此对 issue key
+ * 与链接统一降级为其中的纯数字 number；uuid / 纯数字 / 无法识别的输入原样返回。
+ *
+ * 支持的输入形态：
+ *  - 纯数字 / #number：`302`、`#302`
+ *  - issue key：`CWXT-129686` → `129686`
+ *  - ONES hash 路由链接：`https://1s.oristand.com/project/#/.../issue/CWXT-129686` → `129686`
+ *  - uuid / 其它：原样返回（交由 get_requirement 兜底处理）
+ */
+function normalizeRequirementInput(raw: string): string {
+    let s = raw.trim();
+    // ONES 链接为 hash 路由，真实标识位于 '#' 之后的最后一段路径
+    const hashIdx = s.indexOf('#');
+    if (hashIdx >= 0) {
+        s = s.slice(hashIdx + 1);
+    } else if (/^https?:\/\//i.test(s)) {
+        // 普通 URL：去掉协议与主机，保留路径部分
+        s = s.replace(/^https?:\/\/[^/]+/, '');
+    }
+    // 取最后一段路径作为标识（兼容 hash 路由 / query / 普通路径）
+    const segs = s.split(/[/?#&]/).filter(Boolean);
+    if (segs.length) s = segs[segs.length - 1];
+    // 去掉可选的 # 前缀
+    s = s.replace(/^#/, '');
+    // issue key 形如 PROJECTKEY-NUMBER（CWXT-129686）→ 取数字部分
+    const keyNum = s.match(/^[A-Za-z][A-Za-z0-9]*-(\d+)$/);
+    if (keyNum) return keyNum[1];
+    return s;
+}
+
+/**
  * 创建需求管理路由
  * @param mcpBridgeService - MCP 桥接服务实例，用于与外部需求管理系统通信
  * @param requirementStore - 需求本地存储服务实例，用于持久化已保存的需求
@@ -184,27 +218,27 @@ export function createRequirementsRoutes(
             if (mcpServerName) mcpBridgeService.setServerName(mcpServerName);
 
             try {
-                let resolvedId = id.trim();
+                // 规整用户输入：支持需求号 / issue key / ONES 链接（详见 normalizeRequirementInput）
+                let resolvedId = normalizeRequirementInput(id);
+                // 输入中的纯数字编号（用于回填 detail.number）
+                const inputNumber = resolvedId.match(/^(\d+)$/)?.[1];
 
-                // 如果输入是纯数字或 #number 格式，先通过搜索获取实际的 ID
-                // 搜索失败时回退到直接用编号调用 get_requirement（MCP 支持按编号获取）
-                const numberMatch = resolvedId.match(/^#?(\d+)$/);
-                if (numberMatch) {
-                    const number = numberMatch[1];
-                    const results = await mcpBridgeService.searchRequirements(number);
+                // 纯数字编号：先通过搜索获取实际的 ID，搜索失败时回退到直接用编号调用 get_requirement
+                if (inputNumber) {
+                    const results = await mcpBridgeService.searchRequirements(inputNumber);
                     if (results.length > 0) {
                         // 取第一个匹配结果的 ID 作为实际查询 ID
                         resolvedId = results[0].id;
                     }
-                    // 搜索无结果时不中断，继续用原始编号直接调用 get_requirement
+                    // 搜索无结果时不中断，继续用编号直接调用 get_requirement
                 }
 
                 // 通过 MCP 获取需求详情，并自动保存到本地存储
                 const detail = await mcpBridgeService.fetchRequirementDetail(resolvedId);
 
-                // 如果用户输入的是 #number 格式，直接设为需求编号（不依赖 MCP 返回格式提取）
-                if (numberMatch && !detail.number) {
-                    detail.number = `#${numberMatch[1]}`;
+                // 如果输入是数字编号，且 MCP 未返回编号，直接回填（不依赖 MCP 返回格式提取）
+                if (inputNumber && !detail.number) {
+                    detail.number = `#${inputNumber}`;
                 }
 
                 // 构建 ONES 图片服务（从 MCP 配置读取认证信息）

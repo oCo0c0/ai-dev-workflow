@@ -50,7 +50,7 @@
   "requirements": {
     "subtitle": "Fetch requirements from ONES and save them for use in pipelines",
     "searchMcp": "Search MCP",
-    "fetchPlaceholder": "Enter requirement ID or #number (e.g. #125975) and press Enter...",
+    "fetchPlaceholder": "Enter requirement ID, #number (e.g. #125975), or ONES link and press Enter...",
     "fetch": "Fetch & Save",
     "fetching": "Fetching...",
     "parseDocuments": "Parse document attachments (PDF/DOCX/PPTX/XLSX)",
