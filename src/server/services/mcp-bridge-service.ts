@@ -461,7 +461,9 @@ export class MCPBridgeService {
                 const descLines: string[] = [];
                 // 文档类章节（如 Requirement Documents）：内容中含二级标题，只在 ## Attachments 时停止
                 // 元数据类章节（如 Description）：遇到下一个 ## 即停止
-                const isDocSection = /Requirement Documents|Requirement Detail|需求文档/i.test(sectionName);
+                // 注意：wiki URL 直拉时正文位于 ## Description 下，且正文自带 ## 子标题，
+                // 故 Description / 需求详情 也按文档类处理，否则会在第一个 ## 处截断丢内容
+                const isDocSection = /Requirement Documents|Requirement Detail|Description|需求文档|需求详情/i.test(sectionName);
                 for (let i = idx + 1; i < lines.length; i++) {
                     if (isDocSection) {
                         // 文档章节：仅在遇到 ## Attachments（MCP 尾部结构）时停止

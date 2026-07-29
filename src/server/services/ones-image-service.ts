@@ -374,10 +374,16 @@ export class OnesImageService {
         imgDir: string,
     ): Promise<number> {
         // 1. 获取关联的 wiki page UUID 列表
-        const wikiPageUuids = await this.getWikiPageUuids(taskUuid);
+        //    - 需求号 / issue 拉取：taskUuid 是任务 UUID，GraphQL 查其 relatedWikiPages
+        //    - wiki URL 直拉：taskUuid 本身就是 wiki page UUID，GraphQL 会 403，直接用作 wiki page
+        let wikiPageUuids: string[] = [];
+        try {
+            wikiPageUuids = await this.getWikiPageUuids(taskUuid);
+        } catch {
+            // GraphQL 失败（多见于 wiki URL 直拉，taskUuid 实为 wiki page UUID）→ 走 fallback
+        }
         if (wikiPageUuids.length === 0) {
-            console.warn(`[ones-image] No wiki pages found for task ${taskUuid}`);
-            return 0;
+            wikiPageUuids = [taskUuid];
         }
 
         let downloaded = 0;

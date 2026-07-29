@@ -17,35 +17,29 @@ import {broadcast} from '../websocket.js';
 /**
  * 把用户输入（需求号 / issue key / ONES 链接）规整为 ones-api get_requirement 可用的标识。
  *
- * 实测：纯 number（如 129686）与 uuid 可被 get_requirement 接受；issue key
- * （CWXT-129686）与 issue 链接会被当作 Task 查询而返回 403/404。因此对 issue key
- * 与链接统一降级为其中的纯数字 number；uuid / 纯数字 / 无法识别的输入原样返回。
+ * ONES 链接直接透传给 get_requirement：需求号可能跨项目重复，链接含 team 标识可唯一定位，
+ * 故不再从中截取需求号。实测 wiki page 链接（https://1s.oristand.com/wiki#/team/.../page/xxx）
+ * 可直接拉取；issue 链接（.../issue/CWXT-xxx）ones-api 返回 403，需改用 wiki 链接或 number/uuid。
+ *
+ * 非链接输入：#number 去前缀；issue key（CWXT-129686）取数字部分（key 直拉会 404）。
  *
  * 支持的输入形态：
+ *  - ONES 链接（wiki / issue / task）：原样透传
  *  - 纯数字 / #number：`302`、`#302`
  *  - issue key：`CWXT-129686` → `129686`
- *  - ONES hash 路由链接：`https://1s.oristand.com/project/#/.../issue/CWXT-129686` → `129686`
- *  - uuid / 其它：原样返回（交由 get_requirement 兜底处理）
+ *  - uuid / 其它：原样返回
  */
 function normalizeRequirementInput(raw: string): string {
-    let s = raw.trim();
-    // ONES 链接为 hash 路由，真实标识位于 '#' 之后的最后一段路径
-    const hashIdx = s.indexOf('#');
-    if (hashIdx >= 0) {
-        s = s.slice(hashIdx + 1);
-    } else if (/^https?:\/\//i.test(s)) {
-        // 普通 URL：去掉协议与主机，保留路径部分
-        s = s.replace(/^https?:\/\/[^/]+/, '');
+    const s = raw.trim();
+    // ONES 链接（http(s):// 开头，或含 hash 路由 #/）：直接透传，不截取需求号
+    if (/^https?:\/\//i.test(s) || s.includes('#/')) {
+        return s;
     }
-    // 取最后一段路径作为标识（兼容 hash 路由 / query / 普通路径）
-    const segs = s.split(/[/?#&]/).filter(Boolean);
-    if (segs.length) s = segs[segs.length - 1];
-    // 去掉可选的 # 前缀
-    s = s.replace(/^#/, '');
-    // issue key 形如 PROJECTKEY-NUMBER（CWXT-129686）→ 取数字部分
-    const keyNum = s.match(/^[A-Za-z][A-Za-z0-9]*-(\d+)$/);
+    // 非链接：#number 去前缀；issue key（PROJECTKEY-NUMBER）取数字部分
+    let v = s.replace(/^#/, '');
+    const keyNum = v.match(/^[A-Za-z][A-Za-z0-9]*-(\d+)$/);
     if (keyNum) return keyNum[1];
-    return s;
+    return v;
 }
 
 /**
