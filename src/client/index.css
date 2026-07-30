@@ -5,6 +5,7 @@
 @layer base {
     :root {
         --background: 0 0% 98%;
+        --sidebar: 240 5% 94%;
         --foreground: 240 6% 10%;
         --card: 0 0% 100%;
         --card-foreground: 240 6% 10%;
@@ -27,25 +28,226 @@
     }
 
     .dark {
-        --background: 240 6% 7%;
-        --foreground: 240 5% 92%;
-        --card: 240 5% 11%;
-        --card-foreground: 240 5% 92%;
-        --popover: 240 5% 11%;
-        --popover-foreground: 240 5% 92%;
+        --background: 240 5% 17%;
+        --sidebar: 240 6% 12%;
+        --foreground: 240 6% 99%;
+        --card: 240 5% 21%;
+        --card-foreground: 240 6% 99%;
+        --popover: 240 5% 22%;
+        --popover-foreground: 240 6% 99%;
         --primary: 217 91% 60%;
         --primary-foreground: 222 47% 11%;
-        --secondary: 240 4% 16%;
-        --secondary-foreground: 240 5% 92%;
-        --muted: 240 4% 16%;
-        --muted-foreground: 240 5% 65%;
-        --accent: 240 4% 16%;
-        --accent-foreground: 240 5% 92%;
-        --destructive: 0 63% 31%;
-        --destructive-foreground: 240 5% 92%;
-        --border: 240 4% 16%;
-        --input: 240 4% 16%;
+        --secondary: 240 4% 24%;
+        --secondary-foreground: 240 6% 99%;
+        --muted: 240 4% 24%;
+        --muted-foreground: 240 5% 78%;
+        --accent: 240 4% 25%;
+        --accent-foreground: 240 6% 99%;
+        --destructive: 0 63% 48%;
+        --destructive-foreground: 240 6% 99%;
+        --border: 240 5% 31%;
+        --input: 240 5% 29%;
         --ring: 217 91% 60%;
+        --radius: 0.75rem;
+    }
+
+    /* === Tokyo Night（深蓝调，文本柔和通透）=== */
+    .dark[data-theme="tokyo-night"] {
+        --background: 235 19% 13%;
+        --foreground: 229 35% 75%;
+        --card: 230 24% 19%;
+        --card-foreground: 229 35% 75%;
+        --popover: 230 24% 19%;
+        --popover-foreground: 229 35% 75%;
+        --primary: 221 89% 72%;
+        --primary-foreground: 235 19% 13%;
+        --secondary: 230 24% 19%;
+        --secondary-foreground: 229 73% 86%;
+        --muted: 230 24% 19%;
+        --muted-foreground: 229 23% 44%;
+        --accent: 230 24% 19%;
+        --accent-foreground: 229 73% 86%;
+        --destructive: 349 89% 72%;
+        --destructive-foreground: 235 19% 13%;
+        --border: 229 23% 33%;
+        --input: 229 23% 33%;
+        --ring: 221 89% 72%;
+        --sidebar: 240 15% 10%;
+        --radius: 0.75rem;
+    }
+
+    /* === Catppuccin Mocha（暖紫底 + 柔和 pastel）=== */
+    .dark[data-theme="catppuccin"] {
+        --background: 240 21% 15%;
+        --foreground: 226 64% 88%;
+        --card: 237 16% 23%;
+        --card-foreground: 226 64% 88%;
+        --popover: 237 16% 23%;
+        --popover-foreground: 226 64% 88%;
+        --primary: 217 92% 76%;
+        --primary-foreground: 240 21% 15%;
+        --secondary: 237 16% 23%;
+        --secondary-foreground: 226 64% 88%;
+        --muted: 237 16% 23%;
+        --muted-foreground: 228 24% 72%;
+        --accent: 237 16% 23%;
+        --accent-foreground: 226 64% 88%;
+        --destructive: 343 81% 75%;
+        --destructive-foreground: 240 21% 15%;
+        --border: 234 13% 31%;
+        --input: 234 13% 31%;
+        --ring: 217 92% 76%;
+        --sidebar: 240 21% 12%;
+        --radius: 0.75rem;
+    }
+
+    /* === GitHub Dark（中性深灰 + 蓝）=== */
+    .dark[data-theme="github-dark"] {
+        --background: 216 28% 7%;
+        --foreground: 210 17% 82%;
+        --card: 215 21% 11%;
+        --card-foreground: 210 17% 82%;
+        --popover: 215 21% 11%;
+        --popover-foreground: 210 17% 82%;
+        --primary: 212 100% 67%;
+        --primary-foreground: 216 28% 7%;
+        --secondary: 215 21% 11%;
+        --secondary-foreground: 210 17% 82%;
+        --muted: 215 21% 11%;
+        --muted-foreground: 212 9% 58%;
+        --accent: 215 21% 11%;
+        --accent-foreground: 210 17% 82%;
+        --destructive: 3 93% 63%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 212 12% 21%;
+        --input: 212 12% 21%;
+        --ring: 212 100% 67%;
+        --sidebar: 218 80% 2%;
+        --radius: 0.75rem;
+    }
+
+    /* === Nord（北欧冷蓝灰，清爽）=== */
+    .dark[data-theme="nord"] {
+        --background: 220 16% 22%;
+        --foreground: 218 27% 94%;
+        --card: 222 16% 28%;
+        --card-foreground: 218 27% 94%;
+        --popover: 222 16% 28%;
+        --popover-foreground: 218 27% 94%;
+        --primary: 193 43% 67%;
+        --primary-foreground: 220 16% 22%;
+        --secondary: 222 16% 28%;
+        --secondary-foreground: 218 27% 94%;
+        --muted: 222 16% 28%;
+        --muted-foreground: 219 28% 88%;
+        --accent: 222 16% 28%;
+        --accent-foreground: 218 27% 94%;
+        --destructive: 354 42% 56%;
+        --destructive-foreground: 218 27% 94%;
+        --border: 220 17% 32%;
+        --input: 220 17% 32%;
+        --ring: 193 43% 67%;
+        --sidebar: 217 16% 15%;
+        --radius: 0.75rem;
+    }
+
+    /* === Catppuccin Latte（亮色）=== */
+    .light[data-theme="catppuccin-latte"] {
+        --background: 220 23% 95%;
+        --foreground: 234 16% 35%;
+        --card: 223 16% 83%;
+        --card-foreground: 234 16% 35%;
+        --popover: 223 16% 83%;
+        --popover-foreground: 234 16% 35%;
+        --primary: 220 91% 54%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 223 16% 83%;
+        --secondary-foreground: 234 16% 35%;
+        --muted: 223 16% 83%;
+        --muted-foreground: 233 10% 47%;
+        --accent: 223 16% 83%;
+        --accent-foreground: 234 16% 35%;
+        --destructive: 347 87% 44%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 225 14% 77%;
+        --input: 225 14% 77%;
+        --ring: 220 91% 54%;
+        --sidebar: 220 22% 92%;
+        --radius: 0.75rem;
+    }
+
+    /* === Tokyo Night Day（亮色）=== */
+    .light[data-theme="tokyo-night-day"] {
+        --background: 230 11% 89%;
+        --foreground: 222 55% 48%;
+        --card: 231 19% 93%;
+        --card-foreground: 222 55% 48%;
+        --popover: 231 19% 93%;
+        --popover-foreground: 222 55% 48%;
+        --primary: 215 81% 55%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 231 19% 93%;
+        --secondary-foreground: 222 55% 48%;
+        --muted: 231 19% 93%;
+        --muted-foreground: 230 22% 62%;
+        --accent: 231 19% 93%;
+        --accent-foreground: 222 55% 48%;
+        --destructive: 343 91% 56%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 225 19% 79%;
+        --input: 225 19% 79%;
+        --ring: 215 81% 55%;
+        --sidebar: 231 18% 86%;
+        --radius: 0.75rem;
+    }
+
+    /* === GitHub Light（亮色）=== */
+    .light[data-theme="github-light"] {
+        --background: 0 0% 100%;
+        --foreground: 213 13% 14%;
+        --card: 210 29% 97%;
+        --card-foreground: 213 13% 14%;
+        --popover: 210 29% 97%;
+        --popover-foreground: 213 13% 14%;
+        --primary: 213 92% 45%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 210 29% 97%;
+        --secondary-foreground: 213 13% 14%;
+        --muted: 210 29% 97%;
+        --muted-foreground: 212 8% 43%;
+        --accent: 210 29% 97%;
+        --accent-foreground: 213 13% 14%;
+        --destructive: 356 72% 47%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 210 18% 84%;
+        --input: 210 18% 84%;
+        --ring: 213 92% 45%;
+        --sidebar: 210 29% 95%;
+        --radius: 0.75rem;
+    }
+
+    /* === Solarized Light（暖米色亮色）=== */
+    .light[data-theme="solarized-light"] {
+        --background: 44 87% 94%;
+        --foreground: 194 14% 40%;
+        --card: 46 42% 88%;
+        --card-foreground: 194 14% 40%;
+        --popover: 46 42% 88%;
+        --popover-foreground: 194 14% 40%;
+        --primary: 205 69% 49%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 46 42% 88%;
+        --secondary-foreground: 194 14% 40%;
+        --muted: 46 42% 88%;
+        --muted-foreground: 180 7% 60%;
+        --accent: 46 42% 88%;
+        --accent-foreground: 194 14% 40%;
+        --destructive: 1 71% 52%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 46 30% 82%;
+        --input: 46 30% 82%;
+        --ring: 205 69% 49%;
+        --sidebar: 46 42% 86%;
         --radius: 0.75rem;
     }
 }
@@ -71,7 +273,7 @@
 }
 
 .glass-sidebar {
-    background: hsl(var(--card) / 0.75);
+    background: hsl(var(--sidebar) / 0.92);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
 }

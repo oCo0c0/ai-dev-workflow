@@ -118,8 +118,8 @@ function LogGroup({logs, startIdx, endIdx, isExpanded, onToggle, theme}: LogGrou
                 className={cn(
                     'w-full py-1.5 px-3 rounded-md text-xs font-medium transition-all duration-200 flex items-center justify-between',
                     isExpanded
-                        ? cn('border text-blue-300', theme === 'dark' ? 'bg-blue-500/15 border-blue-500/25' : 'bg-blue-50 border-blue-200')
-                        : cn('border text-muted-foreground', theme === 'dark' ? 'bg-muted/30 border-border/50 hover:bg-muted/50' : 'bg-gray-50 border-gray-200 hover:bg-gray-100')
+                        ? cn('border text-blue-300', theme !== 'light' ? 'bg-blue-500/15 border-blue-500/25' : 'bg-blue-50 border-blue-200')
+                        : cn('border text-muted-foreground', theme !== 'light' ? 'bg-muted/30 border-border/50 hover:bg-muted/50' : 'bg-gray-50 border-gray-200 hover:bg-gray-100')
                 )}
             >
                 <span className="flex items-center gap-2">
@@ -151,23 +151,23 @@ function LogEntry({kind, content, theme}: { kind: LogKind; content: string; them
             'animate-in fade-in slide-in-from-bottom-1 duration-200',
             kind === 'thinking' && cn(
                 'pl-3 pr-3 py-2 border-l-2 border-purple-500',
-                theme === 'dark' ? 'bg-purple-500/10 text-purple-200' : 'bg-purple-50 text-purple-800'
+                theme !== 'light' ? 'bg-purple-500/10 text-purple-200' : 'bg-purple-50 text-purple-800'
             ),
             kind === 'tool_use' && cn(
                 'pl-3 pr-3 py-2 border-l-2 border-emerald-500',
-                theme === 'dark' ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-800'
+                theme !== 'light' ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-800'
             ),
             kind === 'tool_result' && cn(
                 'pl-3 pr-3 py-2 border-l-2 border-gray-400',
-                theme === 'dark' ? 'bg-gray-800/50 text-gray-300' : 'bg-gray-100 text-gray-600'
+                theme !== 'light' ? 'bg-gray-800/50 text-gray-300' : 'bg-gray-100 text-gray-600'
             ),
             kind === 'user' && cn(
                 'ml-8 pl-3 pr-3 py-2 border-l-2 border-blue-500 shadow-sm',
-                theme === 'dark' ? 'bg-blue-500/10 text-blue-200' : 'bg-blue-50 text-blue-800'
+                theme !== 'light' ? 'bg-blue-500/10 text-blue-200' : 'bg-blue-50 text-blue-800'
             ),
             kind === 'normal' && cn(
                 'pl-3 pr-3 py-2 border border-border/40',
-                theme === 'dark' ? 'bg-gray-800/40 text-gray-300' : 'bg-gray-50 text-gray-700'
+                theme !== 'light' ? 'bg-gray-800/40 text-gray-300' : 'bg-gray-50 text-gray-700'
             ),
         )}>
             <div className="flex items-start gap-2">
@@ -818,12 +818,12 @@ export default function AgentExecutionPage() {
                             {/* --- 实时日志面板（分组折叠 + 颜色标记） --- */}
                             <div className={cn(
                                 'flex-1 min-h-[300px] rounded-lg border overflow-hidden flex flex-col shadow-sm',
-                                theme === 'dark' ? 'bg-gray-900' : 'bg-white'
+                                theme !== 'light' ? 'bg-gray-900' : 'bg-white'
                             )}>
                                 {/* 日志面板头部 */}
                                 <div className={cn(
                                     'flex items-center gap-2 px-4 py-2 border-b',
-                                    theme === 'dark' ? 'bg-gray-800/80 border-gray-700/50' : 'bg-gray-50 border-gray-200'
+                                    theme !== 'light' ? 'bg-gray-800/80 border-gray-700/50' : 'bg-gray-50 border-gray-200'
                                 )}>
                                     <Terminal className="h-3.5 w-3.5 text-emerald-500"/>
                                     <span className="text-xs font-medium text-emerald-500 font-mono">执行日志</span>
@@ -1106,7 +1106,7 @@ function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }
     return (
         <div className={cn(
             'rounded-lg p-3 border transition-all',
-            theme === 'dark' ? 'bg-purple-500/5 border-purple-500/15' : 'bg-purple-50/50 border-purple-200/50'
+            theme !== 'light' ? 'bg-purple-500/5 border-purple-500/15' : 'bg-purple-50/50 border-purple-200/50'
         )}>
             <div className="flex items-center gap-2 mb-1">
                 <Icon className={cn('h-3 w-3', color)}/>

@@ -19,6 +19,17 @@
     "collapseSidebar": "Collapse sidebar",
     "switchToLight": "Switch to light mode",
     "switchToDark": "Switch to dark mode",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeCatppuccinLatte": "Catppuccin Latte",
+    "themeTokyoNightDay": "Tokyo Night Day",
+    "themeGithubLight": "GitHub Light",
+    "themeSolarizedLight": "Solarized Light",
+    "themeTokyoNight": "Tokyo Night",
+    "themeCatppuccin": "Catppuccin Mocha",
+    "themeGithubDark": "GitHub Dark",
+    "themeNord": "Nord",
     "switchProvider": "Switch CLI Provider"
   },
   "nav": {

@@ -374,8 +374,8 @@ interface AppState {
     // --- UI 偏好 ---
     /** UI 相关状态 */
     ui: {
-        /** 主题模式 */
-        theme: 'dark' | 'light';
+        /** 主题（浅色/深色 + 多主题，见 Theme 类型）*/
+        theme: Theme;
         /** 侧边栏是否折叠 */
         sidebarCollapsed: boolean;
         /** 语言偏好 */
@@ -499,7 +499,7 @@ interface AppState {
     /** 设置侧边栏折叠状态 */
     setSidebarCollapsed: (collapsed: boolean) => void;
     /** 直接设置主题 */
-    setTheme: (theme: 'dark' | 'light') => void;
+    setTheme: (theme: Theme) => void;
     /** 设置语言偏好 */
     setLocale: (locale: 'zh' | 'en') => void;
 
@@ -567,14 +567,31 @@ interface AppState {
 // === 辅助函数：主题持久化 ===
 
 /**
- * 从 localStorage 加载保存的主题设置
- * @returns 保存的主题值，若未保存则默认返回 'dark'
+ * 可用主题（浅色系 + 深色系），通过顶栏主题切换器选择。
+ * 浅色：light / catppuccin-latte / tokyo-night-day / github-light / solarized-light
+ * 深色：dark（默认灰调）/ tokyo-night / catppuccin(mocha) / github-dark / nord
  */
-function loadTheme(): 'dark' | 'light' {
+export type Theme =
+    | 'light' | 'catppuccin-latte' | 'tokyo-night-day' | 'github-light' | 'solarized-light'
+    | 'dark' | 'tokyo-night' | 'catppuccin' | 'github-dark' | 'nord';
+
+/** 每个主题所属的明暗模式（决定挂 .light 还是 .dark class，从而控制 tailwind dark: 是否生效） */
+const THEME_MODES: Record<Theme, 'light' | 'dark'> = {
+    'light': 'light', 'catppuccin-latte': 'light', 'tokyo-night-day': 'light', 'github-light': 'light', 'solarized-light': 'light',
+    'dark': 'dark', 'tokyo-night': 'dark', 'catppuccin': 'dark', 'github-dark': 'dark', 'nord': 'dark',
+};
+
+/**
+ * 从 localStorage 加载保存的主题设置
+ * @returns 保存的主题值，若未保存或非法则默认返回 'dark'
+ */
+function loadTheme(): Theme {
     // SSR 环境下 localStorage 不可用，返回默认主题
     if (typeof window === 'undefined') return 'dark';
-    const stored = localStorage.getItem('ai-workbench-theme');
-    return stored === 'light' ? 'light' : 'dark';
+    const stored = localStorage.getItem('ai-workbench-theme') as Theme | null;
+    // 校验合法 Theme 值（兼容旧 'dark'/'light' 与非法值）
+    if (stored && stored in THEME_MODES) return stored;
+    return 'dark';
 }
 
 /**
@@ -585,17 +602,21 @@ function loadTheme(): 'dark' | 'light' {
  *
  * @param theme - 要应用的主题模式
  */
-function applyTheme(theme: 'dark' | 'light') {
+function applyTheme(theme: Theme) {
     // SSR 环境下 document 不可用，跳过 DOM 操作
     if (typeof document === 'undefined') return;
     const html = document.documentElement;
-    if (theme === 'dark') {
+    // 按主题明暗模式挂 .light/.dark class（tailwind darkMode:'class' 据此生效）
+    const mode = THEME_MODES[theme] ?? 'dark';
+    if (mode === 'dark') {
         html.classList.add('dark');
         html.classList.remove('light');
     } else {
         html.classList.add('light');
         html.classList.remove('dark');
     }
+    // data-theme 区分具体主题（CSS .dark/.light[data-theme="xxx"] 覆盖默认变量）
+    html.setAttribute('data-theme', theme);
     localStorage.setItem('ai-workbench-theme', theme);
 }
 
@@ -721,7 +742,8 @@ export const useAppStore = create<AppState>((set) => {
         // === UI Actions ===
         toggleTheme: () =>
             set((state) => {
-                const newTheme = state.ui.theme === 'dark' ? 'light' : 'dark';
+                // 快捷明暗切换：当前是浅色系 → 切默认深色；否则切浅色
+                const newTheme: Theme = THEME_MODES[state.ui.theme] === 'light' ? 'dark' : 'light';
                 applyTheme(newTheme);
                 return {ui: {...state.ui, theme: newTheme}};
             }),

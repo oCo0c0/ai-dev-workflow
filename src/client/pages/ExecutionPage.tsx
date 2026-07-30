@@ -878,12 +878,12 @@ export default function ExecutionPage() {
                             data-tour="exec-output"
                             className={cn(
                                 "flex-1 min-h-0 rounded-lg border border-border/50 overflow-hidden flex flex-col shadow-lg",
-                                theme === 'dark' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
+                                theme !== 'light' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
                             )}>
                             {/* 终端标题栏 - 渐变装饰 */}
                             <div className={cn(
                                 "flex items-center gap-2 px-4 py-2.5 border-b border-border/50 backdrop-blur-sm",
-                                theme === 'dark' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
+                                theme !== 'light' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
                             )}>
                                 <Terminal className="h-3.5 w-3.5 text-emerald-400"/>
                                 <span
@@ -947,8 +947,8 @@ export default function ExecutionPage() {
                                                             className={cn(
                                                                 'w-full py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200 flex items-center justify-between mb-2',
                                                                 isExpanded
-                                                                    ? cn('border text-blue-300', theme === 'dark' ? 'bg-blue-500/20 border-blue-400/30' : 'bg-blue-100 border-blue-300')
-                                                                    : cn('border text-gray-400 hover:opacity-80', theme === 'dark' ? 'bg-gray-800/50 border-gray-700/50 hover:bg-gray-800/70' : 'bg-gray-100 border-gray-300 hover:bg-gray-200')
+                                                                    ? cn('border text-blue-300', theme !== 'light' ? 'bg-blue-500/20 border-blue-400/30' : 'bg-blue-100 border-blue-300')
+                                                                    : cn('border text-gray-400 hover:opacity-80', theme !== 'light' ? 'bg-gray-800/50 border-gray-700/50 hover:bg-gray-800/70' : 'bg-gray-100 border-gray-300 hover:bg-gray-200')
                                                             )}
                                                         >
                                                             <span className="flex items-center gap-2">
@@ -993,9 +993,9 @@ export default function ExecutionPage() {
                                                                             'animate-in fade-in slide-in-from-bottom-2 duration-300',
                                                                             isUserMessage
                                                                                 ? cn('ml-10 pl-4 pr-4 py-2.5 shadow-sm border-l-3 border-blue-500',
-                                                                                    theme === 'dark' ? 'bg-gradient-to-br from-blue-500/10 to-blue-600/5' : 'bg-gradient-to-br from-blue-100 to-blue-50')
+                                                                                    theme !== 'light' ? 'bg-gradient-to-br from-blue-500/10 to-blue-600/5' : 'bg-gradient-to-br from-blue-100 to-blue-50')
                                                                                 : cn('pl-4 pr-4 py-2.5 border border-gray-700/50',
-                                                                                    theme === 'dark' ? 'bg-gradient-to-br from-gray-800/50 to-gray-900/30' : 'bg-gradient-to-br from-gray-50 to-white')
+                                                                                    theme !== 'light' ? 'bg-gradient-to-br from-gray-800/50 to-gray-900/30' : 'bg-gradient-to-br from-gray-50 to-white')
                                                                         )}>
                                                                             <div className={cn(
                                                                                 'font-mono text-xs leading-relaxed',

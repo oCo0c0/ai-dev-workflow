@@ -10,11 +10,11 @@
  * - 全局初始化：启动 WebSocket 连接、注册键盘快捷键
  */
 
-import {useEffect} from 'react';
+import {useEffect, useState, useRef} from 'react';
 import {NavLink, Outlet, useLocation} from 'react-router-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import {useTranslation} from 'react-i18next';
-import {useAppStore} from '../stores/app-store';
+import {useAppStore, type Theme} from '../stores/app-store';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useWebSocket} from '../hooks/useWebSocket';
 import SetupWizard from './SetupWizard';
@@ -30,8 +30,7 @@ import {
     GitBranch,
     PanelLeftClose,
     PanelLeft,
-    Sun,
-    Moon,
+    Palette,
     FileSearch,
     FolderKanban,
     Languages,
@@ -77,6 +76,22 @@ const pageTitleKeys: Record<string, string> = {
 };
 
 /**
+ * 主题切换器选项（id 对应 Theme 类型；swatch 为色块预览色）
+ */
+const THEME_OPTIONS: {id: Theme; labelKey: string; swatch: string}[] = [
+    {id: 'light', labelKey: 'common.themeLight', swatch: '#ffffff'},
+    {id: 'catppuccin-latte', labelKey: 'common.themeCatppuccinLatte', swatch: '#eff1f5'},
+    {id: 'tokyo-night-day', labelKey: 'common.themeTokyoNightDay', swatch: '#e1e2e7'},
+    {id: 'github-light', labelKey: 'common.themeGithubLight', swatch: '#f6f8fa'},
+    {id: 'solarized-light', labelKey: 'common.themeSolarizedLight', swatch: '#fdf6e3'},
+    {id: 'dark', labelKey: 'common.themeDark', swatch: '#2b2d33'},
+    {id: 'tokyo-night', labelKey: 'common.themeTokyoNight', swatch: '#1a1b26'},
+    {id: 'catppuccin', labelKey: 'common.themeCatppuccin', swatch: '#1e1e2e'},
+    {id: 'github-dark', labelKey: 'common.themeGithubDark', swatch: '#0d1117'},
+    {id: 'nord', labelKey: 'common.themeNord', swatch: '#2e3440'},
+];
+
+/**
  * 主布局组件
  */
 export default function Layout() {
@@ -87,7 +102,19 @@ export default function Layout() {
     const theme = useAppStore((s) => s.ui.theme);
     const locale = useAppStore((s) => s.ui.locale);
     const setLocale = useAppStore((s) => s.setLocale);
-    const toggleTheme = useAppStore((s) => s.toggleTheme);
+    const setTheme = useAppStore((s) => s.setTheme);
+    const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+    const themeMenuRef = useRef<HTMLDivElement>(null);
+
+    // 主题菜单：点击外部关闭
+    useEffect(() => {
+        if (!themeMenuOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (!themeMenuRef.current?.contains(e.target as Node)) setThemeMenuOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [themeMenuOpen]);
     const wsConnected = useAppStore((s) => s.ws.connected);
     const cliProvider = useAppStore((s) => s.cliProvider);
     const setCliProvider = useAppStore((s) => s.setCliProvider);
@@ -213,7 +240,7 @@ export default function Layout() {
 
             {/* 主内容区域 */}
             <div className="flex flex-1 flex-col overflow-hidden">
-                <header className="flex h-14 items-center justify-between border-b border-border/50 glass px-6">
+                <header className="relative z-50 flex h-14 items-center justify-between border-b border-border/50 glass px-6">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={toggleSidebar}
@@ -271,18 +298,41 @@ export default function Layout() {
                         >
                             <Languages className="h-4 w-4"/>
                         </button>
-                        {/* 主题切换 */}
-                        <button
-                            onClick={toggleTheme}
-                            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200"
-                            title={theme === 'dark' ? t('common.switchToLight') : t('common.switchToDark')}
-                        >
-                            {theme === 'dark' ? (
-                                <Sun className="h-4 w-4"/>
-                            ) : (
-                                <Moon className="h-4 w-4"/>
-                            )}
-                        </button>
+                        {/* 主题切换器 */}
+                        <div className="relative" ref={themeMenuRef}>
+                            <button
+                                onClick={() => setThemeMenuOpen(!themeMenuOpen)}
+                                className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200"
+                                title={t('common.theme')}
+                            >
+                                <Palette className="h-4 w-4"/>
+                            </button>
+                            <AnimatePresence>
+                                {themeMenuOpen && (
+                                    <motion.div
+                                        initial={{opacity: 0, y: -4}}
+                                        animate={{opacity: 1, y: 0}}
+                                        exit={{opacity: 0, y: -4}}
+                                        transition={{duration: 0.15}}
+                                        className="absolute right-0 top-full mt-1 z-[100] grid w-44 gap-0.5 rounded-lg border border-border bg-popover shadow-apple-lg"
+                                    >
+                                        {THEME_OPTIONS.map(opt => (
+                                            <button
+                                                key={opt.id}
+                                                onClick={() => { setTheme(opt.id); setThemeMenuOpen(false); }}
+                                                className={cn(
+                                                    'flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
+                                                    theme === opt.id ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                                                )}
+                                            >
+                                                <span className="h-3 w-3 shrink-0 rounded-full border border-border/60" style={{background: opt.swatch}}/>
+                                                {t(opt.labelKey)}
+                                            </button>
+                                        ))}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
                     </div>
                 </header>
 

@@ -927,13 +927,13 @@ export default function PlanPage() {
                                 {planLogs.length > 0 && (
                                     <div className={cn(
                                         "rounded-lg border border-border/50 overflow-hidden shadow-lg",
-                                        theme === 'dark' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
+                                        theme !== 'light' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
                                     )}>
                                         {/* 日志面板标题栏 - 渐变装饰 */}
                                         <div
                                             className={cn(
                                                 "flex items-center gap-2 px-3 py-2 border-b border-border/50 backdrop-blur-sm",
-                                                theme === 'dark' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
+                                                theme !== 'light' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
                                             )}>
                                             <div
                                                 className="h-2 w-2 rounded-full bg-gradient-to-r from-emerald-400 to-green-500 animate-pulse shadow-sm"/>
@@ -968,7 +968,7 @@ export default function PlanPage() {
                                                     {log.includes('**User:**') ? (
                                                         <div className={cn(
                                                             "bg-gradient-to-br border-l-3 border-blue-500 rounded-r-lg ml-10 pl-4 pr-4 py-2.5 shadow-sm",
-                                                            theme === 'dark' ? "from-blue-500/10 to-blue-600/5" : "from-blue-100 to-blue-50"
+                                                            theme !== 'light' ? "from-blue-500/10 to-blue-600/5" : "from-blue-100 to-blue-50"
                                                         )}>
                                                             <div className="flex items-center gap-2 mb-1.5">
                                                                 <User className="h-3 w-3 text-blue-400"/>
@@ -981,7 +981,7 @@ export default function PlanPage() {
                                                     ) : (
                                                         <div className={cn(
                                                             "border rounded-lg pl-4 pr-4 py-2.5",
-                                                            theme === 'dark' ? "bg-gradient-to-br from-gray-800/50 to-gray-900/30 border-gray-700/50" : "bg-gradient-to-br from-gray-50 to-white border-gray-200"
+                                                            theme !== 'light' ? "bg-gradient-to-br from-gray-800/50 to-gray-900/30 border-gray-700/50" : "bg-gradient-to-br from-gray-50 to-white border-gray-200"
                                                         )}>
                                                             <span
                                                                 className="font-mono text-xs text-foreground">{log}</span>

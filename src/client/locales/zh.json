@@ -19,6 +19,17 @@
     "collapseSidebar": "折叠侧边栏",
     "switchToLight": "切换浅色模式",
     "switchToDark": "切换深色模式",
+    "theme": "主题",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeCatppuccinLatte": "Catppuccin Latte",
+    "themeTokyoNightDay": "Tokyo Night Day",
+    "themeGithubLight": "GitHub Light",
+    "themeSolarizedLight": "Solarized Light",
+    "themeTokyoNight": "Tokyo Night",
+    "themeCatppuccin": "Catppuccin Mocha",
+    "themeGithubDark": "GitHub Dark",
+    "themeNord": "Nord",
     "switchProvider": "切换 CLI 工具"
   },
   "nav": {

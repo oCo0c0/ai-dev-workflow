@@ -10,7 +10,7 @@
 
 import {v4 as uuid} from 'uuid';
 import {join, dirname} from 'path';
-import {mkdir, writeFile, readFile, readdir, unlink} from 'fs/promises';
+import {mkdir, writeFile, readFile, readdir, unlink, rename} from 'fs/promises';
 import {existsSync} from 'fs';
 import {APP_DATA_DIR} from '../utils/constants.js';
 import type {
@@ -88,7 +88,12 @@ export class AgentExecutionStore {
         await mkdir(dir, {recursive: true});
 
         execution.updatedAt = new Date().toISOString();
-        await writeFile(filePath, JSON.stringify(execution, null, 2), 'utf-8');
+        // 原子写：先写临时文件再 rename，避免写一半被并发 get() 读到截断的 JSON。
+        // agent 执行（尤其模型 tool_use 反复出错时）会高频更新 thoughts/logs，
+        // 非原子 writeFile 会触发 "Unexpected end of JSON input"。
+        const tmpPath = `${filePath}.${process.pid}.tmp`;
+        await writeFile(tmpPath, JSON.stringify(execution, null, 2), 'utf-8');
+        await rename(tmpPath, filePath);
     }
 
     /**
