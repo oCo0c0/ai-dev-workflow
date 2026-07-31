@@ -25,6 +25,16 @@ import type {
 const DEFAULT_TOTAL_STEPS = 5;
 
 /**
+ * Windows 上 fs.rename 常因杀毒软件 / Windows Search 索引服务瞬时锁定目标文件而失败
+ * （EPERM / EBUSY 等）。这类锁定是瞬时的，重试通常即可成功。
+ */
+const RETRYABLE_RENAME_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY']);
+/** rename 重试次数上限（含首次调用） */
+const RENAME_MAX_ATTEMPTS = 5;
+/** rename 重试基础退避（ms），按指数递增：30, 60, 120, 240 */
+const RENAME_BASE_DELAY_MS = 30;
+
+/**
  * 对从磁盘读取的对象做最小限度的结构校验。
  * 不校验每个字段类型，仅确保关键字段存在且类型基本正确。
  */
@@ -93,7 +103,32 @@ export class AgentExecutionStore {
         // 非原子 writeFile 会触发 "Unexpected end of JSON input"。
         const tmpPath = `${filePath}.${process.pid}.tmp`;
         await writeFile(tmpPath, JSON.stringify(execution, null, 2), 'utf-8');
-        await rename(tmpPath, filePath);
+        // rename 走带重试的封装：Windows 上杀软/索引服务会瞬时锁定文件导致 EPERM。
+        await this.renameWithRetry(tmpPath, filePath);
+    }
+
+    /**
+     * 对 fs.rename 做有限次重试。
+     *
+     * Windows 上杀毒软件、Windows Search 索引服务会在文件刚落盘时瞬时锁定，
+     * 导致 rename 报 EPERM / EBUSY。这类锁定通常几十毫秒内释放，重试 1-2 次即可成功。
+     * 仅在 {@link RETRYABLE_RENAME_ERRORS} 列出的瞬时错误码上重试，其余错误立即抛出。
+     */
+    private async renameWithRetry(src: string, dest: string): Promise<void> {
+        for (let attempt = 1; attempt <= RENAME_MAX_ATTEMPTS; attempt++) {
+            try {
+                return await rename(src, dest);
+            } catch (err) {
+                const code = (err as NodeJS.ErrnoException).code;
+                const retryable = typeof code === 'string' && RETRYABLE_RENAME_ERRORS.has(code);
+                if (!retryable || attempt === RENAME_MAX_ATTEMPTS) {
+                    throw err;
+                }
+                // 指数退避：30, 60, 120, 240 ms
+                const delay = RENAME_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
     }
 
     /**

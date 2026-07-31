@@ -471,7 +471,18 @@ function finalizePlan(
     plan.summary = accumulatedOutput.substring(0, 500);
     plan.updatedAt = new Date().toISOString();
     if (result.sessionId) plan.sessionId = result.sessionId;
-    if (result.exitCode !== 0) plan.error = result.stderr || 'Plan generation failed';
+    if (result.exitCode !== 0) {
+        const stderr = result.stderr || '';
+        // error_during_execution 多发于 resume 历史会话时 SDK 本地恢复失败
+        // （上下文超长 / 会话状态损坏）。此时清掉失效 sessionId，下次对话自动开新会话，
+        // 并给出业务化提示，避免前端只看到一句笼统的 "SDK error"。
+        if (stderr.includes('error_during_execution') && plan.sessionId) {
+            plan.sessionId = undefined;
+            plan.error = '历史会话已失效（上下文过长或会话状态损坏），已自动重置。请重新发送消息，将以新会话继续。';
+        } else {
+            plan.error = stderr || 'Plan generation failed';
+        }
+    }
     persistPlan(plan, planStore);
     activeGenerations.delete(plan.id);
     broadcast({type: 'plan:complete', data: {taskId: plan.id, status: plan.status}});
@@ -546,6 +557,54 @@ async function getRequirementContent(
     return {title: detail.title, description: detail.description};
 }
 
+/** 常见工具的图标映射 */
+const TOOL_ICONS: Record<string, string> = {
+    Read: '📖', Write: '📝', Edit: '✏️', MultiEdit: '✏️',
+    Bash: '💻', Grep: '🔍', Glob: '🔎', Task: '🤖',
+    TodoWrite: '📋', WebFetch: '🌐', WebSearch: '🌐',
+};
+
+/** 从路径取最后一段（如 UserService.java），非字符串返回空串 */
+function shortPath(p: unknown): string {
+    if (typeof p !== 'string' || !p) return '';
+    const parts = p.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || p;
+}
+
+/**
+ * 将一次工具调用（tool_use）摘要成一行人类可读日志。
+ * 避免把 Read 等工具的结果全文灌入计划日志，只展示动作 + 目标文件/命令。
+ */
+function summarizeToolUse(meta: Record<string, unknown>): string {
+    const toolName = String(meta.toolName ?? '');
+    const input = (meta.toolInput as Record<string, unknown> | undefined) ?? {};
+    const icon = TOOL_ICONS[toolName] ?? '🔧';
+    switch (toolName) {
+        case 'Read':
+            return `${icon} 读取 ${shortPath(input.file_path)}`;
+        case 'Write':
+            return `${icon} 写入 ${shortPath(input.file_path)}`;
+        case 'Edit':
+        case 'MultiEdit':
+            return `${icon} 编辑 ${shortPath(input.file_path)}`;
+        case 'Bash':
+            return `${icon} 执行: ${String(input.command ?? '').slice(0, 80)}`;
+        case 'Grep':
+            return `${icon} 搜索 "${String(input.pattern ?? '')}"`;
+        case 'Glob':
+            return `${icon} 匹配 ${String(input.pattern ?? '')}`;
+        case 'Task':
+            return `${icon} 子任务: ${String(input.description ?? '').slice(0, 80)}`;
+        case 'TodoWrite':
+            return `${icon} 更新待办清单`;
+        case 'WebFetch':
+        case 'WebSearch':
+            return `${icon} ${toolName}: ${String(input.url ?? input.query ?? '').slice(0, 80)}`;
+        default:
+            return `${icon} ${toolName}`;
+    }
+}
+
 /**
  * 执行带超时的 bridge 调用，统一处理 onOutput 回调和错误。
  */
@@ -566,12 +625,28 @@ async function runBridgeWithTimeout(
 ): Promise<void> {
     let accumulatedOutput = bridgeOptions.accumulatedOutput ?? '';
 
-    const onOutput = (data: string) => {
-        accumulatedOutput += data;
+    // 统一推送一条日志：累积到 rawOutput 并广播 plan:progress
+    const pushLog = (text: string) => {
+        accumulatedOutput += text;
         plan.rawOutput = accumulatedOutput;
         plan.summary = accumulatedOutput.substring(0, 500);
         planCache.set(plan.id, {...plan});
-        broadcast({type: 'plan:progress', data: {taskId: plan.id, content: data}});
+        broadcast({type: 'plan:progress', data: {taskId: plan.id, content: text}});
+    };
+
+    const onOutput = (data: string, meta?: Record<string, unknown>) => {
+        // 工具调用摘要化：只展示动作 + 目标，避免 Read 等结果全文刷屏
+        if (meta?.type === 'tool_use') {
+            const summary = summarizeToolUse(meta);
+            if (summary) pushLog(summary + '\n');
+            return;
+        }
+        if (meta?.type === 'tool_result') {
+            // 成功结果静默（文件全文不进日志）；失败给一行截断提示便于排查
+            if (meta.isError && data) pushLog(`⚠️ 工具执行失败: ${data.slice(0, 200)}\n`);
+            return;
+        }
+        pushLog(data);
     };
 
     try {

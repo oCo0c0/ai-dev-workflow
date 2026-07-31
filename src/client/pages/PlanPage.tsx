@@ -160,6 +160,8 @@ export default function PlanPage() {
     const AUTO_FOLD_THRESHOLD = 10;
     // 计划摘要折叠状态
     const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
+    // 任务拆分卡片折叠状态（默认折叠，避免挤占日志区）
+    const [isTaskBreakdownExpanded, setIsTaskBreakdownExpanded] = useState(false);
     const SUMMARY_PREVIEW_LINES = 20; // 默认显示20行
     const [error, setError] = useState<string | null>(null);                  // 错误信息
     const [executing, setExecuting] = useState(false);                        // 是否正在启动执行
@@ -1217,23 +1219,32 @@ export default function PlanPage() {
                                 </CardContent>
                             </Card>
 
-                            {/* 任务拆分独立卡片：taskBreakdown 存在时展示，与开发计划分离 */}
+                            {/* 任务拆分独立卡片：taskBreakdown 存在时展示，默认折叠，点击标题展开 */}
                             {!editing && plan.taskBreakdown && (
                                 <Card className="border-emerald-500/20 bg-emerald-500/5">
                                     <CardContent className="p-4">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <Download className="h-4 w-4 text-emerald-600"/>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsTaskBreakdownExpanded(!isTaskBreakdownExpanded)}
+                                            className="flex items-center gap-2 w-full text-left hover:opacity-80 transition-opacity"
+                                        >
+                                            <Download className="h-4 w-4 text-emerald-600 shrink-0"/>
                                             <h3 className="text-sm font-semibold text-emerald-700">
                                                 任务拆分与工时评估
                                             </h3>
-                                            <span className="text-xs text-muted-foreground">
+                                            <span className="text-xs text-muted-foreground hidden sm:inline">
                                                 （独立于开发计划，可多次导出）
                                             </span>
-                                        </div>
-                                        <div
-                                            className="text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto max-h-96 overflow-y-auto">
-                                            <MarkdownContent content={plan.taskBreakdown}/>
-                                        </div>
+                                            {isTaskBreakdownExpanded
+                                                ? <ChevronUp className="h-4 w-4 text-muted-foreground ml-auto"/>
+                                                : <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto"/>}
+                                        </button>
+                                        {isTaskBreakdownExpanded && (
+                                            <div
+                                                className="mt-3 text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto max-h-96 overflow-y-auto">
+                                                <MarkdownContent content={plan.taskBreakdown}/>
+                                            </div>
+                                        )}
                                     </CardContent>
                                 </Card>
                             )}

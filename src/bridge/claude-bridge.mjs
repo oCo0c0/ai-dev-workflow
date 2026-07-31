@@ -210,7 +210,15 @@ async function runQueryOnce(prompt, requestId, options) {
                 numTurns: msg.num_turns,
             });
             if (msg.is_error) {
-                const errorMsg = typeof msg.result === 'string' ? msg.result : `SDK error: ${msg.subtype || 'unknown'}`;
+                let errorMsg;
+                if (typeof msg.result === 'string') {
+                    errorMsg = msg.result;
+                } else {
+                    // SDK 在本地阶段失败（如 resume 会话恢复失败）时常不带 result 文本，
+                    // 仅 subtype 无法定位问题；这里把 result 对象序列化带出，便于排查。
+                    const detail = msg.result == null ? 'no detail' : JSON.stringify(msg.result);
+                    errorMsg = `SDK error: ${msg.subtype || 'unknown'} | ${detail}`;
+                }
                 return isOverloaded(errorMsg)
                     ? {status: 'overloaded', error: errorMsg}
                     : {status: 'error', error: errorMsg};
