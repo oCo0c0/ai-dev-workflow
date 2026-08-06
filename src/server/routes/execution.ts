@@ -23,11 +23,14 @@ import {PlanStoreService} from '../services/plan-store-service.js';
 import {getPhaseSkills} from '../utils/skill-utils.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
+import {renderPrompt} from '../utils/prompt-renderer.js';
+import {PROMPTS} from '../prompts/index.js';
 import {ExecutionStoreService, type PersistedExecution} from '../services/execution-store-service.js';
 import {TestStoreService, type PersistedTestRun} from '../services/test-store-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import type {StoredPlan} from './plan.js';
 import {getErrorMessage} from '../utils/error-utils.js';
+import {processToolOutput} from '../utils/tool-log.js';
 import type {SandboxService} from '../services/sandbox-service.js';
 import type {WorkspaceService} from '../services/workspace-service.js';
 import type {TestStrategyConfig} from '../services/pipeline-service.js';
@@ -123,7 +126,7 @@ function finalizeRunResult(
         execution.completedAt = new Date().toISOString();
     }
     persistStore.upsert(toPersisted(execution));
-    broadcastFn({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+    broadcastFn({type: 'execution:complete', data: {executionId: execution.id, status: execution.status, workspacePath: execution.workspacePath}});
 }
 
 /** 执行路由依赖的 service 集合 */
@@ -137,6 +140,22 @@ interface ExecutionRouteServices {
 }
 
 /**
+ * 构造执行日志的 onOutput 回调：对工具调用摘要化后写入 logs 并广播 execution:output。
+ * 避免把 Read 等工具结果全文灌入执行日志（与计划页一致的精简策略）。
+ */
+function makeExecutionOutputHandler(execution: StoredExecution) {
+    return (data: string, meta?: Record<string, unknown>): void => {
+        const {silent, text} = processToolOutput(data, meta);
+        if (silent) return;
+        execution.logs.push(text);
+        broadcast({
+            type: 'execution:output',
+            data: {executionId: execution.id, stepIndex: execution.currentStep, content: text}
+        });
+    };
+}
+
+/**
  * 构造 runNextExecutionSkill 的 args 对象（prompt + onOutput + 各 service）。
  * continue-skill / skip-skill 共用。
  */
@@ -144,15 +163,9 @@ function buildSkillArgs(
     execution: StoredExecution,
     plan: StoredPlan,
     services: ExecutionRouteServices,
-): ExecutionRouteServices & { prompt: string; onOutput: (data: string) => void } {
+): ExecutionRouteServices & { prompt: string; onOutput: (data: string, meta?: Record<string, unknown>) => void } {
     const prompt = enrichPrompt(plan.rawOutput ?? plan.summary ?? '', services.memoryService, execution.workspacePath || process.cwd());
-    const onOutput = (data: string) => {
-        execution.logs.push(data);
-        broadcast({
-            type: 'execution:output',
-            data: {executionId: execution.id, stepIndex: execution.currentStep, content: data}
-        });
-    };
+    const onOutput = makeExecutionOutputHandler(execution);
     return {...services, prompt, onOutput};
 }
 
@@ -298,13 +311,7 @@ export function createExecutionRoutes(
 
         // 异步执行代码
         try {
-            const onOutput = (data: string) => {
-                execution.logs.push(data);
-                broadcast({
-                    type: 'execution:output',
-                    data: {executionId, stepIndex: execution.currentStep, content: data}
-                });
-            };
+            const onOutput = makeExecutionOutputHandler(execution);
 
             const prompt = enrichPrompt(plan.rawOutput ?? plan.summary ?? '', memoryService, plan.workspacePath);
 
@@ -356,7 +363,7 @@ export function createExecutionRoutes(
             execution.completedAt = new Date().toISOString();
             executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed'}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed', workspacePath: execution.workspacePath}});
             broadcast({type: 'error', data: {message: `Execution failed: ${getErrorMessage(err)}`}});
         }
     });
@@ -440,7 +447,7 @@ export function createExecutionRoutes(
 
         // 真正重新执行：用已有的 sessionId 继续对话
         const plan = (getPlanStore().get(execution.planId) as StoredPlan | undefined) ?? planFileStore.get(execution.planId);
-        const retryPrompt = `The previous execution step failed. Please retry the current step. Continue from where you left off.`;
+        const retryPrompt = renderPrompt(PROMPTS.executionRetry, {});
 
         try {
             const result = await cliRunnerService.runBridge(
@@ -452,13 +459,7 @@ export function createExecutionRoutes(
                 },
                 {
                     workspacePath: execution.workspacePath || process.cwd(),
-                    onOutput: (data) => {
-                        execution.logs.push(data);
-                        broadcast({
-                            type: 'execution:output',
-                            data: {executionId: execution.id, stepIndex: execution.currentStep, content: data}
-                        });
-                    },
+                    onOutput: makeExecutionOutputHandler(execution),
                     signal: execution.abortController?.signal,
                 }
             );
@@ -473,7 +474,7 @@ export function createExecutionRoutes(
             execution.completedAt = new Date().toISOString();
             executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed'}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed', workspacePath: execution.workspacePath}});
             broadcast({type: 'error', data: {message: `Execution retry failed: ${getErrorMessage(err)}`}});
         }
     });
@@ -521,7 +522,7 @@ export function createExecutionRoutes(
 
         // 继续执行后续步骤
         const plan = (getPlanStore().get(execution.planId) as StoredPlan | undefined) ?? planFileStore.get(execution.planId);
-        const continuePrompt = `The previous step was skipped. Please continue with the next step.`;
+        const continuePrompt = renderPrompt(PROMPTS.executionSkip, {});
 
         try {
             const result = await cliRunnerService.runBridge(
@@ -533,13 +534,7 @@ export function createExecutionRoutes(
                 },
                 {
                     workspacePath: execution.workspacePath || process.cwd(),
-                    onOutput: (data) => {
-                        execution.logs.push(data);
-                        broadcast({
-                            type: 'execution:output',
-                            data: {executionId: execution.id, stepIndex: execution.currentStep, content: data}
-                        });
-                    },
+                    onOutput: makeExecutionOutputHandler(execution),
                     signal: execution.abortController?.signal,
                 }
             );
@@ -554,7 +549,7 @@ export function createExecutionRoutes(
             execution.completedAt = new Date().toISOString();
             executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed'}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed', workspacePath: execution.workspacePath}});
             broadcast({type: 'error', data: {message: `Execution skip-continue failed: ${getErrorMessage(err)}`}});
         }
     });
@@ -710,13 +705,7 @@ export function createExecutionRoutes(
             const result = await cliRunnerService.runBridge(bridgeOptions,
                 {
                     workspacePath: execution.workspacePath || process.cwd(),
-                    onOutput: (data) => {
-                        execution.logs.push(data);
-                        broadcast({
-                            type: 'execution:output',
-                            data: {executionId: execution.id, stepIndex: execution.currentStep, content: data}
-                        });
-                    },
+                    onOutput: makeExecutionOutputHandler(execution),
                     signal: execution.abortController?.signal,
                 }
             );
@@ -727,7 +716,7 @@ export function createExecutionRoutes(
             execution.completedAt = new Date().toISOString();
             executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed'}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed', workspacePath: execution.workspacePath}});
             broadcast({type: 'error', data: {message: `Execution reply failed: ${getErrorMessage(err)}`}});
         }
     });
@@ -776,7 +765,7 @@ export function createExecutionRoutes(
             execution.completedAt = new Date().toISOString();
             executionStore.set(execution.id, execution); // 同步更新内存状态
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed'}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed', workspacePath: execution.workspacePath}});
             broadcast({type: 'error', data: {message: `Continue skill failed: ${getErrorMessage(err)}`}});
         }
     });
@@ -829,7 +818,7 @@ export function createExecutionRoutes(
             execution.status = 'completed';
             execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status, workspacePath: execution.workspacePath}});
             res.json({ok: true, skipped, completed: true});
         }
     });
@@ -882,7 +871,7 @@ async function runNextExecutionSkill(
         testExecutorService?: TestExecutorService;
         testPersistStore: TestStoreService;
         sandboxService?: SandboxService;
-        onOutput: (data: string) => void;
+        onOutput: (data: string, meta?: Record<string, unknown>) => void;
     },
     persistStore: ExecutionStoreService,
 ): Promise<void> {
@@ -894,7 +883,7 @@ async function runNextExecutionSkill(
         execution.completedAt = new Date().toISOString();
         execution.currentSkill = undefined;
         persistStore.upsert(toPersisted(execution));
-        broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+        broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status, workspacePath: execution.workspacePath}});
 
         // 触发测试阶段
         if (plan.pipelineId && opts.pipelineService && opts.testExecutorService) {
@@ -941,14 +930,14 @@ async function runNextExecutionSkill(
             execution.status = 'aborted';
             execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status, workspacePath: execution.workspacePath}});
             return;
         }
         if (result.exitCode !== 0) {
             execution.status = 'failed';
             execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status, workspacePath: execution.workspacePath}});
             return;
         }
 
@@ -970,7 +959,7 @@ async function runNextExecutionSkill(
             execution.status = 'completed';
             execution.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(execution));
-            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status}});
+            broadcast({type: 'execution:complete', data: {executionId: execution.id, status: execution.status, workspacePath: execution.workspacePath}});
 
             if (plan.pipelineId && opts.pipelineService && opts.testExecutorService) {
                 void triggerTestPhase(execution, plan, opts.pipelineService, opts.cliRunnerService, opts.testExecutorService, opts.testPersistStore, opts.sandboxService);
@@ -981,7 +970,7 @@ async function runNextExecutionSkill(
         execution.completedAt = new Date().toISOString();
         executionStore.set(execution.id, execution); // 同步更新内存状态
         persistStore.upsert(toPersisted(execution));
-        broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed'}});
+        broadcast({type: 'execution:complete', data: {executionId: execution.id, status: 'failed', workspacePath: execution.workspacePath}});
         broadcast({type: 'error', data: {message: `Skill "${skill}" failed: ${getErrorMessage(err)}`}});
     }
 }
@@ -1077,7 +1066,7 @@ async function triggerTestPhase(
             testRun.results = results;
             testRun.completedAt = new Date().toISOString();
             testPersistStore.upsert(testRun);
-            broadcast({type: 'test:complete', data: {taskId: testRunId, results, status: 'completed'}});
+            broadcast({type: 'test:complete', data: {taskId: testRunId, results, status: 'completed', workspacePath: execution.workspacePath}});
         }).catch((err) => {
             testRun.status = 'failed';
             testRun.error = getErrorMessage(err);
@@ -1102,7 +1091,10 @@ async function triggerTestPhase(
         broadcast({type: 'test:auto_start', data: {testRunId, executionId: execution.id, mode: 'ai_generate_e2e'}});
 
         // E2E 测试生成的提示词：要求生成 Playwright 测试文件并保存到项目目录
-        const e2ePrompt = `The execution has been completed. Now generate Playwright E2E tests for the UI changes.\n\n## Context\n- Workspace: ${plan.workspacePath}\n- Plan summary: ${plan.summary || 'See previous context'}\n\n## Instructions\n1. Review the code changes that were just made, focusing on UI/frontend changes\n2. Use the Playwright MCP browser tools to explore the application UI if needed\n3. Generate Playwright test files and save them to the project's e2e/ or tests/e2e/ directory\n4. Each test file should:\n   - Import from '@playwright/test'\n   - Test the key user flows affected by the changes\n   - Use meaningful test names that describe the scenario\n   - Include appropriate assertions\n5. After generating the files, verify they exist on disk\n\nImportant: Write the test files to disk using file write tools. Do NOT run the tests - they will be executed separately.\n\nRespond in the same language as the project.`;
+        const e2ePrompt = renderPrompt(PROMPTS.testE2eAuto, {
+            workspacePath: plan.workspacePath,
+            planSummary: plan.summary || 'See previous context',
+        });
 
         let accumulatedOutput = '';
         cliRunnerService.runBridge(
@@ -1130,7 +1122,7 @@ async function triggerTestPhase(
             testPersistStore.upsert(testRun);
             broadcast({
                 type: 'test:complete',
-                data: {taskId: testRunId, status: testRun.status, rawOutput: accumulatedOutput}
+                data: {taskId: testRunId, status: testRun.status, rawOutput: accumulatedOutput, workspacePath: execution.workspacePath}
             });
 
             // 如果生成成功，自动触发 Playwright Provider 执行生成的测试文件
@@ -1174,7 +1166,7 @@ async function triggerTestPhase(
                     testPersistStore.upsert(e2eRun);
                     broadcast({
                         type: 'test:complete',
-                        data: {taskId: e2eRunId, results: e2eResults, status: 'completed'}
+                        data: {taskId: e2eRunId, results: e2eResults, status: 'completed', workspacePath: execution.workspacePath}
                     });
                 } catch (err) {
                     e2eRun.status = 'failed';
@@ -1225,7 +1217,10 @@ async function triggerTestPhase(
             );
         } else {
             // === 原有本地一体化流程（不变） ===
-            const prompt = `The execution has been completed. Now analyze the changes made and write appropriate tests.\n\n## Context\n- Workspace: ${plan.workspacePath}\n- Plan summary: ${plan.summary || 'See previous context'}\n\n## Instructions\n1. Review the code changes that were just made\n2. Write appropriate unit and/or integration tests\n3. Run the tests and report results\n4. If tests fail, fix the issues and re-run\n\nRespond in the same language as the project.`;
+            const prompt = renderPrompt(PROMPTS.testAnalyzeAuto, {
+                workspacePath: plan.workspacePath,
+                planSummary: plan.summary || 'See previous context',
+            });
 
             let accumulatedOutput = '';
             cliRunnerService.runBridge(
@@ -1252,7 +1247,7 @@ async function triggerTestPhase(
                 testPersistStore.upsert(testRun);
                 broadcast({
                     type: 'test:complete',
-                    data: {taskId: testRunId, status: testRun.status, rawOutput: accumulatedOutput}
+                    data: {taskId: testRunId, status: testRun.status, rawOutput: accumulatedOutput, workspacePath: execution.workspacePath}
                 });
             }).catch((err) => {
                 testRun.status = 'failed';
@@ -1294,7 +1289,10 @@ async function executeAiGenerateSandbox(
     testPersistStore.upsert(testRun);
     broadcast({type: 'test:phase_change', data: {taskId: testRunId, phase: 'writing', label: 'AI 编写测试文件'}});
 
-    const writeOnlyPrompt = `The execution has been completed. Now analyze the changes made and write appropriate tests.\n\n## Context\n- Workspace: ${plan.workspacePath}\n- Plan summary: ${plan.summary || 'See previous context'}\n\n## Instructions\n1. Review the code changes that were just made\n2. Write appropriate unit and/or integration tests\n3. Save the test files to the project\n\nIMPORTANT: Do NOT run the tests. Only write and save the test files. Tests will be executed in a separate environment.\n\nRespond in the same language as the project.`;
+    const writeOnlyPrompt = renderPrompt(PROMPTS.testWriteOnlyAuto, {
+        workspacePath: plan.workspacePath,
+        planSummary: plan.summary || 'See previous context',
+    });
 
     let phase1Output = '';
     try {
@@ -1327,7 +1325,7 @@ async function executeAiGenerateSandbox(
             testRun.error = 'AI test file generation failed';
             testRun.completedAt = new Date().toISOString();
             testPersistStore.upsert(testRun);
-            broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error}});
+            broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error, workspacePath: execution.workspacePath}});
             return;
         }
     } catch (err) {
@@ -1337,7 +1335,7 @@ async function executeAiGenerateSandbox(
         testRun.error = `Phase 1 failed: ${getErrorMessage(err)}`;
         testRun.completedAt = new Date().toISOString();
         testPersistStore.upsert(testRun);
-        broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error}});
+        broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error, workspacePath: execution.workspacePath}});
         return;
     }
 
@@ -1362,7 +1360,7 @@ async function executeAiGenerateSandbox(
         testRun.error = `Sandbox "${testStrategy.sandboxId}" is not available. File sync failed.`;
         testRun.completedAt = new Date().toISOString();
         testPersistStore.upsert(testRun);
-        broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error}});
+        broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error, workspacePath: execution.workspacePath}});
         return;
     }
 
@@ -1398,7 +1396,7 @@ async function executeAiGenerateSandbox(
         testRun.error = `Sandbox test execution failed: ${getErrorMessage(err)}`;
         testRun.completedAt = new Date().toISOString();
         testPersistStore.upsert(testRun);
-        broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error}});
+        broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'failed', error: testRun.error, workspacePath: execution.workspacePath}});
         return;
     }
 
@@ -1415,7 +1413,10 @@ async function executeAiGenerateSandbox(
             ?.flatMap(s => s.tests?.filter(t => t.status === 'failed').map(t => `- [${s.name}] ${t.name}: ${t.error || 'Unknown error'}`) ?? [])
             .join('\n') || `${sandboxResults.failed} test(s) failed`;
 
-        const fixPrompt = `The following tests failed when executed in the sandbox:\n\n${failureDetails}\n\n## Context\n- Workspace: ${plan.workspacePath}\n\n## Instructions\n1. Analyze the test failures above\n2. Fix the test files or source code to resolve the failures\n3. Do NOT run the tests - they will be executed separately\n\nRespond in the same language as the project.`;
+        const fixPrompt = renderPrompt(PROMPTS.testFix, {
+            workspacePath: plan.workspacePath,
+            failureDetails,
+        });
 
         let phase3Output = '';
         try {
@@ -1472,7 +1473,7 @@ async function executeAiGenerateSandbox(
                     testPersistStore.upsert(testRun);
                     broadcast({
                         type: 'test:complete',
-                        data: {taskId: testRunId, status: 'failed', error: testRun.error}
+                        data: {taskId: testRunId, status: 'failed', error: testRun.error, workspacePath: execution.workspacePath}
                     });
                     return;
                 }
@@ -1518,5 +1519,5 @@ async function executeAiGenerateSandbox(
     testRun.currentPhase = undefined;
     testRun.completedAt = new Date().toISOString();
     testPersistStore.upsert(testRun);
-    broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'completed', results: testRun.results}});
+    broadcast({type: 'test:complete', data: {taskId: testRunId, status: 'completed', results: testRun.results, workspacePath: execution.workspacePath}});
 }

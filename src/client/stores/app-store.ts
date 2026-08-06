@@ -380,6 +380,8 @@ interface AppState {
         sidebarCollapsed: boolean;
         /** 语言偏好 */
         locale: 'zh' | 'en';
+        /** 自定义背景照片（dataURL，持久化到 localStorage） */
+        bgImage: string | null;
     };
 
     // --- CLI Provider ---
@@ -500,6 +502,8 @@ interface AppState {
     setSidebarCollapsed: (collapsed: boolean) => void;
     /** 直接设置主题 */
     setTheme: (theme: Theme) => void;
+    /** 设置自定义背景照片（null 表示清除，恢复默认渐变） */
+    setBgImage: (img: string | null) => void;
     /** 设置语言偏好 */
     setLocale: (locale: 'zh' | 'en') => void;
 
@@ -567,18 +571,14 @@ interface AppState {
 // === 辅助函数：主题持久化 ===
 
 /**
- * 可用主题（浅色系 + 深色系），通过顶栏主题切换器选择。
- * 浅色：light / catppuccin-latte / tokyo-night-day / github-light / solarized-light
- * 深色：dark（默认灰调）/ tokyo-night / catppuccin(mocha) / github-dark / nord
+ * 可用主题（浅色 + 深色两档），通过顶栏主题切换器选择。
  */
-export type Theme =
-    | 'light' | 'catppuccin-latte' | 'tokyo-night-day' | 'github-light' | 'solarized-light'
-    | 'dark' | 'tokyo-night' | 'catppuccin' | 'github-dark' | 'nord';
+export type Theme = 'light' | 'dark';
 
 /** 每个主题所属的明暗模式（决定挂 .light 还是 .dark class，从而控制 tailwind dark: 是否生效） */
 const THEME_MODES: Record<Theme, 'light' | 'dark'> = {
-    'light': 'light', 'catppuccin-latte': 'light', 'tokyo-night-day': 'light', 'github-light': 'light', 'solarized-light': 'light',
-    'dark': 'dark', 'tokyo-night': 'dark', 'catppuccin': 'dark', 'github-dark': 'dark', 'nord': 'dark',
+    'light': 'light',
+    'dark': 'dark',
 };
 
 /**
@@ -615,9 +615,40 @@ function applyTheme(theme: Theme) {
         html.classList.add('light');
         html.classList.remove('dark');
     }
-    // data-theme 区分具体主题（CSS .dark/.light[data-theme="xxx"] 覆盖默认变量）
-    html.setAttribute('data-theme', theme);
     localStorage.setItem('ai-workbench-theme', theme);
+}
+
+/** 自定义背景照片 localStorage key */
+const BG_IMAGE_KEY = 'ai-workbench-bg';
+
+/**
+ * 从 localStorage 加载自定义背景照片
+ * @returns dataURL 或 URL；未设置返回 null
+ */
+function loadBgImage(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(BG_IMAGE_KEY);
+}
+
+/**
+ * 将自定义背景照片应用到 <body>
+ *
+ * 有照片时在 <body> 挂 has-bg class 并注入 --user-bg（照片 url），
+ * 由 CSS 的 body.has-bg 规则叠加主题色遮罩保证文字可读；
+ * 无照片时移除，恢复默认多光晕渐变背景。
+ *
+ * @param img - 背景照片 dataURL/URL；null 表示清除
+ */
+function applyBgImage(img: string | null) {
+    if (typeof document === 'undefined') return;
+    const body = document.body;
+    if (img) {
+        body.classList.add('has-bg');
+        body.style.setProperty('--user-bg', `url("${img}")`);
+    } else {
+        body.classList.remove('has-bg');
+        body.style.removeProperty('--user-bg');
+    }
 }
 
 // === Zustand Store 实例 ===
@@ -630,8 +661,10 @@ function applyTheme(theme: Theme) {
  */
 export const useAppStore = create<AppState>((set) => {
     const initialTheme = loadTheme();
-    // Store 初始化时立即应用主题，避免页面闪烁
+    const initialBgImage = loadBgImage();
+    // Store 初始化时立即应用主题与背景，避免页面闪烁
     applyTheme(initialTheme);
+    applyBgImage(initialBgImage);
 
     return {
         // === 初始状态 ===
@@ -651,7 +684,8 @@ export const useAppStore = create<AppState>((set) => {
         ui: {
             theme: initialTheme,
             sidebarCollapsed: false,
-            locale: (localStorage.getItem('locale') as 'zh' | 'en') || 'zh'
+            locale: (localStorage.getItem('locale') as 'zh' | 'en') || 'zh',
+            bgImage: initialBgImage,
         },
         claudeModelTiers: [],
         codexModel: null,
@@ -758,6 +792,12 @@ export const useAppStore = create<AppState>((set) => {
         setTheme: (theme) => {
             applyTheme(theme);
             return set((state) => ({ui: {...state.ui, theme}}));
+        },
+        setBgImage: (img) => {
+            applyBgImage(img);
+            if (img) localStorage.setItem(BG_IMAGE_KEY, img);
+            else localStorage.removeItem(BG_IMAGE_KEY);
+            return set((state) => ({ui: {...state.ui, bgImage: img}}));
         },
         setLocale: (locale) => {
             localStorage.setItem('locale', locale);

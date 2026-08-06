@@ -29,8 +29,14 @@ import type {McpStdioMap} from '../services/cli-providers/types.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
+import {renderPrompt} from '../utils/prompt-renderer.js';
+import {PROMPTS} from '../prompts/index.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import {LruCache} from '../utils/lru-cache.js';
+import {processToolOutput} from '../utils/tool-log.js';
+import {extractJsonArray, extractJsonObject} from '../utils/structured-json.js';
+import {validateShape, type FieldSpec, type ValidationResult} from '../utils/json-validator.js';
+import {runBridgeJson} from '../utils/bridge-json-runner.js';
 
 /**
  * @type {PersistedPlan}
@@ -41,9 +47,6 @@ export type StoredPlan = PersistedPlan;
 
 /** Bridge 调用超时时间（30 分钟） */
 const BRIDGE_TIMEOUT_MS = 30 * 60 * 1000;
-
-/** 计划生成时的系统提示模板 */
-const PLAN_PROMPT_TEMPLATE = `Analyze the following requirement and generate a structured development plan.\n\n## Requirement\n{title}\n\n{description}\n\n## Instructions\nGenerate a development plan. Respond in the same language as the requirement.`;
 
 /** 任务导出 JSON 单行结构（技能输出） */
 interface TaskExportRow {
@@ -152,36 +155,112 @@ function parseMarkdownTable(raw: string): TaskExportRow[] {
 }
 
 /**
+ * 任务行 JSON 校验规格（title 必填，其余字段宽松）。
+ * estimatedHours 有意不校验：buildExportRow 的 pick() 已兼容 number|string，避免类型校验误杀。
+ */
+const TASK_ROW_SPEC: Record<string, FieldSpec> = {
+    title: {type: 'string', required: true, minLength: 1},
+    description: {type: 'string', required: false},
+    assignee: {type: 'string', required: false},
+    workItemType: {type: 'string', required: false},
+    priority: {type: 'string', required: false},
+    taskType: {type: 'string', required: false},
+    complexity: {type: 'string', required: false},
+    taskId: {type: 'string', required: false},
+    project: {type: 'string', required: false},
+    product: {type: 'string', required: false},
+    status: {type: 'string', required: false},
+    startDate: {type: 'string', required: false},
+    endDate: {type: 'string', required: false},
+    devLead: {type: 'string', required: false},
+    testLead: {type: 'string', required: false},
+};
+
+/**
+ * 过滤并校验 JSON 任务行数组。
+ * 结构不匹配但含可识别内容的行（如旧数据中文 key）宽容保留并告警；
+ * 非对象 / 空对象行丢弃（打 console.warn，不再静默）。
+ */
+function filterTaskRows(rows: unknown[]): TaskExportRow[] {
+    const out: TaskExportRow[] = [];
+    rows.forEach((row, i) => {
+        if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+            console.warn(`[plan:extractTasks] 任务行 ${i} 非对象，已丢弃`);
+            return;
+        }
+        const rec = row as Record<string, unknown>;
+        const vr = validateShape(row, TASK_ROW_SPEC);
+        if (vr.ok) {
+            out.push(rec as TaskExportRow);
+            return;
+        }
+        // 宽容保留：含非空字符串/数字值即可（buildExportRow 按 HEADER_ALIASES 映射中文 key）
+        const hasUsable = Object.keys(rec).some(k => {
+            const v = rec[k];
+            return (typeof v === 'string' && v.trim().length > 0) || typeof v === 'number';
+        });
+        if (hasUsable) {
+            console.warn(`[plan:extractTasks] 任务行 ${i} 结构不匹配，宽容保留: ${vr.errors.join('; ')}`);
+            out.push(rec as TaskExportRow);
+        } else {
+            console.warn(`[plan:extractTasks] 任务行 ${i} 无效，已丢弃: ${vr.errors.join('; ')}`);
+        }
+    });
+    return out;
+}
+
+/**
  * 从 raw text 提取任务列表。
- * 优先 JSON（数组或 {tasks:[]}），降级 markdown 表格。
+ * 优先 JSON（数组或 {tasks:[]}，逐行 schema 校验），降级 markdown 表格。
  */
 function extractTasksFromOutput(raw: string): TaskExportRow[] | null {
     if (!raw) return null;
 
-    // 1. JSON fenced block
-    const jsonFenced = raw.match(/```json\s*([\s\S]*?)```/);
-    if (jsonFenced) {
-        try {
-            const parsed = JSON.parse(jsonFenced[1].trim());
-            const arr = Array.isArray(parsed) ? parsed : (parsed.tasks ?? []);
-            if (Array.isArray(arr) && arr.length) return arr;
-        } catch { /* fallthrough */
-        }
+    // 1. JSON 数组
+    const arr = extractJsonArray(raw);
+    if (arr) {
+        const rows = filterTaskRows(arr);
+        if (rows.length) return rows;
     }
 
-    // 2. 裸 JSON 数组
-    const jsonBare = raw.match(/(\[[\s\S]*\])/);
-    if (jsonBare) {
-        try {
-            const parsed = JSON.parse(jsonBare[1].trim());
-            if (Array.isArray(parsed) && parsed.length) return parsed;
-        } catch { /* fallthrough */
-        }
+    // 2. JSON 对象 {tasks: [...]}
+    const obj = extractJsonObject(raw);
+    if (obj && Array.isArray(obj.tasks)) {
+        const rows = filterTaskRows(obj.tasks);
+        if (rows.length) return rows;
     }
 
-    // 3. markdown 表格（技能默认输出格式）
+    // 3. markdown 表格（技能默认输出格式，兼容存量数据）
     const mdTasks = parseMarkdownTable(raw);
     return mdTasks.length ? mdTasks : null;
+}
+
+/**
+ * export-tasks 结构化输出校验器（runBridgeJson 用，松校验）：
+ * 接受任务行数组或 {tasks:[...]}，每项须为含 title（或中文「标题」）的对象。
+ */
+function taskRowsValidator(value: unknown): ValidationResult {
+    const obj = value as Record<string, unknown> | null;
+    const rows: unknown[] | null = Array.isArray(value)
+        ? (value as unknown[])
+        : (obj && typeof obj === 'object' && Array.isArray(obj.tasks) ? (obj.tasks as unknown[]) : null);
+    if (!rows) return {ok: false, errors: ['输出应为任务行数组或 {tasks: [...]}']};
+    if (rows.length === 0) return {ok: false, errors: ['任务列表为空']};
+
+    const errors: string[] = [];
+    rows.forEach((row, i) => {
+        if (typeof row !== 'object' || row === null) {
+            errors.push(`tasks[${i}]: 应为对象`);
+            return;
+        }
+        const rec = row as Record<string, unknown>;
+        const hasTitle = typeof rec.title === 'string' && rec.title.trim() !== '';
+        const hasCnTitle = typeof rec['标题'] === 'string' && rec['标题'].trim() !== '';
+        if (!hasTitle && !hasCnTitle) errors.push(`tasks[${i}].title: 必填非空 string`);
+    });
+    return errors.length === 0
+        ? {ok: true, value: value as Record<string, unknown>, errors: []}
+        : {ok: false, errors};
 }
 
 /**
@@ -557,54 +636,6 @@ async function getRequirementContent(
     return {title: detail.title, description: detail.description};
 }
 
-/** 常见工具的图标映射 */
-const TOOL_ICONS: Record<string, string> = {
-    Read: '📖', Write: '📝', Edit: '✏️', MultiEdit: '✏️',
-    Bash: '💻', Grep: '🔍', Glob: '🔎', Task: '🤖',
-    TodoWrite: '📋', WebFetch: '🌐', WebSearch: '🌐',
-};
-
-/** 从路径取最后一段（如 UserService.java），非字符串返回空串 */
-function shortPath(p: unknown): string {
-    if (typeof p !== 'string' || !p) return '';
-    const parts = p.replace(/\\/g, '/').split('/');
-    return parts[parts.length - 1] || p;
-}
-
-/**
- * 将一次工具调用（tool_use）摘要成一行人类可读日志。
- * 避免把 Read 等工具的结果全文灌入计划日志，只展示动作 + 目标文件/命令。
- */
-function summarizeToolUse(meta: Record<string, unknown>): string {
-    const toolName = String(meta.toolName ?? '');
-    const input = (meta.toolInput as Record<string, unknown> | undefined) ?? {};
-    const icon = TOOL_ICONS[toolName] ?? '🔧';
-    switch (toolName) {
-        case 'Read':
-            return `${icon} 读取 ${shortPath(input.file_path)}`;
-        case 'Write':
-            return `${icon} 写入 ${shortPath(input.file_path)}`;
-        case 'Edit':
-        case 'MultiEdit':
-            return `${icon} 编辑 ${shortPath(input.file_path)}`;
-        case 'Bash':
-            return `${icon} 执行: ${String(input.command ?? '').slice(0, 80)}`;
-        case 'Grep':
-            return `${icon} 搜索 "${String(input.pattern ?? '')}"`;
-        case 'Glob':
-            return `${icon} 匹配 ${String(input.pattern ?? '')}`;
-        case 'Task':
-            return `${icon} 子任务: ${String(input.description ?? '').slice(0, 80)}`;
-        case 'TodoWrite':
-            return `${icon} 更新待办清单`;
-        case 'WebFetch':
-        case 'WebSearch':
-            return `${icon} ${toolName}: ${String(input.url ?? input.query ?? '').slice(0, 80)}`;
-        default:
-            return `${icon} ${toolName}`;
-    }
-}
-
 /**
  * 执行带超时的 bridge 调用，统一处理 onOutput 回调和错误。
  */
@@ -635,18 +666,9 @@ async function runBridgeWithTimeout(
     };
 
     const onOutput = (data: string, meta?: Record<string, unknown>) => {
-        // 工具调用摘要化：只展示动作 + 目标，避免 Read 等结果全文刷屏
-        if (meta?.type === 'tool_use') {
-            const summary = summarizeToolUse(meta);
-            if (summary) pushLog(summary + '\n');
-            return;
-        }
-        if (meta?.type === 'tool_result') {
-            // 成功结果静默（文件全文不进日志）；失败给一行截断提示便于排查
-            if (meta.isError && data) pushLog(`⚠️ 工具执行失败: ${data.slice(0, 200)}\n`);
-            return;
-        }
-        pushLog(data);
+        // 工具调用摘要化（Read 等结果全文静默），纯逻辑见 utils/tool-log
+        const {silent, text} = processToolOutput(data, meta);
+        if (!silent) pushLog(text);
     };
 
     try {
@@ -906,9 +928,7 @@ export function createPlanRoutes(
                 }
             }
 
-            const promptText = PLAN_PROMPT_TEMPLATE
-                .replace('{title}', title)
-                .replace('{description}', enrichedDescription);
+            const promptText = renderPrompt(PROMPTS.plan, {title, description: enrichedDescription});
 
             // 检查pipeline级别的Agent模式
             const pipeline = plan.pipelineId ? pipelineService?.get(plan.pipelineId) : undefined;
@@ -1173,7 +1193,7 @@ export function createPlanRoutes(
             plan,
             {
                 cliRunner: cliRunnerService,
-                prompt: 'Continue generating the development plan from where you left off.',
+                prompt: renderPrompt(PROMPTS.planResume, {}),
                 cwd: plan.workspacePath,
                 sessionId: plan.sessionId,
                 mcpServers: resumeMcpServers,
@@ -1224,9 +1244,7 @@ export function createPlanRoutes(
             const {title, description} = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
 
             // 传统技能模式
-            const promptText = PLAN_PROMPT_TEMPLATE
-                .replace('{title}', title)
-                .replace('{description}', description);
+            const promptText = renderPrompt(PROMPTS.plan, {title, description});
 
             await runBridgeWithTimeout(
                 plan,
@@ -1287,69 +1305,58 @@ export function createPlanRoutes(
                     // 给齐技能所需输入（避免技能因追问卡住）
                     const reqId = plan.requirementNumber ?? plan.requirementId;
                     const planContent = plan.rawOutput ?? plan.summary ?? description ?? '';
-                    const skillPrompt = `使用 ${skillName} 技能完成需求任务拆分 + 工时评估，按技能 SKILL.md 要求输出完整 17 列 markdown 表格 + 工时汇总 + 风险说明。
-
-【重要】所有输入已提供，禁止追问用户。未知字段填 "—"（除必填：标题、描述、状态="未开始"、工作项类型="任务"、预估工时、任务拆解类型、任务复杂度填"简单/中等/复杂"）。
-
-输入参数：
-- 需求号ID：${reqId}
-- 需求标题：${title}
-- 负责人：—
-- 所属项目：根据需求内容从技能 SKILL.md「所属项目 Enum」中自动匹配最接近的值
-- 所属产品：根据需求内容从技能 SKILL.md「所属产品 Enum」中自动匹配最接近的值
-- 开发主程：—
-- 测试主程：—
-- 计划周期：— ~ —
-
-需求描述：
-${description ?? ''}
-
-开发计划（change points 分析）：
-${planContent}
-
-立即输出完整表格，不要追问。`;
-                    // 任务拆分使用空输出开始，不污染rawOutput
-                    const prevOutput = '';
+                    const skillPrompt = renderPrompt(PROMPTS.taskBreakdown, {
+                        skillName,
+                        reqId,
+                        title,
+                        description: description ?? '',
+                        planContent,
+                    });
+                    // 任务拆分使用空输出开始，不污染rawOutput（onOutput 直接累积到 plan.rawOutput）
+                    plan.rawOutput = '';
                     const exportMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
 
-                    await runBridgeWithTimeout(
-                        plan,
-                        {
-                            cliRunner: cliRunnerService,
-                            prompt: enrichPrompt(skillPrompt, memoryService, plan.workspacePath),
-                            cwd: plan.workspacePath,
-                            sessionId: plan.sessionId,
-                            skills: [skillName],
-                            mcpServers: exportMcpServers,
-                            signal: abortController.signal,
-                            accumulatedOutput: prevOutput,
+                    // JSON 优先：技能输出须含 json fenced block；校验失败用 raw 走表格/宽容兜底
+                    const jsonResult = await runBridgeJson<TaskExportRow[] | {tasks: TaskExportRow[]}>({
+                        cliRunner: cliRunnerService,
+                        prompt: enrichPrompt(skillPrompt, memoryService, plan.workspacePath),
+                        cwd: plan.workspacePath,
+                        sessionId: plan.sessionId,
+                        skills: [skillName],
+                        mcpServers: exportMcpServers,
+                        signal: abortController.signal,
+                        maxRetries: 2,
+                        validator: taskRowsValidator,
+                        onOutput: (data, meta) => {
+                            const {silent, text} = processToolOutput(data, meta);
+                            if (!silent) {
+                                plan.rawOutput = (plan.rawOutput ?? '') + text;
+                                plan.summary = plan.rawOutput.substring(0, 500);
+                                planCache.set(plan.id, {...plan});
+                                broadcast({type: 'plan:progress', data: {taskId: plan.id, content: text}});
+                            }
                         },
-                        planStore,
-                        'Task export skill',
-                    );
+                    });
+
+                    if (!jsonResult.ok) {
+                        // 校验失败/超时/中止：raw 可能仍含 markdown 表格或部分 JSON，交由 extract 兜底
+                        console.warn(`[plan:export-tasks] 技能输出未通过 JSON 校验（${jsonResult.validationErrors?.join('; ') || jsonResult.error}），尝试兜底解析`);
+                    }
+
+                    // 技能输出挪到 taskBreakdown；校验通过时存干净的 JSON，失败则存原始输出
+                    plan.taskBreakdown = jsonResult.ok ? JSON.stringify(jsonResult.data) : (jsonResult.raw ?? '');
+                    // 恢复原始开发计划，保持开发计划与任务拆分彻底分离
+                    plan.rawOutput = originalRawOutput;
+                    plan.summary = originalSummary;
+                    plan.status = 'ready';
+                    plan.currentSkill = undefined;
+                    plan.updatedAt = new Date().toISOString();
+                    persistPlan(plan, planStore);
                 } catch (err) {
                     failPlan(plan, getErrorMessage(err), planStore, 'Task export skill');
                     res.status(500).json({code: 'SKILL_FAILED', message: `技能执行失败: ${getErrorMessage(err)}`});
                     return;
                 }
-
-                // 技能跑完后从最新缓存重读
-                const refreshed = planCache.get(plan.id) ?? planStore.get(plan.id);
-                if (!refreshed) {
-                    res.status(500).json({code: 'EXPORT_ERROR', message: '技能执行后 plan 丢失'});
-                    return;
-                }
-                Object.assign(plan, refreshed);
-
-                // 技能输出当前在 rawOutput（runBridge 写死该字段）→ 挪到 taskBreakdown
-                plan.taskBreakdown = plan.rawOutput ?? '';
-                // 恢复原始开发计划，保持开发计划与任务拆分彻底分离
-                plan.rawOutput = originalRawOutput;
-                plan.summary = originalSummary;
-                plan.status = 'ready';
-                plan.currentSkill = undefined;
-                plan.updatedAt = new Date().toISOString();
-                persistPlan(plan, planStore);
 
                 tasks = extractTasksFromOutput(plan.taskBreakdown ?? '');
             }
@@ -1438,9 +1445,7 @@ ${planContent}
 
         try {
             const {title, description} = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
-            const promptText = PLAN_PROMPT_TEMPLATE
-                .replace('{title}', title)
-                .replace('{description}', description);
+            const promptText = renderPrompt(PROMPTS.plan, {title, description});
 
             const continueMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
             await runNextPlanSkill(
@@ -1490,9 +1495,7 @@ ${planContent}
                     title,
                     description
                 } = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
-                const promptText = PLAN_PROMPT_TEMPLATE
-                    .replace('{title}', title)
-                    .replace('{description}', description);
+                const promptText = renderPrompt(PROMPTS.plan, {title, description});
                 const skipMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
                 await runNextPlanSkill(
                     plan,

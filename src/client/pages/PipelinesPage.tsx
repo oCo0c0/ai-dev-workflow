@@ -451,7 +451,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces, mcpServers}: Execu
 
             {/* 向导模态框主体 */}
             <div
-                className="relative z-10 w-full max-w-lg mx-4 bg-background border border-border rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
+                className="relative z-10 w-full max-w-lg mx-4 glass-panel rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
                 {/* 模态框头部：显示流水线名称和关闭按钮 */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                     <div>
@@ -479,7 +479,7 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces, mcpServers}: Execu
                                     <div
                                         className={cn(
                                             'flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0 transition-colors',
-                                            isActive && 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-md shadow-indigo-500/30',
+                                            isActive && 'brand-gradient text-primary-foreground shadow-md shadow-primary/30',
                                             isDone && 'bg-emerald-500 text-white',
                                             !isActive && !isDone && 'bg-muted text-muted-foreground'
                                         )}
@@ -848,10 +848,10 @@ function MultiSelectModal({title, items, selected, onConfirm, onClose}: MultiSel
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
             <div
-                className="relative z-10 w-full max-w-lg mx-4 bg-background border border-border rounded-xl shadow-2xl flex flex-col max-h-[80vh]">
+                className="relative z-10 w-full max-w-lg mx-4 glass-panel rounded-xl shadow-2xl flex flex-col max-h-[80vh]">
                 <div
-                    className="flex items-center justify-between px-4 py-3 border-b border-border bg-gradient-to-r from-indigo-500/10 to-purple-600/10">
-                    <h3 className="text-sm font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{title}</h3>
+                    className="flex items-center justify-between px-4 py-3 border-b border-border brand-gradient-soft">
+                    <h3 className="text-sm font-semibold brand-gradient-text">{title}</h3>
                     <button
                         onClick={onClose}
                         className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -956,7 +956,7 @@ function PhaseToolsCard({phaseLabel, config, skills, mcpServers, onChange}: Phas
     return (
         <div className="mb-3 rounded-md border border-border p-3">
             <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-4 rounded-full bg-gradient-to-b from-indigo-500 to-purple-600"/>
+                <div className="w-1 h-4 rounded-full brand-gradient"/>
                 <p className="text-xs font-semibold text-foreground">{phaseLabel}</p>
 
                 {/* Agent模式切换 */}
@@ -989,11 +989,11 @@ function PhaseToolsCard({phaseLabel, config, skills, mcpServers, onChange}: Phas
             {currentMode === 'agent' ? (
                 // Agent模式：显示说明，不需要选择具体Agent
                 <div
-                    className="rounded-md bg-gradient-to-br from-indigo-500/5 to-purple-600/5 border border-indigo-500/20 px-3 py-2">
+                    className="rounded-md brand-gradient-soft border border-primary/20 px-3 py-2">
                     <div className="flex items-start gap-2">
                         <div
-                            className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
-                            <span className="text-white text-xs">✨</span>
+                            className="w-5 h-5 rounded-full brand-gradient flex items-center justify-center shrink-0 mt-0.5">
+                            <span className="text-primary-foreground text-xs">✨</span>
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-foreground">Agent自主决策模式</p>
@@ -1393,11 +1393,11 @@ export default function PipelinesPage() {
             {/* 页面标题 */}
             <div className="mb-4 flex items-center gap-3">
                 <div
-                    className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md shadow-indigo-500/30">
-                    <Workflow className="h-5 w-5 text-white"/>
+                    className="flex items-center justify-center w-9 h-9 rounded-lg brand-gradient shadow-md shadow-primary/30">
+                    <Workflow className="h-5 w-5 text-primary-foreground"/>
                 </div>
                 <div>
-                    <h1 className="text-base font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent leading-tight">
+                    <h1 className="text-base font-semibold brand-gradient-text leading-tight">
                         {t('pipelines.title')}
                     </h1>
                     <p className="text-xs text-muted-foreground">{t('pipelines.subtitle')}</p>
@@ -1417,7 +1417,7 @@ export default function PipelinesPage() {
                     {/* 新建流水线按钮 + 刷新依赖数据 */}
                     <div className="flex gap-2 mb-3">
                         <Button onClick={startCreate}
-                                className="flex-1 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-md shadow-indigo-500/20 border-0"
+                                className="flex-1 shadow-md shadow-primary/20 border-0"
                                 size="sm" data-tour="pipe-new-btn">
                             <Plus className="h-4 w-4 mr-1"/>
                             {t('pipelines.newPipeline')}
@@ -1465,8 +1465,8 @@ export default function PipelinesPage() {
                                     <div className={cn(
                                         'absolute left-0 top-0 bottom-0 w-1 transition-all',
                                         selected?.id === pipeline.id
-                                            ? 'bg-gradient-to-b from-indigo-500 to-purple-600'
-                                            : 'bg-gradient-to-b from-indigo-500/30 to-purple-600/30'
+                                            ? 'brand-gradient'
+                                            : 'bg-primary/30'
                                     )}/>
                                     <CardContent className="p-3 pl-4">
                                         {/* 流水线名称和默认标记 */}
@@ -1576,11 +1576,11 @@ export default function PipelinesPage() {
                                     </div>
                                     {formAgentMode ? (
                                         <div
-                                            className="rounded-md bg-gradient-to-br from-indigo-500/5 to-purple-600/5 border border-indigo-500/20 px-3 py-2">
+                                            className="rounded-md brand-gradient-soft border border-primary/20 px-3 py-2">
                                             <div className="flex items-start gap-2">
                                                 <div
-                                                    className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
-                                                    <span className="text-white text-xs">✨</span>
+                                                    className="w-5 h-5 rounded-full brand-gradient flex items-center justify-center shrink-0 mt-0.5">
+                                                    <span className="text-primary-foreground text-xs">✨</span>
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-xs font-medium text-foreground">Agent自主决策已启用</p>
@@ -1975,7 +1975,7 @@ export default function PipelinesPage() {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}

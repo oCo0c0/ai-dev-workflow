@@ -89,7 +89,7 @@ function PhaseLabel({phase}: { phase: TaskPhase }) {
         test: t('projects.phaseTest'), idle: t('projects.phaseIdle'),
     };
     const colors: Record<TaskPhase, string> = {
-        plan: 'bg-purple-500/20 text-purple-300',
+        plan: 'bg-red-500/20 text-red-300',
         waiting_plan_confirm: 'bg-orange-500/20 text-orange-300',
         execution: 'bg-blue-500/20 text-blue-300',
         waiting_execution_confirm: 'bg-orange-500/20 text-orange-300',
@@ -470,11 +470,11 @@ function CreateTaskModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
             <motion.div
                 initial={{opacity: 0, scale: 0.95}}
                 animate={{opacity: 1, scale: 1}}
-                className="bg-card rounded-lg border border-border w-[480px] max-h-[80vh] overflow-y-auto"
+                className="glass-panel rounded-xl w-[480px] max-h-[80vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between p-4 border-b border-border">
@@ -870,7 +870,7 @@ export default function ProjectsPage() {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}

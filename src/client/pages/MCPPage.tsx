@@ -486,7 +486,7 @@ export default function MCPPage() {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}

@@ -53,8 +53,8 @@ const buttonVariants = cva(
     {
         variants: {
             variant: {
-                /** 默认变体：indigo→purple 渐变背景 + 阴影，悬停时加深 */
-                default: 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-sm hover:shadow-md hover:from-indigo-600 hover:to-purple-700 border-0',
+                /** 默认变体：品牌渐变背景（跟随主题 accent）+ 阴影，悬停时加深 */
+                default: 'brand-gradient text-primary-foreground border-0 shadow-sm hover:shadow-md hover:opacity-90',
                 /** 破坏性变体：危险色调背景 + 前景色 + 小阴影，用于不可逆操作 */
                 destructive: 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
                 /** 轮廓变体：带边框 + 背景色 + 小阴影，悬停时显示强调色 */

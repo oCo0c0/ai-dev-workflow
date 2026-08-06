@@ -10,7 +10,7 @@
  * - 全局初始化：启动 WebSocket 连接、注册键盘快捷键
  */
 
-import {useEffect, useState, useRef} from 'react';
+import {useEffect, useState, useRef, type ChangeEvent} from 'react';
 import {NavLink, Outlet, useLocation} from 'react-router-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import {useTranslation} from 'react-i18next';
@@ -37,6 +37,8 @@ import {
     Bot,
     Terminal,
     Cpu,
+    ImagePlus,
+    Trash2,
 } from 'lucide-react';
 import {ProviderSetupModal} from './ProviderSetupModal';
 import {ModelConfigModal} from './ModelConfigModal';
@@ -79,17 +81,44 @@ const pageTitleKeys: Record<string, string> = {
  * 主题切换器选项（id 对应 Theme 类型；swatch 为色块预览色）
  */
 const THEME_OPTIONS: {id: Theme; labelKey: string; swatch: string}[] = [
-    {id: 'light', labelKey: 'common.themeLight', swatch: '#ffffff'},
-    {id: 'catppuccin-latte', labelKey: 'common.themeCatppuccinLatte', swatch: '#eff1f5'},
-    {id: 'tokyo-night-day', labelKey: 'common.themeTokyoNightDay', swatch: '#e1e2e7'},
-    {id: 'github-light', labelKey: 'common.themeGithubLight', swatch: '#f6f8fa'},
-    {id: 'solarized-light', labelKey: 'common.themeSolarizedLight', swatch: '#fdf6e3'},
-    {id: 'dark', labelKey: 'common.themeDark', swatch: '#2b2d33'},
-    {id: 'tokyo-night', labelKey: 'common.themeTokyoNight', swatch: '#1a1b26'},
-    {id: 'catppuccin', labelKey: 'common.themeCatppuccin', swatch: '#1e1e2e'},
-    {id: 'github-dark', labelKey: 'common.themeGithubDark', swatch: '#0d1117'},
-    {id: 'nord', labelKey: 'common.themeNord', swatch: '#2e3440'},
+    {id: 'light', labelKey: 'common.themeLight', swatch: '#f7f7f8'},
+    {id: 'dark', labelKey: 'common.themeDark', swatch: '#1e1f21'},
 ];
+
+/**
+ * 将选择的图片压缩为背景照片 dataURL
+ * 限制最长边 1920px、JPEG 质量 0.82，避免超出 localStorage 容量。
+ * @param file   用户选择的图片文件
+ * @param maxDim 缩放后的最长边
+ * @param quality JPEG 压缩质量
+ */
+function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(img.width * scale));
+                canvas.height = Math.max(1, Math.round(img.height * scale));
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Canvas 2D 不可用');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            } catch (err) {
+                reject(err);
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('图片加载失败'));
+        };
+        img.src = url;
+    });
+}
 
 /**
  * 主布局组件
@@ -103,8 +132,30 @@ export default function Layout() {
     const locale = useAppStore((s) => s.ui.locale);
     const setLocale = useAppStore((s) => s.setLocale);
     const setTheme = useAppStore((s) => s.setTheme);
+    const bgImage = useAppStore((s) => s.ui.bgImage);
+    const setBgImage = useAppStore((s) => s.setBgImage);
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const themeMenuRef = useRef<HTMLDivElement>(null);
+    const [bgError, setBgError] = useState<string | null>(null);
+
+    /** 背景图片文件选择：压缩后写入 store（持久化 + 应用） */
+    const handleBgFile = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setBgError(null);
+        try {
+            const dataUrl = await compressImage(file);
+            setBgImage(dataUrl);
+        } catch (err) {
+            console.error('背景图片处理失败:', err);
+            setBgError('背景图片处理失败，请换一张 JPG/PNG 图片试试');
+        } finally {
+            e.target.value = '';
+        }
+    };
+
+    /** 清除自定义背景，恢复默认渐变 */
+    const handleClearBg = () => setBgImage(null);
 
     // 主题菜单：点击外部关闭
     useEffect(() => {
@@ -157,7 +208,7 @@ export default function Layout() {
     };
 
     return (
-        <div className="flex h-screen overflow-hidden bg-background text-foreground">
+        <div className="flex h-screen overflow-hidden bg-transparent text-foreground">
             <SetupWizard/>
 
             {/* 侧边栏 */}
@@ -173,7 +224,7 @@ export default function Layout() {
                             <img
                                 src="https://blogsite.site/upload/logo.png"
                                 alt="logo"
-                                className="h-7 w-7 rounded-xl object-cover shrink-0 ring-2 ring-indigo-500/40 shadow-md shadow-indigo-500/20"
+                                className="h-7 w-7 rounded-xl object-cover shrink-0 ring-2 ring-primary/40 shadow-md shadow-primary/20"
                             />
                             <span className="text-sm font-semibold tracking-tight">{t('common.appTitle')}</span>
                         </div>
@@ -200,7 +251,7 @@ export default function Layout() {
                                     cn(
                                         'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
                                         isActive
-                                            ? 'bg-gradient-to-r from-indigo-500/15 to-purple-600/15 text-primary'
+                                            ? 'brand-gradient-soft text-primary'
                                             : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
                                     )
                                 }
@@ -210,9 +261,9 @@ export default function Layout() {
                                     <>
                                         {isActive && (
                                             <span
-                                                className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-gradient-to-b from-indigo-500 to-purple-600"/>
+                                                className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full brand-gradient"/>
                                         )}
-                                        <Icon className={cn('h-4 w-4 flex-shrink-0 transition-colors', isActive && 'text-indigo-500')}/>
+                                        <Icon className={cn('h-4 w-4 flex-shrink-0 transition-colors', isActive && 'text-primary')}/>
                                         {!sidebarCollapsed && <span className="truncate">{label}</span>}
                                     </>
                                 )}
@@ -254,7 +305,7 @@ export default function Layout() {
                             )}
                         </button>
                         <div className="h-4 w-px bg-border"/>
-                        <h1 className="text-sm font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{currentTitle}</h1>
+                        <h1 className="text-sm font-semibold brand-gradient-text">{currentTitle}</h1>
                     </div>
                     <div className="flex items-center gap-2">
                         {/* CLI Provider 切换 */}
@@ -301,7 +352,7 @@ export default function Layout() {
                         {/* 主题切换器 */}
                         <div className="relative" ref={themeMenuRef}>
                             <button
-                                onClick={() => setThemeMenuOpen(!themeMenuOpen)}
+                                onClick={() => { setBgError(null); setThemeMenuOpen(!themeMenuOpen); }}
                                 className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200"
                                 title={t('common.theme')}
                             >
@@ -314,14 +365,15 @@ export default function Layout() {
                                         animate={{opacity: 1, y: 0}}
                                         exit={{opacity: 0, y: -4}}
                                         transition={{duration: 0.15}}
-                                        className="absolute right-0 top-full mt-1 z-[100] grid w-44 gap-0.5 rounded-lg border border-border bg-popover shadow-apple-lg"
+                                        className="absolute right-0 top-full mt-1 z-[100] w-48 rounded-lg border border-border bg-popover p-1 shadow-apple-lg"
                                     >
+                                        <p className="px-2 pt-1 pb-0.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">主题</p>
                                         {THEME_OPTIONS.map(opt => (
                                             <button
                                                 key={opt.id}
                                                 onClick={() => { setTheme(opt.id); setThemeMenuOpen(false); }}
                                                 className={cn(
-                                                    'flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
+                                                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
                                                     theme === opt.id ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                                                 )}
                                             >
@@ -329,6 +381,34 @@ export default function Layout() {
                                                 {t(opt.labelKey)}
                                             </button>
                                         ))}
+                                        <div className="my-1 h-px bg-border/60"/>
+                                        <p className="px-2 pt-0.5 pb-0.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">背景</p>
+                                        <label
+                                            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                            title="上传本地图片作为背景"
+                                        >
+                                            <ImagePlus className="h-3.5 w-3.5"/>
+                                            上传背景图片
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="sr-only"
+                                                onChange={handleBgFile}
+                                            />
+                                        </label>
+                                        {bgError && (
+                                            <p className="px-2 py-1 text-[11px] text-destructive">{bgError}</p>
+                                        )}
+                                        {bgImage && (
+                                            <button
+                                                onClick={handleClearBg}
+                                                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                                title="恢复默认渐变背景"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5"/>
+                                                清除背景
+                                            </button>
+                                        )}
                                     </motion.div>
                                 )}
                             </AnimatePresence>

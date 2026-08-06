@@ -274,7 +274,7 @@ export default function SkillsPage() {
                                             className={cn(
                                                 'text-[10px] px-1 py-0.5 rounded shrink-0',
                                                 skill.source === 'builtin' && 'bg-primary/15 text-primary',
-                                                skill.source === 'plugin' && 'bg-violet-500/15 text-violet-600',
+                                                skill.source === 'plugin' && 'bg-red-500/15 text-red-600',
                                                 skill.source === 'command' && 'bg-sky-500/15 text-sky-600',
                                                 (skill.source === 'personal' || !skill.source) && 'bg-muted text-muted-foreground',
                                             )}
@@ -418,7 +418,7 @@ export default function SkillsPage() {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}

@@ -25,6 +25,8 @@ import type {CLIRunnerService} from '../services/cli-runner-service.js';
 import type {SkillsService} from '../services/skills-service.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
+import {renderPrompt} from '../utils/prompt-renderer.js';
+import {PROMPTS} from '../prompts/index.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import type {SandboxService} from '../services/sandbox-service.js';
 import type {WorkspaceService} from '../services/workspace-service.js';
@@ -449,7 +451,7 @@ export function createTestRoutes(
             run.results = results;
             run.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(run));
-            broadcast({type: 'test:complete', data: {taskId: run.id, results, status: 'completed'}});
+            broadcast({type: 'test:complete', data: {taskId: run.id, results, status: 'completed', workspacePath: run.workspacePath}});
         } catch (err) {
             run.status = 'failed';
             run.error = getErrorMessage(err);
@@ -466,6 +468,7 @@ export function createTestRoutes(
                     status: 'failed',
                     error: run.error,
                     rawOutput: run.rawOutput,
+                    workspacePath: run.workspacePath,
                 },
             });
         } finally {
@@ -510,7 +513,7 @@ export function createTestRoutes(
             await handleAiGenerateSandbox(run, workspacePath, skills, customPrompt, changedFiles, changedContext, reqSandboxId!);
         } else {
             // === 原有本地一体化流程 ===
-            const prompt = customPrompt || `Analyze the code changes in this workspace and write appropriate tests.\n\n## Context\n- Workspace: ${workspacePath}${changedContext}\n## Instructions\n1. Review the changed files listed above (or the overall codebase if no changes detected)\n2. Map each changed source file to its corresponding test file using project conventions (e.g., foo.ts → foo.test.ts, Bar.java → BarTest.java)\n3. Write appropriate unit and/or integration tests covering the changed functionality\n4. Run the tests and report results\n5. If tests fail, fix the issues and re-run\n\nRespond in the same language as the project.`;
+            const prompt = customPrompt || renderPrompt(PROMPTS.testAnalyze, {workspacePath, changedContext});
 
             let accumulatedOutput = '';
             try {
@@ -544,7 +547,7 @@ export function createTestRoutes(
                     persistStore.upsert(toPersisted(run));
                     broadcast({
                         type: 'test:complete',
-                        data: {taskId: run.id, status: 'completed', rawOutput: accumulatedOutput},
+                        data: {taskId: run.id, status: 'completed', rawOutput: accumulatedOutput, workspacePath: run.workspacePath},
                     });
                 }
             } catch (err) {
@@ -591,7 +594,7 @@ export function createTestRoutes(
             persistStore.upsert(toPersisted(run));
             broadcast({type: 'test:phase_change', data: {taskId: run.id, phase: 'writing', label: 'AI 编写测试文件'}});
 
-            const writeOnlyPrompt = customPrompt || `Analyze the code changes in this workspace and write appropriate tests.\n\n## Context\n- Workspace: ${workspacePath}${changedContext || ''}\n## Instructions\n1. Review the changed files listed above (or the overall codebase if no changes detected)\n2. Map each changed source file to its corresponding test file using project conventions\n3. Write appropriate unit and/or integration tests\n4. Save the test files to the project\n\nIMPORTANT: Do NOT run the tests. Only write and save the test files. Tests will be executed in a separate environment.\n\nRespond in the same language as the project.`;
+            const writeOnlyPrompt = customPrompt || renderPrompt(PROMPTS.testWriteOnly, {workspacePath, changedContext});
 
             let phase1Output = '';
             const phase1Result = await cliRunnerService!.runBridge(
@@ -621,7 +624,7 @@ export function createTestRoutes(
                 run.error = 'AI test file generation failed';
                 run.completedAt = new Date().toISOString();
                 persistStore.upsert(toPersisted(run));
-                broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error}});
+                broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error, workspacePath: run.workspacePath}});
                 return;
             }
 
@@ -647,7 +650,7 @@ export function createTestRoutes(
                 run.error = `Sandbox "${reqSandboxId}" is not available. File sync failed.`;
                 run.completedAt = new Date().toISOString();
                 persistStore.upsert(toPersisted(run));
-                broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error}});
+                broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error, workspacePath: run.workspacePath}});
                 return;
             }
 
@@ -690,7 +693,7 @@ export function createTestRoutes(
                     ?.flatMap(s => s.tests?.filter(t => t.status === 'failed').map(t => `- [${s.name}] ${t.name}: ${t.error || 'Unknown error'}`) ?? [])
                     .join('\n') || `${sandboxResults.failed} test(s) failed`;
 
-                const fixPrompt = `The following tests failed when executed in the sandbox:\n\n${failureDetails}\n\n## Context\n- Workspace: ${workspacePath}\n\n## Instructions\n1. Analyze the test failures above\n2. Fix the test files or source code to resolve the failures\n3. Do NOT run the tests - they will be executed separately\n\nRespond in the same language as the project.`;
+                const fixPrompt = renderPrompt(PROMPTS.testFix, {workspacePath, failureDetails});
 
                 let phase3Output = '';
                 const fixResult = await cliRunnerService!.runBridge(
@@ -739,7 +742,7 @@ export function createTestRoutes(
                         run.error = `Sandbox "${reqSandboxId}" is not available. File sync failed during re-run.`;
                         run.completedAt = new Date().toISOString();
                         persistStore.upsert(toPersisted(run));
-                        broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error}});
+                        broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error, workspacePath: run.workspacePath}});
                         return;
                     }
 
@@ -773,7 +776,7 @@ export function createTestRoutes(
             run.currentPhase = undefined;
             run.completedAt = new Date().toISOString();
             persistStore.upsert(toPersisted(run));
-            broadcast({type: 'test:complete', data: {taskId: run.id, status: 'completed', results: run.results}});
+            broadcast({type: 'test:complete', data: {taskId: run.id, status: 'completed', results: run.results, workspacePath: run.workspacePath}});
         } catch (err) {
             run.status = 'failed';
             run.error = getErrorMessage(err);
@@ -812,7 +815,7 @@ export function createTestRoutes(
             ? `\n## Changed Files (${changedFiles.length} files)\n${changedFiles.map(f => `- ${f}`).join('\n')}\n\nFocus on generating E2E tests for the UI/frontend changes above.`
             : '';
 
-        const e2ePrompt = customPrompt || `Generate Playwright E2E tests for the recent changes in this project.\n\n## Context\n- Workspace: ${workspacePath}${changedContext}\n## Instructions\n1. Review the changed files listed above (or the overall codebase if no changes detected), focusing on UI/frontend components\n2. Use the Playwright MCP browser tools to explore the application UI if needed\n3. Generate Playwright test files and save them to the project's e2e/ or tests/e2e/ directory\n4. Each test file should import from '@playwright/test', test key user flows affected by the changes, and include appropriate assertions\n5. After generating the files, verify they exist on disk\n\nImportant: Write the test files to disk using file write tools. Do NOT run the tests - they will be executed separately.\n\nRespond in the same language as the project.`;
+        const e2ePrompt = customPrompt || renderPrompt(PROMPTS.testE2e, {workspacePath, changedContext});
 
         let accumulatedOutput = '';
         try {
@@ -846,7 +849,7 @@ export function createTestRoutes(
                 persistStore.upsert(toPersisted(run));
                 broadcast({
                     type: "test:complete",
-                    data: {taskId: run.id, status: run.status, rawOutput: accumulatedOutput},
+                    data: {taskId: run.id, status: run.status, rawOutput: accumulatedOutput, workspacePath: run.workspacePath},
                 });
             }
 
@@ -888,7 +891,7 @@ export function createTestRoutes(
                     persistStore.upsert(toPersisted(e2eRun));
                     broadcast({
                         type: "test:complete",
-                        data: {taskId: e2eRunId, results: e2eResults, status: "completed"}
+                        data: {taskId: e2eRunId, results: e2eResults, status: "completed", workspacePath: e2eRun.workspacePath}
                     });
                 } catch (err) {
                     e2eRun.status = "failed";
@@ -943,7 +946,7 @@ export function createTestRoutes(
         testExecutorService.cancel(req.params.taskId);
 
         persistStore.upsert(toPersisted(run));
-        broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error}});
+        broadcast({type: 'test:complete', data: {taskId: run.id, status: 'failed', error: run.error, workspacePath: run.workspacePath}});
         // 注意：不在此处 delete activeRun，让 handleAi* 的 finally 统一清理
         // 因为 bridge Promise resolve 是异步的，如果提前 delete，handleAi* 的 catch 里找不到 run
 

@@ -14,6 +14,8 @@ import {ClaudeProvider} from './cli-providers/claude-provider.js';
 import type {CLIProviderResult} from './cli-providers';
 import {getErrorMessage} from '../utils/error-utils.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
+import {renderPrompt} from '../utils/prompt-renderer.js';
+import {PROMPTS} from '../prompts/index.js';
 import {getPhaseSkills, getPhaseMcpServers, resolveMcpServerMap} from '../utils/skill-utils.js';
 import {MCPConfigService} from './mcp-config-service.js';
 import {broadcast} from '../websocket.js';
@@ -68,9 +70,6 @@ export interface PipelineDependencies {
     memoryService?: MemoryService;
     workspaceService?: import('./workspace-service.js').WorkspaceService;
 }
-
-/** 计划生成 prompt 模板 */
-const PLAN_PROMPT_TEMPLATE = `Analyze the following requirement and generate a structured development plan.\n\n## Requirement\n{title}\n\n{description}\n\n## Instructions\nGenerate a development plan. Respond in the same language as the requirement.`;
 
 // === 调度器 ===
 
@@ -384,9 +383,7 @@ export class TaskScheduler {
         // 获取需求内容
         const {title, description} = await this.getRequirementContent(task.requirementId, requirementStore, mcpBridgeService);
 
-        const promptText = PLAN_PROMPT_TEMPLATE
-            .replace('{title}', title)
-            .replace('{description}', description);
+        const promptText = renderPrompt(PROMPTS.plan, {title, description});
 
         const planSkills = getPhaseSkills(
             pipelineService.get(task.pipelineId)?.steps ?? {},
@@ -484,7 +481,7 @@ export class TaskScheduler {
         }
 
         this.addLog(taskId, 'execution', 'info', '执行完成，等待用户确认...');
-        broadcast({type: 'execution:complete', data: {taskId, status: 'completed'}});
+        broadcast({type: 'execution:complete', data: {taskId, executionId: task.id, status: 'completed', workspacePath: task.workspacePath}});
 
         // --- 暂停：等待用户确认执行结果 ---
         this.updateTaskState(taskId, {phase: 'waiting_execution_confirm'});

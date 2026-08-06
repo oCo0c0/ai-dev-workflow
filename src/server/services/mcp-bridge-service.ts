@@ -10,6 +10,7 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {MCPConfigService, MCPServerConfig} from './mcp-config-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
+import {extractJsonValue} from '../utils/structured-json.js';
 
 // === 数据模型定义 ===
 
@@ -258,12 +259,11 @@ export class MCPBridgeService {
     private extractContentJson(content: unknown): unknown {
         const text = this.extractContentText(content);
         if (!text) return null;
-        try {
-            return JSON.parse(text);
-        } catch {
-            // JSON 解析失败，返回原始文本
-            return text;
-        }
+        // 优先提取内嵌 JSON（prose + fenced / 平衡括号混合输出鲁棒）；
+        // 未命中则维持原文本，交由调用方走 markdown 解析
+        const json = extractJsonValue(text);
+        if (json !== undefined) return json;
+        return text;
     }
 
     /**

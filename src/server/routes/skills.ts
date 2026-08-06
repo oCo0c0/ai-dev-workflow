@@ -20,6 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import {SkillsService} from '../services/skills-service.js';
 import type {CLIRunnerService} from '../services/cli-runner-service.js';
+import type {SkillDerivationService} from '../services/skill-derivation-service.js';
 import type {SkillInfo} from '../services/cli-providers';
 import {validateBody} from '../middleware/validation.js';
 import {getErrorMessage} from '../utils/error-utils.js';
@@ -55,7 +56,11 @@ function loadBuiltinSkills(): SkillInfo[] {
 /**
  * 创建技能路由实例
  */
-export function createSkillsRoutes(skillsService: SkillsService, cliRunnerService: CLIRunnerService): Router {
+export function createSkillsRoutes(
+    skillsService: SkillsService,
+    cliRunnerService: CLIRunnerService,
+    skillDerivationService?: SkillDerivationService,
+): Router {
     const router = Router();
 
     // GET /api/skills - 获取所有技能列表（内置 + provider 合并，去重，内置优先）
@@ -126,6 +131,37 @@ export function createSkillsRoutes(skillsService: SkillsService, cliRunnerServic
         } catch (err) {
             // 创建失败通常是因为业务校验不通过（如名称冲突），返回 400
             res.status(400).json({code: 'SKILLS_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    // POST /api/skills/derive - 从 analytics 执行证据手动提炼技能（LLM 驱动）
+    router.post('/derive', validateBody([
+        {field: 'analyticsIds', required: true, type: 'array'},
+    ]), async (req, res) => {
+        try {
+            if (!skillDerivationService) {
+                res.status(500).json({code: 'SKILLS_ERROR', message: 'skillDerivationService 未装配'});
+                return;
+            }
+            const {analyticsIds, workspacePath, pattern} = req.body as {
+                analyticsIds: string[];
+                workspacePath?: string;
+                pattern?: 'recovery-insight' | 'repeated-failure' | 'skill-ineffective';
+            };
+            if (analyticsIds.length === 0) {
+                res.status(400).json({code: 'INVALID_BODY', message: 'analyticsIds 不能为空数组'});
+                return;
+            }
+            const result = await skillDerivationService.deriveFromAnalytics(analyticsIds, workspacePath, pattern);
+            if (!result.ok) {
+                // 找不到证据记录按 404，提炼失败按 422（区别于业务校验）
+                const status = result.error?.includes('未找到可用的执行证据') ? 404 : 422;
+                res.status(status).json({code: 'DERIVE_FAILED', message: result.error});
+                return;
+            }
+            res.json({ok: true, skillName: result.skillName});
+        } catch (err) {
+            res.status(500).json({code: 'SKILLS_ERROR', message: getErrorMessage(err)});
         }
     });
 

@@ -763,7 +763,7 @@ export default function TestsPage() {
                                     </Badge>
                                     {run.environment === 'sandbox' && (
                                         <span
-                                            className="text-[10px] px-1.5 py-0 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{t('tests.sandbox')}</span>
+                                            className="text-[10px] px-1.5 py-0 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">{t('tests.sandbox')}</span>
                                     )}
                                     {run.framework && (
                                         <span
@@ -813,7 +813,7 @@ export default function TestsPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{t('pageTitle.tests')}</h1>
+                            <h1 className="text-xl font-semibold brand-gradient-text">{t('pageTitle.tests')}</h1>
                             <p className="mt-0.5 text-sm text-muted-foreground">
                                 {detail?.status === 'running' ? t('tests.subtitleRunning') :
                                     detail ? t('tests.subtitleResults') :
@@ -1494,7 +1494,7 @@ export default function TestsPage() {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}

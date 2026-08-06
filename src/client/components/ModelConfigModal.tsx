@@ -74,8 +74,8 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-lg mx-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="glass-panel rounded-xl shadow-2xl w-full max-w-lg mx-4">
                 {/* 头部 */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-border">
                     <div className="flex items-center gap-2">

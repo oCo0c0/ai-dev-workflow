@@ -35,6 +35,15 @@ interface ExecutionCompletePayload {
 }
 
 /**
+ * agent-execution:complete 事件数据结构（Agent 自主执行路径，素材最丰富）
+ */
+interface AgentExecutionCompletePayload {
+    executionId?: string;
+    status?: string;
+    workspacePath?: string;
+}
+
+/**
  * test:complete 事件数据结构
  */
 interface TestCompletePayload {
@@ -111,6 +120,7 @@ export class AnalyticsService {
     private registerListeners(): void {
         eventBus.onEvent('execution:complete', (data: unknown) => this.handleExecutionComplete(data));
         eventBus.onEvent('test:complete', (data: unknown) => this.handleTestComplete(data));
+        eventBus.onEvent('agent-execution:complete', (data: unknown) => this.handleAgentExecutionComplete(data));
     }
 
     /**
@@ -141,6 +151,37 @@ export class AnalyticsService {
             this.detectPatterns(record);
         } catch (err) {
             console.error(`[analytics] handleExecutionComplete error: ${getErrorMessage(err)}`);
+        }
+    }
+
+    /**
+     * 处理 Agent 执行完成事件（Agent 路径素材最丰富，为技能沉淀提供高质量证据）
+     */
+    private handleAgentExecutionComplete(data: unknown): void {
+        try {
+            const payload = data as AgentExecutionCompletePayload;
+            if (!payload?.executionId) return;
+
+            const outcome = payload.status === 'completed' ? 'success'
+                : payload.status === 'aborted' ? 'aborted' : 'failure';
+
+            const now = new Date().toISOString();
+            const record = this.analyticsStore.create({
+                executionId: payload.executionId,
+                workspacePath: payload.workspacePath ?? '',
+                phase: 'execution',
+                outcome,
+                startedAt: now,
+                completedAt: now,
+                durationMs: 0,
+                skillsUsed: [],
+                retryCount: 0,
+            });
+
+            // 模式检测
+            this.detectPatterns(record);
+        } catch (err) {
+            console.error(`[analytics] handleAgentExecutionComplete error: ${getErrorMessage(err)}`);
         }
     }
 

@@ -441,7 +441,7 @@ export default function RequirementsPage(): JSX.Element {
             <div className="border-b border-border px-6 py-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-xl font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{t('pageTitle.requirements')}</h1>
+                        <h1 className="text-xl font-semibold brand-gradient-text">{t('pageTitle.requirements')}</h1>
                         <p className="mt-0.5 text-sm text-muted-foreground">
                             {t('requirements.subtitle')}
                         </p>
@@ -785,7 +785,7 @@ export default function RequirementsPage(): JSX.Element {
                     {selected ? (
                         <>
                             {/* 固定头部：标题、编辑按钮、元信息 */}
-                            <div className="flex-shrink-0 border-b border-border bg-background/95 backdrop-blur-sm px-6 py-4 space-y-3">
+                            <div className="flex-shrink-0 border-b border-border glass px-6 py-4 space-y-3">
                                 {/* 标题栏 */}
                                 <div className="flex items-start justify-between gap-4">
                                     {editing ? (
@@ -856,8 +856,8 @@ export default function RequirementsPage(): JSX.Element {
                                 </div>
                             </div>
 
-                            {/* 可滚动内容区域：描述、验收标准、关联问题 */}
-                            <div className="flex-1 overflow-y-auto">
+                            {/* 可滚动内容区域：描述、验收标准、关联问题（半透明底保证文档可读） */}
+                            <div className="flex-1 overflow-y-auto bg-background/85 backdrop-blur-sm">
                                 <div className="p-6">
                                     {/* 需求描述 */}
                                     {editing ? (
@@ -991,7 +991,7 @@ export default function RequirementsPage(): JSX.Element {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}

@@ -16,7 +16,7 @@
  * 计划的生成过程通过轮询机制（每2秒）跟踪状态变化，
  * 实时日志通过全局状态管理（WebSocket推送）展示。
  */
-import {useState, useEffect, useRef, useCallback} from 'react';
+import {useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import {Joyride} from 'react-joyride';
@@ -28,6 +28,8 @@ import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {MarkdownContent} from '../components/MarkdownContent';
 import ContextIndicator from '../components/ContextIndicator';
+import {LogViewer} from '../components/LogViewer';
+import type {LogMessageData} from '../components/LogMessage';
 import {
     Sparkles,
     Pencil,
@@ -155,9 +157,6 @@ export default function PlanPage() {
     const [generatingElapsed, setGeneratingElapsed] = useState(0);            // 生成已耗时（秒）
     const [editing, setEditing] = useState(false);                            // 是否处于编辑模式
     const [editedSummary, setEditedSummary] = useState('');                   // 编辑中的计划内容
-    // 对话折叠状态：超过10条消息自动折叠（降低阈值便于测试）
-    const [isPlanLogsExpanded, setIsPlanLogsExpanded] = useState(false);
-    const AUTO_FOLD_THRESHOLD = 10;
     // 计划摘要折叠状态
     const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
     // 任务拆分卡片折叠状态（默认折叠，避免挤占日志区）
@@ -176,15 +175,29 @@ export default function PlanPage() {
 
     // ─── 引用 ───
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);      // 轮询定时器引用
-    const logEndRef = useRef<HTMLDivElement>(null);                            // 日志区域底部锚点（用于自动滚动）
     const replyInputRef = useRef<HTMLTextAreaElement>(null);                   // 回复输入框引用（用于焦点恢复）
 
     // 计算是否可以生成计划：需要已选择需求、已设置工作空间、且当前未在生成中
     const canGenerate = selectedRequirement && currentWorkspace && !generating;
 
-    // 当计划日志更新时，自动滚动到底部以显示最新内容
-    useEffect(() => {
-        logEndRef.current?.scrollIntoView({behavior: 'smooth'});
+    // 日志消息（planLogs → LogMessageData[]，供 LogViewer 渲染；折叠/自动滚动由 LogViewer 内部处理）
+    const logMessages = useMemo<LogMessageData[]>(() => {
+        return planLogs.map((log) => {
+            // 用户消息：以 **User:** 开头（右侧蓝色气泡）
+            if (log.includes('**User:**')) return {kind: 'user', content: log};
+            // 结构化日志（thinking / tool_use / tool_result / error / warning）
+            try {
+                const parsed = JSON.parse(log) as { type?: string; content?: string; toolName?: string };
+                if (parsed?.type === 'thinking') return {kind: 'thinking', content: parsed.content || ''};
+                if (parsed?.type === 'tool_use') return {kind: 'tool_use', content: parsed.toolName || 'Tool'};
+                if (parsed?.type === 'tool_result') return {kind: 'tool_result', content: parsed.content || ''};
+                if (parsed?.type === 'error') return {kind: 'error', content: parsed.content || ''};
+                if (parsed?.type === 'warning') return {kind: 'warning', content: parsed.content || ''};
+                return {kind: 'output', content: parsed?.content || log};
+            } catch {
+                return {kind: 'output', content: log};
+            }
+        });
     }, [planLogs]);
 
     /**
@@ -735,7 +748,7 @@ export default function PlanPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{t('pageTitle.plan')}</h1>
+                            <h1 className="text-xl font-semibold brand-gradient-text">{t('pageTitle.plan')}</h1>
                             {/* 根据当前状态显示不同的描述文本 */}
                             <p className="mt-0.5 text-sm text-muted-foreground">
                                 {generating ? t('plan.generating') :
@@ -925,86 +938,14 @@ export default function PlanPage() {
                                     <div className="h-full bg-primary rounded-full animate-pulse w-2/3"/>
                                 </div>
 
-                                {/* Claude实时输出日志面板 */}
+                                {/* Claude实时输出日志面板（统一 LogViewer：分组折叠 / 工具栏 / Markdown / 自动滚动） */}
                                 {planLogs.length > 0 && (
-                                    <div className={cn(
-                                        "rounded-lg border border-border/50 overflow-hidden shadow-lg",
-                                        theme !== 'light' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
-                                    )}>
-                                        {/* 日志面板标题栏 - 渐变装饰 */}
-                                        <div
-                                            className={cn(
-                                                "flex items-center gap-2 px-3 py-2 border-b border-border/50 backdrop-blur-sm",
-                                                theme !== 'light' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
-                                            )}>
-                                            <div
-                                                className="h-2 w-2 rounded-full bg-gradient-to-r from-emerald-400 to-green-500 animate-pulse shadow-sm"/>
-                                            <span
-                                                className="text-xs text-emerald-400 font-mono font-medium">{t('plan.claudeOutput')}</span>
-                                        </div>
-                                        {/* 日志内容区域 - 优化为流式气泡样式 + 折叠功能 */}
-                                        <div
-                                            className="max-h-64 overflow-y-auto p-3 space-y-2">
-                                            {/* 折叠提示按钮 */}
-                                            {planLogs.length > AUTO_FOLD_THRESHOLD && !isPlanLogsExpanded && (
-                                                <div className="relative mb-2">
-                                                    <div
-                                                        className="absolute inset-0 bg-gradient-to-b from-transparent via-background/50 to-background pointer-events-none rounded-lg"/>
-                                                    <button
-                                                        onClick={() => setIsPlanLogsExpanded(true)}
-                                                        className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-500/25 to-blue-600/15 hover:from-blue-500/35 hover:to-blue-600/25 border border-blue-400/40 text-blue-300 text-xs font-medium transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
-                                                    >
-                                                        <ChevronDown className="h-3.5 w-3.5"/>
-                                                        查看更多消息 ({planLogs.length} 条)
-                                                    </button>
-                                                </div>
-                                            )}
-
-                                            {/* 显示日志（根据折叠状态） */}
-                                            {(isPlanLogsExpanded || planLogs.length <= AUTO_FOLD_THRESHOLD ? planLogs : planLogs.slice(-AUTO_FOLD_THRESHOLD)).map((log, i) => (
-                                                <div
-                                                    key={i}
-                                                    className="animate-in fade-in slide-in-from-left-1 duration-200"
-                                                >
-                                                    {/* 检测用户消息 */}
-                                                    {log.includes('**User:**') ? (
-                                                        <div className={cn(
-                                                            "bg-gradient-to-br border-l-3 border-blue-500 rounded-r-lg ml-10 pl-4 pr-4 py-2.5 shadow-sm",
-                                                            theme !== 'light' ? "from-blue-500/10 to-blue-600/5" : "from-blue-100 to-blue-50"
-                                                        )}>
-                                                            <div className="flex items-center gap-2 mb-1.5">
-                                                                <User className="h-3 w-3 text-blue-400"/>
-                                                                <span
-                                                                    className="text-primary text-[10px] font-medium bg-primary/10 px-1.5 py-0.5 rounded">You</span>
-                                                            </div>
-                                                            <span
-                                                                className="font-mono text-xs text-foreground">{log.replace('**User:**', '')}</span>
-                                                        </div>
-                                                    ) : (
-                                                        <div className={cn(
-                                                            "border rounded-lg pl-4 pr-4 py-2.5",
-                                                            theme !== 'light' ? "bg-gradient-to-br from-gray-800/50 to-gray-900/30 border-gray-700/50" : "bg-gradient-to-br from-gray-50 to-white border-gray-200"
-                                                        )}>
-                                                            <span
-                                                                className="font-mono text-xs text-foreground">{log}</span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-
-                                            {/* 折叠后的折叠按钮 */}
-                                            {isPlanLogsExpanded && planLogs.length > AUTO_FOLD_THRESHOLD && (
-                                                <button
-                                                    onClick={() => setIsPlanLogsExpanded(false)}
-                                                    className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-gray-800/50 to-gray-900/30 hover:from-gray-800/70 hover:to-gray-900/50 border border-gray-700/50 text-gray-400 text-xs font-medium transition-all duration-200 flex items-center justify-center gap-2 mt-2"
-                                                >
-                                                    <ChevronUp className="h-3.5 w-3.5"/>
-                                                    折叠消息
-                                                </button>
-                                            )}
-                                            <div ref={logEndRef}/>
-                                        </div>
-                                    </div>
+                                    <LogViewer
+                                        messages={logMessages}
+                                        title={t('plan.claudeOutput')}
+                                        isStreaming
+                                        className="max-h-64"
+                                    />
                                 )}
 
                                 {/* 生成控制区域：等待/Paused/Pause/Cancel/Resume */}
@@ -1313,8 +1254,8 @@ export default function PlanPage() {
             </div>
             {/* 技能确认弹窗 */}
             {skillConfirm.open && (
-                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50">
-                    <div className="bg-background rounded-lg border border-border shadow-xl p-6 max-w-md w-full mx-4">
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="glass-panel rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
                         <h3 className="text-base font-semibold mb-2">技能执行确认</h3>
                         <p className="text-sm text-muted-foreground mb-1">
                             已完成技能：<span
@@ -1342,7 +1283,7 @@ export default function PlanPage() {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}

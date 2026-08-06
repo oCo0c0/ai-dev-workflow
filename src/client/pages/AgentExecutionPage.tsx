@@ -42,6 +42,9 @@ import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
+import {LogViewer} from '../components/LogViewer';
+import {MarkdownContent} from '../components/MarkdownContent';
+import type {LogMessageData} from '../components/LogMessage';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
 
 /** 已保存需求列表项（轻量，不需要完整 RequirementDetail） */
@@ -96,89 +99,12 @@ function parseLog(log: string): { kind: LogKind; content: string } {
     }
 }
 
-const MESSAGES_PER_GROUP = 10;
-
-// === 日志分组折叠组件 ===
-
-interface LogGroupProps {
-    groupIndex: number;
-    logs: string[];
-    startIdx: number;
-    endIdx: number;
-    isExpanded: boolean;
-    onToggle: () => void;
-    theme: string;
-}
-
-function LogGroup({logs, startIdx, endIdx, isExpanded, onToggle, theme}: LogGroupProps) {
-    return (
-        <div className="mb-2">
-            <button
-                onClick={onToggle}
-                className={cn(
-                    'w-full py-1.5 px-3 rounded-md text-xs font-medium transition-all duration-200 flex items-center justify-between',
-                    isExpanded
-                        ? cn('border text-blue-300', theme !== 'light' ? 'bg-blue-500/15 border-blue-500/25' : 'bg-blue-50 border-blue-200')
-                        : cn('border text-muted-foreground', theme !== 'light' ? 'bg-muted/30 border-border/50 hover:bg-muted/50' : 'bg-gray-50 border-gray-200 hover:bg-gray-100')
-                )}
-            >
-                <span className="flex items-center gap-2">
-                    {isExpanded ? <ChevronUp className="h-3 w-3"/> : <ChevronDown className="h-3 w-3"/>}
-                    消息 {startIdx + 1}-{endIdx}
-                </span>
-                <span className="text-[10px] opacity-60">{logs.length} 条</span>
-            </button>
-            {isExpanded && (
-                <div className="space-y-1.5 mt-1.5">
-                    {logs.map((log, i) => {
-                        const {kind, content} = parseLog(log);
-                        const displayText = content.length > 3000 ? content.slice(0, 3000) + '...' : content;
-
-                        return (
-                            <LogEntry key={`${startIdx + i}-${i}`} kind={kind} content={displayText} theme={theme}/>
-                        );
-                    })}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function LogEntry({kind, content, theme}: { kind: LogKind; content: string; theme: string }) {
-    return (
-        <div className={cn(
-            'rounded-md text-xs font-mono transition-all duration-150',
-            'animate-in fade-in slide-in-from-bottom-1 duration-200',
-            kind === 'thinking' && cn(
-                'pl-3 pr-3 py-2 border-l-2 border-purple-500',
-                theme !== 'light' ? 'bg-purple-500/10 text-purple-200' : 'bg-purple-50 text-purple-800'
-            ),
-            kind === 'tool_use' && cn(
-                'pl-3 pr-3 py-2 border-l-2 border-emerald-500',
-                theme !== 'light' ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-800'
-            ),
-            kind === 'tool_result' && cn(
-                'pl-3 pr-3 py-2 border-l-2 border-gray-400',
-                theme !== 'light' ? 'bg-gray-800/50 text-gray-300' : 'bg-gray-100 text-gray-600'
-            ),
-            kind === 'user' && cn(
-                'ml-8 pl-3 pr-3 py-2 border-l-2 border-blue-500 shadow-sm',
-                theme !== 'light' ? 'bg-blue-500/10 text-blue-200' : 'bg-blue-50 text-blue-800'
-            ),
-            kind === 'normal' && cn(
-                'pl-3 pr-3 py-2 border border-border/40',
-                theme !== 'light' ? 'bg-gray-800/40 text-gray-300' : 'bg-gray-50 text-gray-700'
-            ),
-        )}>
-            <div className="flex items-start gap-2">
-                {kind === 'thinking' && <Brain className="h-3 w-3 mt-0.5 text-purple-400 shrink-0"/>}
-                {kind === 'tool_use' && <Wrench className="h-3 w-3 mt-0.5 text-emerald-400 shrink-0"/>}
-                {kind === 'tool_result' && <Terminal className="h-3 w-3 mt-0.5 text-gray-400 shrink-0"/>}
-                {kind === 'user' && <MessageSquare className="h-3 w-3 mt-0.5 text-blue-400 shrink-0"/>}
-                <p className="break-words whitespace-pre-wrap flex-1 min-w-0">{content}</p>
-            </div>
-        </div>
-    );
+/** 将 store 原始日志行转为统一 LogMessageData[]（供 LogViewer 渲染；折叠/自动滚动由 LogViewer 内部处理） */
+function toLogMessages(logs: string[]): LogMessageData[] {
+    return logs.map((log) => {
+        const {kind, content} = parseLog(log);
+        return {kind: kind === 'normal' ? 'output' : kind, content};
+    });
 }
 
 // === 主组件 ===
@@ -218,7 +144,6 @@ export default function AgentExecutionPage() {
     // UI 折叠
     const [thoughtsExpanded, setThoughtsExpanded] = useState(true);
     const [stepsExpanded, setStepsExpanded] = useState(true);
-    const [expandedLogGroups, setExpandedLogGroups] = useState<Set<number>>(new Set());
 
     // 工具权限确认弹框（agent 执行中 canUseTool 触发）
     const [permConfirm, setPermConfirm] = useState<{
@@ -230,7 +155,6 @@ export default function AgentExecutionPage() {
     }>({open: false});
 
     // DOM 引用
-    const logEndRef = useRef<HTMLDivElement>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // 派生状态（基于 STATUS_META，新增状态无需改 UI 代码）
@@ -239,16 +163,6 @@ export default function AgentExecutionPage() {
     const isRunning = execStatus === 'running';
     const canStart = execStatus === 'ready';
     const canAbort = isRunning;
-
-    // 切换执行时清空日志展开状态
-    useEffect(() => {
-        setExpandedLogGroups(new Set());
-    }, [activeId]);
-
-    // 日志自动滚动
-    useEffect(() => {
-        logEndRef.current?.scrollIntoView({behavior: 'smooth'});
-    }, [agentLogs.length]);
 
     const loadHistory = useCallback(async () => {
         setLoadingHistory(true);
@@ -527,28 +441,8 @@ export default function AgentExecutionPage() {
         };
     }, []);
 
-    // 自动展开最新日志组
-    useEffect(() => {
-        const total = agentLogs.length;
-        if (total > 0) {
-            const totalGroups = Math.ceil(total / MESSAGES_PER_GROUP);
-            setExpandedLogGroups(prev => new Set([...prev, totalGroups - 1]));
-        }
-    }, [agentLogs.length]);
-
-    // 分组日志
-    const logGroups = useMemo(() => {
-        const groups: Array<{ logs: string[]; groupIndex: number; startIdx: number; endIdx: number }> = [];
-        for (let i = 0; i < agentLogs.length; i += MESSAGES_PER_GROUP) {
-            groups.push({
-                logs: agentLogs.slice(i, i + MESSAGES_PER_GROUP),
-                groupIndex: groups.length,
-                startIdx: i,
-                endIdx: Math.min(i + MESSAGES_PER_GROUP, agentLogs.length),
-            });
-        }
-        return groups;
-    }, [agentLogs]);
+    // 日志消息（agentLogs → LogMessageData[]，供 LogViewer 渲染）
+    const logMessages = useMemo<LogMessageData[]>(() => toLogMessages(agentLogs), [agentLogs]);
 
     // 步骤统计（单次遍历）
     const stepsStats = useMemo(() => {
@@ -641,7 +535,7 @@ export default function AgentExecutionPage() {
                 <div className="border-b border-border px-6 py-3 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-lg font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">
+                            <h1 className="text-lg font-semibold brand-gradient-text">
                                 Agent 执行
                             </h1>
                             <p className="text-xs text-muted-foreground mt-0.5">选择需求，Agent自主完成开发</p>
@@ -794,7 +688,7 @@ export default function AgentExecutionPage() {
                                             className="w-full flex items-center justify-between mb-3"
                                         >
                                             <div className="flex items-center gap-2">
-                                                <Brain className="h-4 w-4 text-purple-500"/>
+                                                <Brain className="h-4 w-4 text-red-500"/>
                                                 <span className="text-sm font-semibold">思考过程</span>
                                                 <span className="text-xs text-muted-foreground font-normal">
                                                     {detail?.thoughts?.length} 条
@@ -815,72 +709,16 @@ export default function AgentExecutionPage() {
                                 </Card>
                             )}
 
-                            {/* --- 实时日志面板（分组折叠 + 颜色标记） --- */}
-                            <div className={cn(
-                                'flex-1 min-h-[300px] rounded-lg border overflow-hidden flex flex-col shadow-sm',
-                                theme !== 'light' ? 'bg-gray-900' : 'bg-white'
-                            )}>
-                                {/* 日志面板头部 */}
-                                <div className={cn(
-                                    'flex items-center gap-2 px-4 py-2 border-b',
-                                    theme !== 'light' ? 'bg-gray-800/80 border-gray-700/50' : 'bg-gray-50 border-gray-200'
-                                )}>
-                                    <Terminal className="h-3.5 w-3.5 text-emerald-500"/>
-                                    <span className="text-xs font-medium text-emerald-500 font-mono">执行日志</span>
-                                    <span
-                                        className="text-[10px] text-muted-foreground font-mono">{agentLogs.length} 条</span>
-                                    <div className="ml-auto flex items-center gap-3">
-                                        {/* 图例 */}
-                                        <div className="flex items-center gap-1.5">
-                                            <div className="w-2 h-2 rounded-full bg-purple-500"/>
-                                            <span className="text-[10px] text-muted-foreground">思考</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                            <div className="w-2 h-2 rounded-full bg-emerald-500"/>
-                                            <span className="text-[10px] text-muted-foreground">工具</span>
-                                        </div>
-                                        {isRunning && (
-                                            <span className="flex items-center gap-1.5 text-xs text-emerald-500">
-                                                <span className="relative flex h-2 w-2">
-                                                    <span
-                                                        className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"/>
-                                                    <span
-                                                        className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"/>
-                                                </span>
-                                                实时
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* 日志内容 */}
-                                <div className="flex-1 overflow-y-auto p-3">
-                                    {agentLogs.length === 0 ? (
-                                        <div className="text-muted-foreground text-center py-8 text-xs">
-                                            {isRunning ? 'Agent正在执行...' : '等待执行...'}
-                                        </div>
-                                    ) : (
-                                        logGroups.map((group) => (
-                                            <LogGroup
-                                                key={group.groupIndex}
-                                                groupIndex={group.groupIndex}
-                                                logs={group.logs}
-                                                startIdx={group.startIdx}
-                                                endIdx={group.endIdx}
-                                                isExpanded={expandedLogGroups.has(group.groupIndex)}
-                                                onToggle={() => setExpandedLogGroups(prev => {
-                                                    const next = new Set(prev);
-                                                    if (next.has(group.groupIndex)) next.delete(group.groupIndex);
-                                                    else next.add(group.groupIndex);
-                                                    return next;
-                                                })}
-                                                theme={theme}
-                                            />
-                                        ))
-                                    )}
-                                    <div ref={logEndRef}/>
-                                </div>
-                            </div>
+                            {/* --- 实时日志面板（统一 LogViewer：分组折叠 / 工具栏 / Markdown / 自动滚动） --- */}
+                            <LogViewer
+                                key={activeId}
+                                className="min-h-[300px]"
+                                messages={logMessages}
+                                title="执行日志"
+                                isStreaming={isRunning}
+                                emptyText={isRunning ? 'Agent正在执行...' : '等待执行...'}
+                                onClear={clearAgentLogs}
+                            />
 
                             {/* --- 底部消息输入 --- */}
                             <Card className="border-primary/15">
@@ -1043,8 +881,8 @@ export default function AgentExecutionPage() {
 
             {/* 工具权限确认弹框（agent 执行中 canUseTool 触发） */}
             {permConfirm.open && permConfirm.permissionRequestId && (
-                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50">
-                    <div className="bg-background rounded-lg border border-border shadow-xl p-6 max-w-lg w-full mx-4">
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="glass-panel rounded-xl shadow-xl p-6 max-w-lg w-full mx-4">
                         <h3 className="text-base font-semibold mb-1">工具权限确认</h3>
                         <p className="text-sm text-muted-foreground mb-3">
                             {permConfirm.title || 'Agent 请求使用工具'}
@@ -1086,7 +924,7 @@ function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }
     const display = isLong && !expanded ? thought.content.slice(0, 300) + '...' : thought.content;
 
     const iconMap: Record<AgentThought['type'], { icon: typeof Brain; color: string }> = {
-        analysis: {icon: Brain, color: 'text-purple-400'},
+        analysis: {icon: Brain, color: 'text-red-400'},
         planning: {icon: ListTodo, color: 'text-blue-400'},
         decision: {icon: Sparkles, color: 'text-amber-400'},
         tool_selection: {icon: Wrench, color: 'text-emerald-400'},
@@ -1106,7 +944,7 @@ function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }
     return (
         <div className={cn(
             'rounded-lg p-3 border transition-all',
-            theme !== 'light' ? 'bg-purple-500/5 border-purple-500/15' : 'bg-purple-50/50 border-purple-200/50'
+            theme !== 'light' ? 'bg-red-500/5 border-red-500/15' : 'bg-red-50/50 border-red-200/50'
         )}>
             <div className="flex items-center gap-2 mb-1">
                 <Icon className={cn('h-3 w-3', color)}/>
@@ -1117,7 +955,9 @@ function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }
                     {formatTime(thought.timestamp)}
                 </span>
             </div>
-            <p className="text-xs text-foreground whitespace-pre-wrap break-words">{display}</p>
+            <div className="log-message">
+                <MarkdownContent content={display}/>
+            </div>
             {isLong && (
                 <button
                     onClick={() => setExpanded(!expanded)}

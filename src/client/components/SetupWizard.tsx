@@ -140,13 +140,13 @@ export default function SetupWizard() {
     return (
         <>
             {/* 全屏遮罩层：半透明黑色背景 + 模糊效果，阻止用户与底层页面交互 */}
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
                 {/* 向导主面板卡片 */}
-                <div className="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800 p-6 shadow-xl">
-                    <h2 className="mb-4 text-xl font-semibold text-gray-100">
+                <div className="w-full max-w-md glass-panel rounded-xl p-6 shadow-xl">
+                    <h2 className="mb-4 text-xl font-semibold text-foreground">
                         Welcome to AI Dev Workbench
                     </h2>
-                    <p className="mb-6 text-sm text-gray-400">
+                    <p className="mb-6 text-sm text-muted-foreground">
                         Let's verify your environment is ready.
                     </p>
 
@@ -162,9 +162,9 @@ export default function SetupWizard() {
                             }
                         />
                         <div>
-                            <p className="text-sm font-medium text-gray-200">Claude Code CLI</p>
+                            <p className="text-sm font-medium text-foreground">Claude Code CLI</p>
                             {/* 根据当前步骤和检测结果动态显示不同的描述文本 */}
-                            <p className="text-xs text-gray-400">
+                            <p className="text-xs text-muted-foreground">
                                 {step === 'checking-cli'
                                     ? 'Checking availability...'
                                     : cliAvailable
@@ -192,8 +192,8 @@ export default function SetupWizard() {
                             }
                         />
                         <div>
-                            <p className="text-sm font-medium text-gray-200">MCP Connection</p>
-                            <p className="text-xs text-gray-400">
+                            <p className="text-sm font-medium text-foreground">MCP Connection</p>
+                            <p className="text-xs text-muted-foreground">
                                 {step === 'checking-cli' || step === 'checking-mcp'
                                     ? 'Checking MCP server status...'
                                     : mcpConnected
@@ -205,11 +205,11 @@ export default function SetupWizard() {
 
                     {/* 错误状态展示：仅在检测失败时显示，并提供重试按钮 */}
                     {step === 'error' && error && (
-                        <div className="mb-4 rounded border border-red-700 bg-red-900/30 p-3">
-                            <p className="text-sm text-red-300">{error}</p>
+                        <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+                            <p className="text-sm text-destructive">{error}</p>
                             <button
                                 onClick={checkSystem}
-                                className="mt-2 text-xs text-red-200 underline hover:text-red-100"
+                                className="mt-2 text-xs text-destructive underline hover:opacity-80"
                             >
                                 Retry
                             </button>
@@ -218,8 +218,8 @@ export default function SetupWizard() {
 
                     {/* 检测完成后的结果摘要：根据 CLI 和 MCP 的可用性组合展示不同提示 */}
                     {step === 'complete' && (
-                        <div className="mb-4 rounded border border-gray-600 bg-gray-700/50 p-3">
-                            <p className="text-sm text-gray-300">
+                        <div className="mb-4 rounded-lg border border-border bg-accent/40 p-3">
+                            <p className="text-sm text-foreground/90">
                                 {cliAvailable && mcpConnected
                                     ? '✅ Everything looks good! You are ready to start.'
                                     : !cliAvailable && !mcpConnected
@@ -236,7 +236,7 @@ export default function SetupWizard() {
                         {step === 'complete' && (
                             <button
                                 onClick={handleComplete}
-                                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 transition-colors"
+                                className="rounded-lg brand-gradient px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90 transition-all"
                             >
                                 Complete Setup
                             </button>
@@ -263,12 +263,12 @@ export default function SetupWizard() {
 function StatusIcon({status}: { status: 'pending' | 'loading' | 'success' | 'warning' }) {
     switch (status) {
         case 'pending':
-            return <span className="flex h-5 w-5 items-center justify-center text-gray-500">○</span>;
+            return <span className="flex h-5 w-5 items-center justify-center text-muted-foreground">○</span>;
         case 'loading':
             return (
                 <span className="flex h-5 w-5 items-center justify-center">
-          {/* 使用 CSS border 动画模拟旋转加载效果：蓝色圆环 + 顶部透明实现缺口旋转 */}
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent"/>
+          {/* 使用 CSS border 动画模拟旋转加载效果：主色圆环 + 顶部透明实现缺口旋转 */}
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"/>
         </span>
             );
         case 'success':

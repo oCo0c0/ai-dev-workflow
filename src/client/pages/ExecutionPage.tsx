@@ -44,8 +44,10 @@ import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
+import {LogViewer} from '../components/LogViewer';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
+import type {LogMessageData} from '../components/LogMessage';
 
 // === 类型定义 ===
 
@@ -149,12 +151,7 @@ export default function ExecutionPage() {
         nextSkill?: string;
         completedSkill?: string
     }>({open: false});
-    // 对话折叠状态：记录每个消息组是否展开（每10条一组）
-    const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
-    const MESSAGES_PER_GROUP = 10;
-
-    // DOM 引用：用于日志自动滚动、轮询清理和回复输入框聚焦
-    const logEndRef = useRef<HTMLDivElement>(null);
+    // DOM 引用：用于轮询清理和回复输入框聚焦
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const replyInputRef = useRef<HTMLTextAreaElement>(null);
     const [pollKey, setPollKey] = useState(0); // 递增以重启轮询
@@ -195,18 +192,33 @@ export default function ExecutionPage() {
         return combined;
     }, [detail?.logs, storeLogs, activeId, storeExecutionId]);
 
-    // 日志自动滚动到底部效果
-    useEffect(() => {
-        logEndRef.current?.scrollIntoView({behavior: 'smooth'});
-    }, [displayLogs]);
+    // 日志消息（displayLogs → LogMessageData[]，供 LogViewer 渲染；折叠/自动滚动由 LogViewer 内部处理）
+    const logMessages = useMemo<LogMessageData[]>(() => {
+        return displayLogs.map((entry) => {
+            // 兼容两种日志格式：字符串和结构化日志对象（ExecutionLogEntry）
+            const logEntry = typeof entry === 'object' && entry !== null ? entry : null;
+            const content = logEntry ? logEntry.content : String(entry);
 
-    // 自动展开最后一组（新消息到达时）
-    useEffect(() => {
-        if (displayLogs.length > 0) {
-            const totalGroups = Math.ceil(displayLogs.length / MESSAGES_PER_GROUP);
-            setExpandedGroups(prev => new Set([...prev, totalGroups - 1]));
-        }
-    }, [displayLogs.length]);
+            // 用户消息：以 **User:** 开头（右侧蓝色气泡）
+            if (content.includes('**User:**')) {
+                return {
+                    kind: 'user' as const,
+                    content,
+                    timestamp: logEntry?.timestamp,
+                    stepIndex: logEntry?.stepIndex,
+                };
+            }
+
+            // 结构化日志：错误/警告单独着色，其余统一输出样式
+            const type = logEntry?.type;
+            return {
+                kind: type === 'error' || type === 'warning' ? type : 'output',
+                content,
+                timestamp: logEntry?.timestamp,
+                stepIndex: logEntry?.stepIndex,
+            };
+        });
+    }, [displayLogs]);
 
     /**
      * 加载执行历史列表
@@ -505,7 +517,9 @@ export default function ExecutionPage() {
         setReplying(true);
         setReplyText(''); // 清空输入框
 
-        // 乐观更新：立即更新本地history状态，避免显示延迟
+        // 乐观更新：detail / history / store 三处都置为 running，让 UI 立即反映。
+        // 注意 execStatus 优先读 detail.status，故必须更新 detail，否则徽章/按钮不变。
+        if (detail) setDetail({...detail, status: 'running'});
         setHistory(prev => prev.map(item =>
             item.id === activeId
                 ? {...item, status: 'running' as const}
@@ -527,6 +541,10 @@ export default function ExecutionPage() {
 
         try {
             await apiPost(`/execution/${activeId}/reply`, {message});
+            // 重启轮询：执行曾进入终态（completed/failed/aborted/waiting_skill_confirm）时
+            // 轮询已被停止，reply 把状态恢复为 running 后必须重建轮询，否则后端状态变更
+            // 无法同步到前端，出现"发消息不实时变更、需刷新页面才生效"的问题。
+            setPollKey(k => k + 1);
             // 刷新历史列表以同步最新状态
             await loadHistory();
         } catch (err) {
@@ -537,7 +555,8 @@ export default function ExecutionPage() {
                 type: 'error',
                 content: t('execution.replyFailed', {error: err instanceof Error ? err.message : 'Unknown error'}),
             });
-            // 失败时恢复本地状态
+            // 失败时回滚乐观更新
+            if (detail) setDetail({...detail, status: 'idle'});
             setHistory(prev => prev.map(item =>
                 item.id === activeId
                     ? {...item, status: 'idle' as const}
@@ -577,8 +596,8 @@ export default function ExecutionPage() {
         aborted: {label: t('execution.statusAborted'), color: 'text-muted-foreground', bg: 'bg-muted'},
         waiting_skill_confirm: {
             label: t('execution.statusSkillConfirm'),
-            color: 'text-purple-500',
-            bg: 'bg-purple-500/10'
+            color: 'text-red-500',
+            bg: 'bg-red-500/10'
         },
     };
 
@@ -676,7 +695,7 @@ export default function ExecutionPage() {
                 <div className="border-b border-border px-6 py-4 shrink-0">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">{t('pageTitle.execution')}</h1>
+                            <h1 className="text-xl font-semibold brand-gradient-text">{t('pageTitle.execution')}</h1>
                             <p className="mt-0.5 text-sm text-muted-foreground">
                                 {isRunning ? t('execution.subtitleRunning') :
                                     isDone ? t('execution.subtitleDone', {status: execStatus}) :
@@ -872,184 +891,18 @@ export default function ExecutionPage() {
                         </Card>
                     )}
 
-                    {/* 日志输出终端：显示执行过程的实时日志 */}
+                    {/* 日志输出终端：统一 LogViewer（分组折叠 / 工具栏 / Markdown / 自动滚动） */}
                     {activeId && (
-                        <div
-                            data-tour="exec-output"
-                            className={cn(
-                                "flex-1 min-h-0 rounded-lg border border-border/50 overflow-hidden flex flex-col shadow-lg",
-                                theme !== 'light' ? "bg-gradient-to-br from-gray-900 to-gray-950" : "bg-gradient-to-br from-gray-50 to-gray-100"
-                            )}>
-                            {/* 终端标题栏 - 渐变装饰 */}
-                            <div className={cn(
-                                "flex items-center gap-2 px-4 py-2.5 border-b border-border/50 backdrop-blur-sm",
-                                theme !== 'light' ? "bg-gradient-to-r from-gray-800/80 to-gray-700/80" : "bg-gradient-to-r from-gray-100/80 to-gray-50/80"
-                            )}>
-                                <Terminal className="h-3.5 w-3.5 text-emerald-400"/>
-                                <span
-                                    className="text-xs text-emerald-400 font-mono font-medium">{t('execution.output')}</span>
-                                {/* 实时运行指示器 */}
-                                {isRunning && (
-                                    <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
-                    <span className="relative flex h-2 w-2">
-                      <span
-                          className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                    </span>
-                                        {t('execution.live')}
-                  </span>
-                                )}
-                            </div>
-                            {/* 日志内容区域 - 优化对话气泡样式 + 折叠功能 */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                                {displayLogs.length === 0 ? (
-                                    <div className="text-muted-foreground text-center py-8">
-                                        {activeId ? t('execution.waitingOutput') : t('execution.noOutput')}
-                                    </div>
-                                ) : (
-                                    <>
-                                        {/* 分组折叠消息列表：每10条一组，可折叠/展开 */}
-                                        {(() => {
-                                            // 按每10条分组
-                                            const groups: Array<{
-                                                logs: typeof displayLogs;
-                                                groupIndex: number;
-                                                startIdx: number;
-                                                endIdx: number
-                                            }> = [];
-                                            for (let i = 0; i < displayLogs.length; i += MESSAGES_PER_GROUP) {
-                                                const groupLogs = displayLogs.slice(i, i + MESSAGES_PER_GROUP);
-                                                groups.push({
-                                                    logs: groupLogs,
-                                                    groupIndex: groups.length,
-                                                    startIdx: i,
-                                                    endIdx: Math.min(i + MESSAGES_PER_GROUP, displayLogs.length)
-                                                });
-                                            }
-
-                                            return groups.map((group) => {
-                                                const isExpanded = expandedGroups.has(group.groupIndex);
-                                                const isLastGroup = group.groupIndex === groups.length - 1;
-
-                                                return (
-                                                    <div key={group.groupIndex} className="mb-2">
-                                                        {/* 折叠按钮 */}
-                                                        <button
-                                                            onClick={() => setExpandedGroups(prev => {
-                                                                const next = new Set(prev);
-                                                                if (next.has(group.groupIndex)) {
-                                                                    next.delete(group.groupIndex);
-                                                                } else {
-                                                                    next.add(group.groupIndex);
-                                                                }
-                                                                return next;
-                                                            })}
-                                                            className={cn(
-                                                                'w-full py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200 flex items-center justify-between mb-2',
-                                                                isExpanded
-                                                                    ? cn('border text-blue-300', theme !== 'light' ? 'bg-blue-500/20 border-blue-400/30' : 'bg-blue-100 border-blue-300')
-                                                                    : cn('border text-gray-400 hover:opacity-80', theme !== 'light' ? 'bg-gray-800/50 border-gray-700/50 hover:bg-gray-800/70' : 'bg-gray-100 border-gray-300 hover:bg-gray-200')
-                                                            )}
-                                                        >
-                                                            <span className="flex items-center gap-2">
-                                                                {isExpanded ? (
-                                                                    <ChevronUp className="h-3.5 w-3.5"/>
-                                                                ) : (
-                                                                    <ChevronDown className="h-3.5 w-3.5"/>
-                                                                )}
-                                                                消息组 {group.groupIndex + 1} ({group.startIdx + 1}-{group.endIdx})
-                                                            </span>
-                                                            <span className="text-[10px] opacity-70">
-                                                                {group.logs.length} 条
-                                                            </span>
-                                                        </button>
-
-                                                        {/* 消息内容（展开时显示） */}
-                                                        {isExpanded && (
-                                                            <div className="space-y-2">
-                                                                {group.logs.map((entry, i) => {
-                                                                    const globalIndex = group.startIdx + i;
-                                                                    // 兼容两种日志格式：字符串和结构化日志对象（ExecutionLogEntry）
-                                                                    const isObj = typeof entry === 'object' && 'content' in entry;
-                                                                    const content = isObj ? (entry as {
-                                                                        content: string
-                                                                    }).content : String(entry);
-                                                                    const type = isObj ? (entry as {
-                                                                        type: string
-                                                                    }).type : 'output';
-                                                                    const stepIndex = isObj ? (entry as {
-                                                                        stepIndex: number
-                                                                    }).stepIndex : 0;
-                                                                    const timestamp = isObj ? (entry as {
-                                                                        timestamp: string
-                                                                    }).timestamp : '';
-
-                                                                    // 检测用户消息（以 **User:** 开头）
-                                                                    const isUserMessage = typeof content === 'string' && content.includes('**User:**');
-
-                                                                    return (
-                                                                        <div key={globalIndex} className={cn(
-                                                                            'rounded-lg transition-all duration-200',
-                                                                            'animate-in fade-in slide-in-from-bottom-2 duration-300',
-                                                                            isUserMessage
-                                                                                ? cn('ml-10 pl-4 pr-4 py-2.5 shadow-sm border-l-3 border-blue-500',
-                                                                                    theme !== 'light' ? 'bg-gradient-to-br from-blue-500/10 to-blue-600/5' : 'bg-gradient-to-br from-blue-100 to-blue-50')
-                                                                                : cn('pl-4 pr-4 py-2.5 border border-gray-700/50',
-                                                                                    theme !== 'light' ? 'bg-gradient-to-br from-gray-800/50 to-gray-900/30' : 'bg-gradient-to-br from-gray-50 to-white')
-                                                                        )}>
-                                                                            <div className={cn(
-                                                                                'font-mono text-xs leading-relaxed',
-                                                                                'text-foreground' // 明亮主题黑色，黑暗主题白色
-                                                                            )}>
-                                                                                {/* 消息头部装饰 */}
-                                                                                <div
-                                                                                    className="flex items-center gap-2 mb-1.5">
-                                                                                    {/* 时间戳装饰 */}
-                                                                                    {timestamp && (
-                                                                                        <span
-                                                                                            className="text-muted-foreground text-[10px] select-none flex items-center gap-1 px-1.5 py-0.5 rounded">
-                                                                                            <Clock
-                                                                                                className="h-2.5 w-2.5"/>
-                                                                                            {new Date(timestamp).toLocaleTimeString()}
-                                                                                        </span>
-                                                                                    )}
-                                                                                    {/* 步骤编号装饰 */}
-                                                                                    {stepIndex > 0 && (
-                                                                                        <span
-                                                                                            className="text-muted-foreground text-[10px] select-none flex items-center gap-1 px-1.5 py-0.5 rounded">
-                                                                                            <Layers
-                                                                                                className="h-2.5 w-2.5"/>
-                                                                                            Step {stepIndex}
-                                                                                        </span>
-                                                                                    )}
-                                                                                    {/* 用户/AI 标识 */}
-                                                                                    {isUserMessage && (
-                                                                                        <span
-                                                                                            className="text-primary text-[10px] select-none flex items-center gap-1 font-medium px-1.5 py-0.5 rounded bg-primary/10">
-                                                                                            <User
-                                                                                                className="h-2.5 w-2.5"/>
-                                                                                            You
-                                                                                        </span>
-                                                                                    )}
-                                                                                </div>
-                                                                                {/* 消息内容 */}
-                                                                                <span
-                                                                                    className="break-words">{content}</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            });
-                                        })()}
-                                    </>
-                                )}
-                                {/* 日志滚动锚点元素 */}
-                                <div ref={logEndRef}/>
-                            </div>
+                        <div data-tour="exec-output" className="flex-1 min-h-0 overflow-hidden">
+                            <LogViewer
+                                key={activeId}
+                                className="h-full"
+                                messages={logMessages}
+                                title={t('execution.output')}
+                                isStreaming={isRunning}
+                                emptyText={activeId ? t('execution.waitingOutput') : t('execution.noOutput')}
+                                onClear={clearExecutionLogs}
+                            />
                         </div>
                     )}
 
@@ -1111,8 +964,8 @@ export default function ExecutionPage() {
             </div>
             {/* 技能确认弹窗 */}
             {skillConfirm.open && (
-                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50">
-                    <div className="bg-background rounded-lg border border-border shadow-xl p-6 max-w-md w-full mx-4">
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="glass-panel rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
                         <h3 className="text-base font-semibold mb-2">技能执行确认</h3>
                         <p className="text-sm text-muted-foreground mb-1">
                             已完成技能：<span
@@ -1140,7 +993,7 @@ export default function ExecutionPage() {
                 options={{
                     showProgress: true,
                     skipBeacon: true,
-                    primaryColor: '#6366f1',
+                    primaryColor: '#f87171',
                     buttons: ['back', 'close', 'primary', 'skip'],
                     zIndex: 10000
                 }}
