@@ -3,7 +3,13 @@
  * @description Claude Code CLI Provider 实现
  *
  * 封装 Claude Agent SDK 的桥接进程管理，从原有的 BridgeProcess 类迁移而来。
- * 通过持久化子进程（claude-bridge.mjs）+ JSON 行协议实现双向通信。
+ * 通过持久化子进程（claude-bridge.mjs）+ JSON-RPC 2.0 协议实现双向通信。
+ *
+ * 协议说明：
+ * - 父进程发送 JSON-RPC Request（method: "agent.execute" / "agent.confirmPermission"）
+ * - Bridge 发送 JSON-RPC Notification（method: "agent.output" / "agent.thinking" 等）用于流式事件
+ * - Bridge 发送 JSON-RPC Response 作为 agent.execute 的最终结果
+ * - 通知通过 params.sessionId 关联到对应的 PendingRequest
  */
 
 import {ChildProcess, spawn} from 'child_process';
@@ -16,6 +22,7 @@ import {extractDescription} from '../../utils/markdown-utils.js';
 import {findSkillMdFile} from '../../utils/skill-utils.js';
 import type {
     CLIProvider,
+    CLIProviderCapabilities,
     CLIProviderInput,
     CLIProviderOptions,
     CLIProviderResult,
@@ -79,13 +86,26 @@ export class ClaudeProvider implements CLIProvider {
     readonly id = 'claude' as const;
     readonly label = 'Claude Code';
 
+    readonly capabilities = {
+        supportsPermission: true,
+        supportsRuntimeSkills: true,
+        supportsRuntimeMcp: true,
+        supportsMaxTurns: true,
+        supportsReasoningEffort: true,
+        supportsExtendedThinking: true,
+    } as const;
+
     private process: ChildProcess | null = null;
     private ready = false;
     private buffer = '';
     private pendingRequests = new Map<string, PendingRequest>();
+    /** sessionId → PendingRequest 反向索引，用于 JSON-RPC 通知关联 */
+    private sessionRequests = new Map<string, PendingRequest>();
     private readyCallbacks: Array<() => void> = [];
     private startPromise: Promise<void> | null = null;
     private healthCheckTimer: NodeJS.Timeout | null = null;
+    /** JSON-RPC 自增 id 计数器 */
+    private jsonRpcIdCounter = 0;
 
     async detect(): Promise<CLIProviderStatus> {
         try {
@@ -123,7 +143,7 @@ export class ClaudeProvider implements CLIProvider {
             throw new Error('Bridge process is not ready');
         }
 
-        const requestId = crypto.randomUUID();
+        const jsonRpcId = String(++this.jsonRpcIdCounter);
 
         return new Promise((resolve, reject) => {
             const req: PendingRequest = {
@@ -143,29 +163,42 @@ export class ClaudeProvider implements CLIProvider {
                 }
                 const abortHandler = () => {
                     req.aborted = true;
-                    this.pendingRequests.delete(requestId);
+                    this.pendingRequests.delete(jsonRpcId);
+                    if (req.sessionId) this.sessionRequests.delete(req.sessionId);
                     resolve({exitCode: null, stdout: req.stdout, stderr: '', aborted: true});
                 };
                 req.abortHandler = abortHandler;
                 options.signal.addEventListener('abort', abortHandler, {once: true});
             }
 
-            this.pendingRequests.set(requestId, req);
+            this.pendingRequests.set(jsonRpcId, req);
 
-            // 合并模型配置到请求消息（传递给 bridge 进程）
-            const messagePayload: Record<string, unknown> = {requestId, ...input};
-            // 启用权限确认：透传给 bridge，由其在 options 注入 canUseTool
-            if (options?.onPermissionRequest) messagePayload.permission = {enabled: true};
-            if (options?.model) messagePayload.model = options.model;
-            if (options?.reasoningEffort) messagePayload.reasoningEffort = options.reasoningEffort;
-            if (options?.extendedThinking !== undefined) messagePayload.extendedThinking = options.extendedThinking;
+            // 构造 JSON-RPC 2.0 请求
+            const params: Record<string, unknown> = {
+                prompt: input.prompt,
+                ...(input.cwd ? {cwd: input.cwd} : {}),
+                ...(input.sessionId ? {sessionId: input.sessionId} : {}),
+                ...(input.maxTurns !== undefined ? {maxTurns: input.maxTurns} : {}),
+                ...(input.skills ? {skills: input.skills} : {}),
+                ...(input.mcpServers ? {mcpServers: input.mcpServers} : {}),
+                permissionEnabled: !!options?.onPermissionRequest,
+            };
+            if (options?.model) params.model = options.model;
+            if (options?.reasoningEffort) params.reasoningEffort = options.reasoningEffort;
+            if (options?.extendedThinking !== undefined) params.extendedThinking = options.extendedThinking;
 
-            const message = JSON.stringify(messagePayload) + '\n';
+            const message = JSON.stringify({
+                jsonrpc: '2.0',
+                id: jsonRpcId,
+                method: 'agent.execute',
+                params,
+            }) + '\n';
+
             const proc = this.process;
             if (proc && proc.stdin) {
                 proc.stdin.write(message);
             } else {
-                this.pendingRequests.delete(requestId);
+                this.pendingRequests.delete(jsonRpcId);
                 reject(new Error('Bridge process stdin not available'));
             }
         });
@@ -296,6 +329,7 @@ export class ClaudeProvider implements CLIProvider {
                     req.reject(new Error(`Bridge process error: ${err.message}`));
                 }
                 this.pendingRequests.clear();
+                this.sessionRequests.clear();
                 reject(err);
             });
 
@@ -317,6 +351,7 @@ export class ClaudeProvider implements CLIProvider {
                     req.reject(new Error(`Bridge process exited with code ${code}`));
                 }
                 this.pendingRequests.clear();
+                this.sessionRequests.clear();
             });
 
             this.readyCallbacks.push(() => {
@@ -355,111 +390,178 @@ export class ClaudeProvider implements CLIProvider {
                     req.reject(new Error('Bridge process not alive (health check)'));
                 }
                 this.pendingRequests.clear();
+                this.sessionRequests.clear();
             }
         }, 30000); // 30 秒检查一次
     }
 
+    /**
+     * 处理 bridge 发来的 JSON-RPC 2.0 消息
+     *
+     * 三种消息类型：
+     * 1. Notification（有 method，无 id） — 流式事件，通过 params.sessionId 关联 PendingRequest
+     * 2. Response（有 id + result/error，无 method） — agent.execute 的最终响应
+     */
     private handleMessage(msg: Record<string, unknown>) {
-        if (msg.type === 'ready') {
-            this.ready = true;
-            this.startPromise = null;
-            for (const cb of this.readyCallbacks) cb();
-            this.readyCallbacks = [];
+        // 仅处理 JSON-RPC 2.0 消息
+        if (msg.jsonrpc !== '2.0') return;
+
+        const hasId = msg.id !== undefined && msg.id !== null;
+        const hasMethod = typeof msg.method === 'string';
+        const hasResult = msg.result !== undefined;
+        const hasError = msg.error !== undefined;
+
+        // ── Notification（method，无 id）──
+        if (hasMethod && !hasId) {
+            this.handleNotification(msg.method as string, msg.params as Record<string, unknown> | undefined);
             return;
         }
 
-        const requestId = msg.requestId as string;
-        if (!requestId) return;
+        // ── Response（id + result/error，无 method）──
+        if (hasId && !hasMethod && (hasResult || hasError)) {
+            this.handleJsonRpcResponse(msg.id as string, msg.result, msg.error);
+            return;
+        }
+    }
 
-        const req = this.pendingRequests.get(requestId);
+    /**
+     * 处理 JSON-RPC Notification（流式事件）
+     * 通过 params.sessionId 查找对应的 PendingRequest
+     */
+    private handleNotification(method: string, params?: Record<string, unknown>) {
+        const sessionId = params?.sessionId as string | undefined;
+
+        switch (method) {
+            case 'agent.ready':
+                this.ready = true;
+                this.startPromise = null;
+                for (const cb of this.readyCallbacks) cb();
+                this.readyCallbacks = [];
+                return;
+
+            case 'agent.session':
+                if (sessionId) {
+                    // 找到第一个没有 sessionId 的 pending 请求（刚创建的）
+                    for (const [, req] of this.pendingRequests) {
+                        if (!req.sessionId) {
+                            req.sessionId = sessionId;
+                            this.sessionRequests.set(sessionId, req);
+                            break;
+                        }
+                    }
+                }
+                return;
+
+            case 'agent.output':
+            case 'agent.thinking':
+            case 'agent.tool_use':
+            case 'agent.tool_result':
+            case 'agent.permission_required':
+                // 所有流式通知通过 sessionId 查找
+                break;
+            default:
+                return; // 未知通知，忽略
+        }
+
+        if (!sessionId) return;
+        const req = this.sessionRequests.get(sessionId);
         if (!req) return;
 
-        switch (msg.type) {
-            case 'output':
-                if (msg.content) {
-                    req.stdout += msg.content as string;
-                    req.onOutput?.(msg.content as string);
+        switch (method) {
+            case 'agent.output':
+                if (params?.content) {
+                    req.stdout += params.content as string;
+                    req.onOutput?.(params.content as string);
                 }
                 break;
 
-            case 'thinking':
-                if (msg.content) {
-                    req.stdout += msg.content as string;
-                    req.onOutput?.(msg.content as string, {type: 'thinking'});
+            case 'agent.thinking':
+                if (params?.content) {
+                    req.stdout += params.content as string;
+                    req.onOutput?.(params.content as string, {type: 'thinking'});
                 }
                 break;
 
-            case 'tool_use':
+            case 'agent.tool_use':
                 req.onOutput?.('', {
                     type: 'tool_use',
-                    toolName: msg.toolName as string,
-                    toolInput: msg.toolInput,
-                    toolUseId: msg.toolUseId as string,
+                    toolName: params?.toolName as string,
+                    toolInput: params?.toolInput,
+                    toolUseId: params?.toolUseId as string,
                 });
                 break;
 
-            case 'tool_result':
-                req.onOutput?.(msg.content as string, {
+            case 'agent.tool_result':
+                req.onOutput?.(params?.content as string, {
                     type: 'tool_result',
-                    toolUseId: msg.toolUseId as string,
-                    isError: msg.isError as boolean,
+                    toolUseId: params?.toolUseId as string,
+                    isError: params?.isError as boolean,
                 });
                 break;
 
-            case 'permission_request':
-                // bridge 内 canUseTool 触发，转发给调用方（coordinator）走前端确认
+            case 'agent.permission_required':
                 req.onPermissionRequest?.({
-                    permissionRequestId: msg.permissionRequestId,
-                    toolName: msg.toolName,
-                    toolInput: msg.toolInput,
-                    toolUseId: msg.toolUseId,
-                    title: msg.title,
-                    displayName: msg.displayName,
-                });
-                break;
-
-            case 'session':
-                if (msg.sessionId) {
-                    req.sessionId = msg.sessionId as string;
-                }
-                break;
-
-            case 'error':
-                req.onError?.(msg.message as string || 'Unknown error');
-                this.pendingRequests.delete(requestId);
-                req.resolve({
-                    exitCode: 1,
-                    stdout: req.stdout,
-                    stderr: msg.message as string || '',
-                    aborted: req.aborted,
-                    sessionId: req.sessionId,
-                });
-                break;
-
-            case 'done':
-                this.pendingRequests.delete(requestId);
-                req.resolve({
-                    exitCode: (msg.exitCode as number) ?? 0,
-                    stdout: req.stdout,
-                    stderr: '',
-                    aborted: req.aborted,
-                    sessionId: req.sessionId,
+                    permissionRequestId: params?.permissionRequestId,
+                    toolName: params?.toolName,
+                    toolInput: params?.toolInput,
+                    toolUseId: params?.toolUseId,
+                    title: params?.title,
+                    displayName: params?.displayName,
                 });
                 break;
         }
     }
 
     /**
-     * 反向写回工具权限决策给 bridge，唤醒挂起的 canUseTool
+     * 处理 JSON-RPC Response（agent.execute 的最终结果）
+     */
+    private handleJsonRpcResponse(id: string, result?: unknown, error?: unknown) {
+        const req = this.pendingRequests.get(id);
+        if (!req) return; // 已清理（如 abort），忽略
+
+        this.pendingRequests.delete(id);
+        if (req.sessionId) this.sessionRequests.delete(req.sessionId);
+
+        if (error) {
+            const errObj = error as { code?: number; message?: string; data?: unknown };
+            const errMsg = errObj.message || 'Unknown error';
+            req.onError?.(errMsg);
+            req.resolve({
+                exitCode: 1,
+                stdout: req.stdout,
+                stderr: errMsg,
+                aborted: req.aborted,
+                sessionId: req.sessionId,
+            });
+        } else {
+            const res = result as { exitCode?: number; sessionId?: string } | undefined;
+            req.resolve({
+                exitCode: res?.exitCode ?? 0,
+                stdout: req.stdout,
+                stderr: '',
+                aborted: req.aborted,
+                sessionId: res?.sessionId || req.sessionId,
+            });
+        }
+    }
+
+    /**
+     * 反向写回工具权限决策给 bridge（JSON-RPC agent.confirmPermission 方法调用）
+     * 唤醒 bridge 中挂起的 canUseTool Promise
      */
     confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string): void {
         const proc = this.process;
         if (proc && proc.stdin) {
+            const jsonRpcId = String(++this.jsonRpcIdCounter);
             proc.stdin.write(JSON.stringify({
-                type: 'permission_response',
-                permissionRequestId,
-                decision,
-                message,
+                jsonrpc: '2.0',
+                id: jsonRpcId,
+                method: 'agent.confirmPermission',
+                params: {
+                    permissionRequestId,
+                    decision,
+                    ...(message ? {message} : {}),
+                },
             }) + '\n');
         }
     }

@@ -144,6 +144,15 @@ export class CodexProvider implements CLIProvider {
     readonly id = 'codex' as const;
     readonly label = 'OpenAI Codex';
 
+    readonly capabilities = {
+        supportsPermission: false,
+        supportsRuntimeSkills: false,
+        supportsRuntimeMcp: false,
+        supportsMaxTurns: false,
+        supportsReasoningEffort: false,
+        supportsExtendedThinking: false,
+    } as const;
+
     /** Codex SDK 客户端实例 */
     private client: InstanceType<typeof import('@openai/codex-sdk').Codex> | null = null;
     /** 会话 ID → Thread ID 映射 */

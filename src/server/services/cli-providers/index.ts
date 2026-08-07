@@ -84,4 +84,4 @@ export interface DetectedProviderStatus {
 }
 
 // 重导出类型
-export type {CLIProvider, CLIProviderStatus, CLIProviderInput, CLIProviderOptions, CLIProviderResult, SkillInfo, McpServerInfo} from './types.js';
+export type {CLIProvider, CLIProviderCapabilities, CLIProviderStatus, CLIProviderInput, CLIProviderOptions, CLIProviderResult, SkillInfo, McpServerInfo} from './types.js';

@@ -7,10 +7,32 @@
  */
 
 /**
+ * CLI Provider 能力声明
+ * @description 声明 Provider 支持哪些可选能力。调用方应根据此声明决定是否传递对应参数，
+ *              前端根据此声明决定是否显示对应 UI 控件。
+ */
+export interface CLIProviderCapabilities {
+    /** 是否支持工具权限确认（canUseTool 回调） */
+    supportsPermission: boolean;
+    /** 是否支持运行时动态注入技能（run() 的 input.skills 参数） */
+    supportsRuntimeSkills: boolean;
+    /** 是否支持运行时动态注入 MCP 服务器（run() 的 input.mcpServers 参数） */
+    supportsRuntimeMcp: boolean;
+    /** 是否支持最大对话轮次限制（input.maxTurns） */
+    supportsMaxTurns: boolean;
+    /** 是否支持推理强度配置（options.reasoningEffort） */
+    supportsReasoningEffort: boolean;
+    /** 是否支持扩展思考（options.extendedThinking） */
+    supportsExtendedThinking: boolean;
+}
+
+/**
  * CLI Provider 统一接口
  * @description 所有 CLI 后端必须实现的抽象契约
  */
 export interface CLIProvider {
+    /** Provider 能力声明 */
+    readonly capabilities: CLIProviderCapabilities;
     /** Provider 唯一标识 */
     readonly id: 'claude' | 'codex';
     /** 显示名称 */
