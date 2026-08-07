@@ -3,7 +3,7 @@
  * @description 提供对 Claude Code 技能（Skills / Slash Commands）的扫描、读取、创建、更新和删除能力。
  *   技能以 Markdown 文件的形式存储在用户主目录下的两个位置：
  *   - ~/.claude/commands/ - 全局自定义命令（扁平结构，每个 .md 文件为一个技能）
- *   - ~/.claude/skills/ - 技能目录（支持子目录结构，每个子目录为一个技能）
+ *   - ~/.claude/skills/ - 技能目录（每个子目录为一个技能，子目录内需有 SKILL.md）
  *   该服务会同时扫描两个目录，合并返回所有可用的技能列表。
  */
 
@@ -78,6 +78,69 @@ export class SkillsService {
         if (!fs.existsSync(this.commandsDir)) {
             fs.mkdirSync(this.commandsDir, {recursive: true});
         }
+    }
+
+    /**
+     * 确保技能目录存在
+     * @description 如果目录不存在则递归创建
+     */
+    private ensureSkillsDir(): void {
+        if (!fs.existsSync(this.skillsDir)) {
+            fs.mkdirSync(this.skillsDir, {recursive: true});
+        }
+    }
+
+    /**
+     * 将内置技能从源目录同步到 ~/.claude/skills/
+     * @description 在服务启动时调用，确保内置技能对 Claude CLI 可见。
+     *   以 SKILL.md 的 MD5 指纹判断是否需要更新，避免重复写入。
+     * @param builtinSourceDir - 内置技能的源目录（项目 skills/ 或 dist/skills/）
+     * @returns 同步结果统计
+     */
+    syncBuiltinSkills(builtinSourceDir: string): { synced: number; skipped: number; errors: number } {
+        let synced = 0, skipped = 0, errors = 0;
+        if (!fs.existsSync(builtinSourceDir)) return {synced, skipped, errors};
+
+        this.ensureSkillsDir();
+
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(builtinSourceDir, {withFileTypes: true});
+        } catch {
+            return {synced, skipped, errors: 1};
+        }
+
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            const srcMd = path.join(builtinSourceDir, entry.name, 'SKILL.md');
+            if (!fs.existsSync(srcMd)) continue;
+
+            try {
+                const srcContent = fs.readFileSync(srcMd, 'utf-8');
+                const targetDir = path.join(this.skillsDir, entry.name);
+                const targetMd = path.join(targetDir, 'SKILL.md');
+
+                // 已存在且内容相同 → 跳过
+                if (fs.existsSync(targetMd)) {
+                    const existingContent = fs.readFileSync(targetMd, 'utf-8');
+                    if (existingContent === srcContent) {
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                // 写入目标
+                if (!fs.existsSync(targetDir)) {
+                    fs.mkdirSync(targetDir, {recursive: true});
+                }
+                fs.writeFileSync(targetMd, srcContent, 'utf-8');
+                synced++;
+            } catch {
+                errors++;
+            }
+        }
+
+        return {synced, skipped, errors};
     }
 
     /**
@@ -248,7 +311,7 @@ export class SkillsService {
 
     /**
      * 创建新技能
-     * @description 在 commands/ 目录下创建新的 .md 文件。
+     * @description 在 skills/ 目录下按标准目录结构创建：skills/<name>/SKILL.md
      *   技能名称会被清理：仅允许字母、数字、连字符和下划线，其他字符替换为连字符。
      * @param name - 技能名称
      * @param content - 技能的 Markdown 内容
@@ -266,13 +329,17 @@ export class SkillsService {
 
         // 清理技能名称：仅保留字母、数字、连字符和下划线
         const sanitizedName = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
-        const filePath = path.join(this.commandsDir, `${sanitizedName}.md`);
+        const skillDir = path.join(this.skillsDir, sanitizedName);
+        const filePath = path.join(skillDir, 'SKILL.md');
 
         if (fs.existsSync(filePath)) {
             throw new Error(`Skill "${sanitizedName}" already exists`);
         }
 
-        this.ensureCommandsDir();
+        this.ensureSkillsDir();
+        if (!fs.existsSync(skillDir)) {
+            fs.mkdirSync(skillDir, {recursive: true});
+        }
         fs.writeFileSync(filePath, content, 'utf-8');
 
         return {
@@ -286,7 +353,8 @@ export class SkillsService {
 
     /**
      * 更新现有技能的内容
-     * @description 仅更新 commands/ 目录下的技能文件内容
+     * @description 优先查找 skills/<name>/SKILL.md（标准目录），
+     *   回退到 commands/<name>.md（旧格式兼容）。
      * @param name - 技能名称
      * @param content - 新的 Markdown 内容
      * @returns 更新后的技能详情对象
@@ -303,15 +371,24 @@ export class SkillsService {
 
         // 清理技能名称：仅保留字母、数字、连字符和下划线，与 create 保持一致
         const sanitizedName = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
-        const filePath = path.join(this.commandsDir, `${sanitizedName}.md`);
 
-        // 确保目标路径在 commandsDir 内，防止 ../ 绕过
-        if (!filePath.startsWith(this.commandsDir)) {
-            throw new Error(`Skill "${name}" is outside commands directory`);
+        // 优先查找标准目录结构
+        const skillFilePath = path.join(this.skillsDir, sanitizedName, 'SKILL.md');
+        // 回退到旧扁平格式
+        const commandFilePath = path.join(this.commandsDir, `${sanitizedName}.md`);
+
+        let filePath: string;
+        if (fs.existsSync(skillFilePath)) {
+            filePath = skillFilePath;
+        } else if (fs.existsSync(commandFilePath)) {
+            filePath = commandFilePath;
+        } else {
+            throw new Error(`Skill "${sanitizedName}" not found`);
         }
 
-        if (!fs.existsSync(filePath)) {
-            throw new Error(`Skill "${sanitizedName}" not found`);
+        // 确保目标路径在允许的目录内
+        if (!filePath.startsWith(this.skillsDir) && !filePath.startsWith(this.commandsDir)) {
+            throw new Error(`Skill "${name}" is outside allowed directories`);
         }
 
         fs.writeFileSync(filePath, content, 'utf-8');
@@ -327,7 +404,8 @@ export class SkillsService {
 
     /**
      * 删除指定技能
-     * @description 仅删除 commands/ 目录下的技能文件
+     * @description 优先查找 skills/<name>/SKILL.md，回退到 commands/<name>.md。
+     *   删除标准目录技能时会同时删除整个技能子目录。
      * @param name - 技能名称
      * @returns 是否删除成功（false 表示技能不存在）
      */
@@ -338,19 +416,30 @@ export class SkillsService {
 
         // 清理技能名称：仅保留字母、数字、连字符和下划线
         const sanitizedName = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
-        const filePath = path.join(this.commandsDir, `${sanitizedName}.md`);
+        const skillDir = path.join(this.skillsDir, sanitizedName);
+        const skillFilePath = path.join(skillDir, 'SKILL.md');
+        const commandFilePath = path.join(this.commandsDir, `${sanitizedName}.md`);
 
-        // 确保目标路径在 commandsDir 内
-        if (!filePath.startsWith(this.commandsDir)) {
-            throw new Error(`Skill "${name}" is outside commands directory`);
+        // 标准目录结构
+        if (fs.existsSync(skillFilePath)) {
+            if (!skillFilePath.startsWith(this.skillsDir)) {
+                throw new Error(`Skill "${name}" is outside skills directory`);
+            }
+            // 删除整个技能子目录
+            fs.rmSync(skillDir, {recursive: true, force: true});
+            return true;
         }
 
-        if (!fs.existsSync(filePath)) {
-            return false;
+        // 回退：旧扁平格式
+        if (fs.existsSync(commandFilePath)) {
+            if (!commandFilePath.startsWith(this.commandsDir)) {
+                throw new Error(`Skill "${name}" is outside commands directory`);
+            }
+            fs.unlinkSync(commandFilePath);
+            return true;
         }
 
-        fs.unlinkSync(filePath);
-        return true;
+        return false;
     }
 
 }

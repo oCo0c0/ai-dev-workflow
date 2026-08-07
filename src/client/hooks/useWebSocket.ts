@@ -347,11 +347,12 @@ export function useWebSocket() {
                     case 'agent-execution:subtask':
                         const subTaskMsg = message.data;
                         if (subTaskMsg) {
-                            const statusText = subTaskMsg.status === 'running' ? '执行中' :
-                                subTaskMsg.status === 'completed' ? '✅ 完成' :
+                            if (subTaskMsg.status !== 'running') {
+                                const statusText = subTaskMsg.status === 'completed' ? '✅ 完成' :
                                     subTaskMsg.status === 'failed' ? '❌ 失败' : '⏳ 等待';
-                            const title = subTaskMsg.title || subTaskMsg.subTaskId?.substring(0, 8) || '';
-                            addAgentLog(`  [${statusText}] ${title}`);
+                                const title = subTaskMsg.title || subTaskMsg.subTaskId?.substring(0, 8) || '';
+                                addAgentLog(`  [${statusText}] ${title}`);
+                            }
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {
                                     type: 'subtask',
@@ -359,6 +360,7 @@ export function useWebSocket() {
                                     subTaskId: subTaskMsg.subTaskId,
                                     title: subTaskMsg.title,
                                     status: subTaskMsg.status,
+                                    completedAt: subTaskMsg.completedAt,
                                 }
                             }));
                         }
@@ -409,6 +411,21 @@ export function useWebSocket() {
                             addAgentLog(logMsg);
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {type: 'log', executionId: message.data?.executionId, log: logMsg}
+                            }));
+                        }
+                        break;
+
+                    // Agent执行页 - 步骤级日志（不写入全局日志，只追加到步骤详情）
+                    case 'agent-execution:stepLog':
+                        const stepLogData = message.data;
+                        if (stepLogData?.stepId && stepLogData?.log) {
+                            window.dispatchEvent(new CustomEvent('agent-execution:update', {
+                                detail: {
+                                    type: 'stepLog',
+                                    executionId: stepLogData.executionId,
+                                    stepId: stepLogData.stepId,
+                                    log: stepLogData.log,
+                                }
                             }));
                         }
                         break;

@@ -191,7 +191,9 @@ export class AgentCoordinator {
                 cwd,
             );
 
-            const result = await runBridgeJson<{subTasks: Array<{id?: string; title: string; description?: string}>}>({
+            const result = await runBridgeJson<{
+                subTasks: Array<{ id?: string; title: string; description?: string }>
+            }>({
                 cliRunner: this.config.cliRunner,
                 prompt: promptText,
                 cwd,
@@ -242,7 +244,10 @@ export class AgentCoordinator {
         let overall: 'completed' | 'failed' | 'aborted' = 'completed';
 
         for (const sub of subTasks) {
-            if (controller.signal.aborted) { overall = 'aborted'; break; }
+            if (controller.signal.aborted) {
+                overall = 'aborted';
+                break;
+            }
 
             // 恢复执行时跳过已完成/已跳过的子任务
             const current = (await this.store.get(executionId))?.subTasks.find(t => t.id === sub.id);
@@ -586,8 +591,23 @@ export class AgentCoordinator {
                 subTaskId: toolUseId,
                 title: step.title,
                 status: isError ? 'failed' : 'completed',
+                completedAt: step.completedAt,
             },
         });
+
+        // 步骤级日志：将工具执行摘要通过 stepLog 事件推送，前端展开步骤面板可查看
+        if (meta.content && typeof meta.content === 'string' && meta.content.trim()) {
+            const summary = meta.content.slice(0, 300);
+            broadcast({
+                type: 'agent-execution:stepLog',
+                data: {
+                    executionId,
+                    stepId: toolUseId,
+                    log: summary,
+                    isError,
+                },
+            });
+        }
     }
 
     /**

@@ -83,6 +83,21 @@ function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString();
 }
 
+/** 计算步骤耗时（秒），无 startedAt 或 completedAt 返回 null */
+function calcDuration(startedAt?: string, completedAt?: string): number | null {
+    if (!startedAt || !completedAt) return null;
+    const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+    return Math.round(ms / 1000);
+}
+
+/** 格式化耗时显示 */
+function formatDuration(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
 /** 日志消息类型检测 */
 type LogKind = 'thinking' | 'tool_use' | 'tool_result' | 'user' | 'normal';
 
@@ -144,6 +159,7 @@ export default function AgentExecutionPage() {
     // UI 折叠
     const [thoughtsExpanded, setThoughtsExpanded] = useState(true);
     const [stepsExpanded, setStepsExpanded] = useState(true);
+    const [expandedStepLogs, setExpandedStepLogs] = useState<Set<string>>(new Set());
 
     // 工具权限确认弹框（agent 执行中 canUseTool 触发）
     const [permConfirm, setPermConfirm] = useState<{
@@ -376,9 +392,14 @@ export default function AgentExecutionPage() {
                         const stepIdx = prev.steps.findIndex(s => s.id === subTaskId);
                         if (stepIdx >= 0) {
                             const steps = [...prev.steps];
+                            const newStatus = data.status as AgentExecutionDetail['steps'][0]['status'];
                             steps[stepIdx] = {
                                 ...steps[stepIdx],
-                                status: data.status as AgentExecutionDetail['steps'][0]['status']
+                                status: newStatus,
+                                // 完成或失败时记录结束时间
+                                ...(newStatus === 'completed' || newStatus === 'failed'
+                                    ? {completedAt: new Date().toISOString()}
+                                    : {}),
                             };
                             return {...prev, steps};
                         }
@@ -395,6 +416,20 @@ export default function AgentExecutionPage() {
                             };
                         }
                         return prev;
+                    }
+                    case 'stepLog': {
+                        // 步骤级日志：追加到对应步骤的 logs 数组
+                        const stepId = data.stepId as string;
+                        const logText = data.log as string;
+                        if (!stepId || !logText) return prev;
+                        const stepIdx = prev.steps.findIndex(s => s.id === stepId);
+                        if (stepIdx < 0) return prev;
+                        const steps = [...prev.steps];
+                        steps[stepIdx] = {
+                            ...steps[stepIdx],
+                            logs: [...steps[stepIdx].logs, logText],
+                        };
+                        return {...prev, steps};
                     }
                     default:
                         return prev;
@@ -610,50 +645,103 @@ export default function AgentExecutionPage() {
 
                                         {stepsExpanded && (
                                             <div className="space-y-1.5">
-                                                {(detail?.steps || []).map((step) => (
-                                                    <div
-                                                        key={step.id}
-                                                        className={cn(
-                                                            'flex items-center gap-3 px-3 py-2 rounded-lg border transition-all',
-                                                            step.status === 'running' && 'border-blue-500/30 bg-blue-500/5',
-                                                            step.status === 'completed' && 'border-emerald-500/20 bg-emerald-500/5',
-                                                            step.status === 'failed' && 'border-destructive/30 bg-destructive/5',
-                                                        )}
-                                                    >
-                                                        <div className="shrink-0">
-                                                            {step.status === 'running' && <Loader2
-                                                                className="h-4 w-4 text-blue-500 animate-spin"/>}
-                                                            {step.status === 'completed' &&
-                                                                <CheckCircle2 className="h-4 w-4 text-emerald-500"/>}
-                                                            {step.status === 'failed' &&
-                                                                <XCircle className="h-4 w-4 text-destructive"/>}
-                                                            {step.status === 'pending' &&
-                                                                <Clock className="h-4 w-4 text-muted-foreground/50"/>}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center gap-2">
-                                                                <Wrench className="h-3 w-3 text-muted-foreground"/>
-                                                                <span
-                                                                    className="text-xs font-medium truncate">{step.title}</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-3 mt-0.5">
-                                                                {step.startedAt && (
-                                                                    <span className="text-[10px] text-muted-foreground">
-                                                                        {formatTime(step.startedAt)}
-                                                                    </span>
-                                                                )}
-                                                                {step.status === 'running' && stepsStats.running > 0 && (
-                                                                    <span className="relative flex h-1.5 w-1.5">
+                                                {(detail?.steps || []).map((step) => {
+                                                    const duration = calcDuration(step.startedAt, step.completedAt);
+                                                    const hasLogs = step.logs && step.logs.length > 0;
+                                                    const showLogs = expandedStepLogs.has(step.id);
+                                                    return (
+                                                        <div
+                                                            key={step.id}
+                                                            className={cn(
+                                                                'rounded-lg border transition-all',
+                                                                step.status === 'running' && 'border-blue-500/30 bg-blue-500/5',
+                                                                step.status === 'completed' && 'border-emerald-500/20 bg-emerald-500/5',
+                                                                step.status === 'failed' && 'border-destructive/30 bg-destructive/5',
+                                                            )}
+                                                        >
+                                                            {/* 步骤标题行 */}
+                                                            <div className="flex items-center gap-3 px-3 py-2">
+                                                                <div className="shrink-0">
+                                                                    {step.status === 'running' && <Loader2
+                                                                        className="h-4 w-4 text-blue-500 animate-spin"/>}
+                                                                    {step.status === 'completed' && <CheckCircle2
+                                                                        className="h-4 w-4 text-emerald-500"/>}
+                                                                    {step.status === 'failed' &&
+                                                                        <XCircle className="h-4 w-4 text-destructive"/>}
+                                                                    {step.status === 'pending' && <Clock
+                                                                        className="h-4 w-4 text-muted-foreground/50"/>}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Wrench
+                                                                            className="h-3 w-3 shrink-0 text-muted-foreground"/>
                                                                         <span
-                                                                            className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"/>
-                                                                        <span
-                                                                            className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"/>
-                                                                    </span>
-                                                                )}
+                                                                            className="text-xs font-medium truncate">{step.title}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-3 mt-0.5">
+                                                                        {step.startedAt && (
+                                                                            <span
+                                                                                className="text-[10px] text-muted-foreground">
+                                                                                {formatTime(step.startedAt)}
+                                                                            </span>
+                                                                        )}
+                                                                        {step.status === 'running' && (
+                                                                            <span className="relative flex h-1.5 w-1.5">
+                                                                                <span
+                                                                                    className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"/>
+                                                                                <span
+                                                                                    className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"/>
+                                                                            </span>
+                                                                        )}
+                                                                        {(step.status === 'completed' || step.status === 'failed') && step.completedAt && (
+                                                                            <>
+                                                                                <span
+                                                                                    className="text-[10px] text-muted-foreground">→ {formatTime(step.completedAt)}</span>
+                                                                                {duration != null && (
+                                                                                    <span className={cn(
+                                                                                        'text-[10px] font-mono',
+                                                                                        step.status === 'failed' ? 'text-destructive/70' : 'text-emerald-400',
+                                                                                    )}>
+                                                                                        耗时 {formatDuration(duration)}
+                                                                                    </span>
+                                                                                )}
+                                                                            </>
+                                                                        )}
+                                                                        {hasLogs && (
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setExpandedStepLogs(prev => {
+                                                                                        const next = new Set(prev);
+                                                                                        if (next.has(step.id)) next.delete(step.id);
+                                                                                        else next.add(step.id);
+                                                                                        return next;
+                                                                                    });
+                                                                                }}
+                                                                                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors ml-auto"
+                                                                            >
+                                                                                {showLogs ? '收起详情 ▲' : `查看详情 (${step.logs.length}) ▼`}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
                                                             </div>
+
+                                                            {/* 步骤日志展开区 */}
+                                                            {showLogs && hasLogs && (
+                                                                <div
+                                                                    className="border-t border-border/30 px-3 py-2 space-y-1 max-h-48 overflow-y-auto bg-black/10 rounded-b-lg">
+                                                                    {step.logs.map((logLine, li) => (
+                                                                        <div key={li}
+                                                                             className="text-[10px] text-muted-foreground font-mono leading-relaxed break-all">
+                                                                            {logLine}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         )}
 
@@ -890,7 +978,8 @@ export default function AgentExecutionPage() {
                         <div className="bg-muted/50 border border-border rounded-md p-3 mb-4">
                             <div className="text-xs text-muted-foreground mb-1">工具：{permConfirm.toolName}</div>
                             {permConfirm.toolInput && (
-                                <pre className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/90 max-h-40 overflow-y-auto">
+                                <pre
+                                    className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/90 max-h-40 overflow-y-auto">
                                     {permConfirm.toolInput.command
                                         ? String(permConfirm.toolInput.command)
                                         : JSON.stringify(permConfirm.toolInput, null, 2).slice(0, 500)}

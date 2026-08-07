@@ -120,6 +120,13 @@ export async function createServer(port: number): Promise<http.Server> {
     const cliRunnerService = new CLIRunnerService(config.cliProvider?.active);
     const testExecutorService = new TestExecutorService();
     const skillsService = new SkillsService();
+
+    // 将内置技能同步到 ~/.claude/skills/，使 Claude CLI 能够发现和加载
+    const builtinSkillsSource = path.resolve(__dirname, '..', '..', 'skills');
+    const syncResult = skillsService.syncBuiltinSkills(builtinSkillsSource);
+    if (syncResult.synced > 0 || syncResult.errors > 0) {
+        console.log(`[skills] sync builtin → ~/.claude/skills/: ${syncResult.synced} synced, ${syncResult.skipped} skipped, ${syncResult.errors} errors`);
+    }
     const pipelineService = new PipelineService();
     const requirementStore = new RequirementStoreService();
 

@@ -4,18 +4,16 @@
  *
  *   展示逻辑：
  *     1. 所有消息按时间顺序渲染，不做分区隔离
- *     2. 连续的 output 消息按 10 条一组折叠展示（最新组始终展开）
+ *     2. 连续的 output 消息按 15 条一组折叠展示（最新组始终展开）
  *     3. user / error / warning 始终可见，内联渲染
- *     4. thinking / tool_use / tool_result 紧凑内联渲染
- *        （AgentExecutionPage 会在上层过滤掉它们，因为已有专用面板）
- *     5. 噪声 tool_result（"✅ 完成" 等）折叠为一行摘要
+ *     4. tool_use / tool_result 不在此展示 —— 工具执行结果已在各页面的「执行步骤」面板体现
  *
  *   工具栏：标题 / 实时绿点 / 消息计数 / 复制全部 / 清空
  *   智能自动滚动：用户向上滚动时暂停，滚回底部自动恢复
  */
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Copy, Check, Trash2, Terminal, ChevronDown, ChevronUp, Wrench, Layers} from 'lucide-react';
+import {Copy, Check, Trash2, Terminal, ChevronDown, ChevronUp} from 'lucide-react';
 import {cn} from '../lib/utils';
 import {LogMessage, type LogMessageData} from './LogMessage';
 
@@ -25,17 +23,6 @@ const OUTPUT_PER_GROUP = 15;
 type Segment =
     | { type: 'single'; message: LogMessageData; index: number }
     | { type: 'outputGroup'; messages: LogMessageData[]; start: number };
-
-/** tool_result 中视为"噪声完成消息"的模式 */
-function isNoisyCompletion(content: string): boolean {
-    const trimmed = content.trim();
-    if (!trimmed) return true;
-    if (trimmed.length > 40) return false;
-    if (/^\[?✅?\s*完成\]?\s*$/.test(trimmed)) return true;
-    if (/^✅\s*完成/.test(trimmed)) return true;
-    if (/^完成\s*$/.test(trimmed)) return true;
-    return false;
-}
 
 // ── Props ──
 interface LogViewerProps {
@@ -92,19 +79,24 @@ export function LogViewer({
     }, []);
 
     // ── 消息分段：连续的 output 合并为输出组 ──
+    // tool_use / tool_result 直接跳过 —— 工具执行结果已在执行步骤面板中体现
     const segments = useMemo<Segment[]>(() => {
         const result: Segment[] = [];
         let i = 0;
         while (i < messages.length) {
             const m = messages[i];
-            // output / normal 归入连续输出组
+            // 跳过工具执行日志（已在执行步骤面板中展示）
+            if (m.kind === 'tool_use' || m.kind === 'tool_result') {
+                i++;
+                continue;
+            }
+            // output 归入连续输出组
             if (m.kind === 'output') {
                 const run: LogMessageData[] = [];
                 while (i < messages.length && messages[i].kind === 'output') {
                     run.push(messages[i]);
                     i++;
                 }
-                // 每 10 条一组
                 for (let g = 0; g < run.length; g += OUTPUT_PER_GROUP) {
                     result.push({
                         type: 'outputGroup',
@@ -163,30 +155,6 @@ export function LogViewer({
     // ── 统计 ──
     const hasContent = messages.length > 0;
 
-    // ── 渲染单条消息 ──
-    const renderSingle = (msg: LogMessageData, key: string) => {
-        // 噪声 tool_result → 紧凑一行
-        if (msg.kind === 'tool_result' && isNoisyCompletion(msg.content)) {
-            return (
-                <div key={key} className="flex items-center gap-2 py-0.5 px-2 text-[10px] text-muted-foreground/50">
-                    <Layers className="h-2.5 w-2.5 shrink-0"/>
-                    <span className="truncate">{msg.content || '✅ 完成'}</span>
-                </div>
-            );
-        }
-        // tool_use → 紧凑一行
-        if (msg.kind === 'tool_use') {
-            return (
-                <div key={key} className="flex items-center gap-2 py-0.5 px-2 text-[10px]">
-                    <Wrench className="h-2.5 w-2.5 shrink-0 text-cyan-500"/>
-                    <span className="text-cyan-400 font-mono truncate">{msg.content || 'Tool'}</span>
-                </div>
-            );
-        }
-        // 其他：正常渲染
-        return <LogMessage key={key} message={msg}/>;
-    };
-
     return (
         <div className={cn('flex flex-col overflow-hidden rounded-lg border border-border/60 glass-card', className)}>
             {/* ═══ 工具栏 ═══ */}
@@ -240,7 +208,7 @@ export function LogViewer({
                     <div className="space-y-1.5">
                         {segments.map((seg, si) => {
                             if (seg.type === 'single') {
-                                return renderSingle(seg.message, `msg-${seg.index}`);
+                                return <LogMessage key={`msg-${seg.index}`} message={seg.message}/>;
                             }
                             // 输出组
                             const isOpen = expandedGroups.has(si);
