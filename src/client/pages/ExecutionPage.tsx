@@ -199,7 +199,14 @@ export default function ExecutionPage() {
             const logEntry = typeof entry === 'object' && entry !== null ? entry : null;
             const content = logEntry ? logEntry.content : String(entry);
 
-            // 用户消息：以 **User:** 开头（右侧蓝色气泡）
+            // 用户消息检测：优先 JSON {type:'user'}，其次 **User:** 前缀（startsWith 避免误判）
+            try {
+                const parsed = JSON.parse(content);
+                if (parsed.type === 'user') {
+                    return {kind: 'user' as const, content: parsed.content || content,
+                        timestamp: logEntry?.timestamp, stepIndex: logEntry?.stepIndex};
+                }
+            } catch { /* not JSON */ }
             if (content.includes('**User:**')) {
                 return {
                     kind: 'user' as const,

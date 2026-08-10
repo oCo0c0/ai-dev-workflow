@@ -82,10 +82,19 @@ export class AgentCoordinator {
 
             const cwd = execution.workspacePath || this.config.workspacePath || process.cwd();
 
-            // 从日志中提取用户回复消息，拼入 prompt 让 Agent 看到后续指令
+            // 从日志中提取用户回复消息（兼容新旧两种格式），拼入 prompt 让 Agent 看到后续指令
             const userReplies = execution.logs
-                .filter(log => log.startsWith('**User:**'))
-                .map(log => log.replace('**User:** ', ''));
+                .map(log => {
+                    // 新格式：JSON {type: 'user', content: '...'}
+                    try {
+                        const parsed = JSON.parse(log);
+                        if (parsed.type === 'user') return parsed.content || '';
+                    } catch { /* fall through */ }
+                    // 旧格式：**User:** 前缀（向后兼容）
+                    if (log.startsWith('**User:**')) return log.replace('**User:** ', '');
+                    return null;
+                })
+                .filter((r): r is string => r !== null && r.length > 0);
 
             // 仅「首次运行」做任务分解：已有 subTasks / 已有会话 / 有用户回复都跳过
             let subTasks = execution.subTasks ?? [];
@@ -377,6 +386,11 @@ export class AgentCoordinator {
             // 续接会话：带上用户补充信息
             const repliesText = userReplies.map(r => `- ${r}`).join('\n');
             prompt = renderPrompt(PROMPTS.agentReply, {repliesText});
+        } else if (userReplies.length > 0 && !execution.sessionId) {
+            // 首次执行但用户已在回复框补充了详细信息 → 合并到 requirementText
+            const repliesText = userReplies.join('\n');
+            const fullRequirement = execution.requirementText + '\n\n用户补充说明：\n' + repliesText;
+            prompt = renderPrompt(PROMPTS.agentStart, {requirementText: fullRequirement, cwd});
         } else {
             // 首次执行
             prompt = renderPrompt(PROMPTS.agentStart, {requirementText: execution.requirementText, cwd});
@@ -466,6 +480,7 @@ export class AgentCoordinator {
         permissionRequestId: string,
         decision: 'allow' | 'deny',
         remember?: boolean,
+        modifiedInput?: Record<string, unknown>,
     ): Promise<void> {
         const pending = this.pendingPermissions.get(permissionRequestId);
         if (!pending || pending.executionId !== executionId) return;
@@ -478,7 +493,7 @@ export class AgentCoordinator {
         }
 
         this.pendingPermissions.delete(permissionRequestId);
-        this.config.cliRunner.confirmPermission(permissionRequestId, decision);
+        this.config.cliRunner.confirmPermission(permissionRequestId, decision, undefined, modifiedInput);
 
         const verb = decision === 'allow' ? '已允许' : '已拒绝';
         await this.store.addLog(executionId, `${verb}工具：${pending.toolName}`).catch(() => undefined);

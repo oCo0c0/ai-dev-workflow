@@ -113,7 +113,10 @@ export class SkillDerivationService {
 
             switch (pattern.pattern) {
                 case 'recovery-insight':
-                    void this.deriveFromAnalytics(pattern.analyticsIds, pattern.workspacePath, pattern.pattern);
+                    // 不自动生成技能，仅记录日志。
+                    // 失败→成功的恢复在开发迭代中极其常见，自动创建技能会产生大量噪音。
+                    // 用户可手动通过 POST /api/skills/derive 从 analytics 记录中提炼技能。
+                    console.log(`[skill-derivation] recovery-insight detected in ${pattern.workspacePath}: ${pattern.description}`);
                     break;
                 case 'repeated-failure':
                     // 不自动生成技能，仅记录。可未来扩展为通知用户

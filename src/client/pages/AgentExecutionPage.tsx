@@ -102,14 +102,17 @@ function formatDuration(seconds: number): string {
 type LogKind = 'thinking' | 'tool_use' | 'tool_result' | 'user' | 'normal';
 
 function parseLog(log: string): { kind: LogKind; content: string } {
-    if (log.includes('**User:**')) return {kind: 'user', content: log};
     try {
         const parsed = JSON.parse(log);
+        // 新格式 JSON {type: 'user', content: '...'}（优先级最高）
+        if (parsed.type === 'user') return {kind: 'user', content: parsed.content || ''};
         if (parsed.type === 'thinking') return {kind: 'thinking', content: parsed.content || ''};
         if (parsed.type === 'tool_use') return {kind: 'tool_use', content: parsed.toolName || 'Tool'};
         if (parsed.type === 'tool_result') return {kind: 'tool_result', content: parsed.content || ''};
         return {kind: 'normal', content: parsed.content || log};
     } catch {
+        // 旧格式兼容：只有以 **User:** 开头才是用户消息
+        if (log.startsWith('**User:**')) return {kind: 'user', content: log};
         return {kind: 'normal', content: log};
     }
 }
@@ -169,6 +172,9 @@ export default function AgentExecutionPage() {
         toolInput?: Record<string, unknown>;
         title?: string;
     }>({open: false});
+
+    // AskUserQuestion 答案收集
+    const [askUserAnswers, setAskUserAnswers] = useState<Record<string, string>>({});
 
     // DOM 引用
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -280,7 +286,10 @@ export default function AgentExecutionPage() {
     const handleStart = async () => {
         if (!activeId) return;
         try {
-            await apiPost(`/agent-execution/${activeId}/start`);
+            // 将回复框中的详细内容一并发送（用户可能输入了细节但未点「发送」）
+            const message = replyText.trim() || undefined;
+            setReplyText('');
+            await apiPost(`/agent-execution/${activeId}/start`, {message});
             loadDetail(activeId);
             loadHistory();
         } catch (err) {
@@ -315,12 +324,18 @@ export default function AgentExecutionPage() {
     };
 
     // 确认工具权限：decision=allow/deny，remember 仅 allow 时生效（本次执行内同类工具自动放行）
-    const handleConfirmTool = async (decision: 'allow' | 'deny', remember = false) => {
+    const handleConfirmTool = async (decision: 'allow' | 'deny', remember = false, modifiedInput?: Record<string, unknown>) => {
         if (!activeId || !permConfirm.permissionRequestId) return;
         const permissionRequestId = permConfirm.permissionRequestId;
         setPermConfirm({open: false});
+        setAskUserAnswers({});
         try {
-            await apiPost(`/agent-execution/${activeId}/confirm-tool`, {permissionRequestId, decision, remember});
+            await apiPost(`/agent-execution/${activeId}/confirm-tool`, {
+                permissionRequestId,
+                decision,
+                remember,
+                ...(modifiedInput ? {modifiedInput} : {}),
+            });
         } catch (err) {
             console.error('工具确认失败:', err);
         }
@@ -375,6 +390,7 @@ export default function AgentExecutionPage() {
                     toolInput: data.toolInput as Record<string, unknown>,
                     title: (data.title as string) || (data.displayName as string) || '',
                 });
+                setAskUserAnswers({});
                 return;
             }
 
@@ -882,7 +898,7 @@ export default function AgentExecutionPage() {
                     {/* 需求（可选） */}
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                            需求文档 <span className="text-muted-foreground/60">（可选，也可创建后手动输入）</span>
+                            需求文档 <span className="text-muted-foreground/60">（可选，也可创建后在下方消息框补充详细信息）</span>
                         </label>
                         <div className="grid grid-cols-2 gap-2 mb-2">
                             <button
@@ -942,13 +958,18 @@ export default function AgentExecutionPage() {
                         )}
 
                         {reqMode === 'manual' && (
-                            <textarea
-                                value={manualRequirementText}
-                                onChange={(e) => setManualRequirementText(e.target.value)}
-                                placeholder="描述你的需求，Agent将自主分析并执行..."
-                                rows={4}
-                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-                            />
+                            <div>
+                                <input
+                                    type="text"
+                                    value={manualRequirementText}
+                                    onChange={(e) => setManualRequirementText(e.target.value)}
+                                    placeholder="输入任务标题，创建后在下方消息框补充详细需求..."
+                                    className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                />
+                                <p className="text-[10px] text-muted-foreground mt-1">
+                                    💡 提示：创建后在下方输入框中描述具体任务详情，点击「开始」时将自动发送并开始执行
+                                </p>
+                            </div>
                         )}
                     </div>
 
@@ -969,36 +990,16 @@ export default function AgentExecutionPage() {
 
             {/* 工具权限确认弹框（agent 执行中 canUseTool 触发） */}
             {permConfirm.open && permConfirm.permissionRequestId && (
-                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="glass-panel rounded-xl shadow-xl p-6 max-w-lg w-full mx-4">
-                        <h3 className="text-base font-semibold mb-1">工具权限确认</h3>
-                        <p className="text-sm text-muted-foreground mb-3">
-                            {permConfirm.title || 'Agent 请求使用工具'}
-                        </p>
-                        <div className="bg-muted/50 border border-border rounded-md p-3 mb-4">
-                            <div className="text-xs text-muted-foreground mb-1">工具：{permConfirm.toolName}</div>
-                            {permConfirm.toolInput && (
-                                <pre
-                                    className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/90 max-h-40 overflow-y-auto">
-                                    {permConfirm.toolInput.command
-                                        ? String(permConfirm.toolInput.command)
-                                        : JSON.stringify(permConfirm.toolInput, null, 2).slice(0, 500)}
-                                </pre>
-                            )}
-                        </div>
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" onClick={() => handleConfirmTool('deny')}>
-                                拒绝
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => handleConfirmTool('allow', true)}>
-                                允许并记住
-                            </Button>
-                            <Button size="sm" onClick={() => handleConfirmTool('allow')}>
-                                允许
-                            </Button>
-                        </div>
-                    </div>
-                </div>
+                <PermissionDialog
+                    permConfirm={permConfirm}
+                    askUserAnswers={askUserAnswers}
+                    setAskUserAnswers={setAskUserAnswers}
+                    onConfirm={handleConfirmTool}
+                    onClose={() => {
+                        setPermConfirm({open: false});
+                        setAskUserAnswers({});
+                    }}
+                />
             )}
         </div>
     );
@@ -1056,6 +1057,209 @@ function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }
                     {expanded ? '收起' : '展开'}
                 </button>
             )}
+        </div>
+    );
+}
+
+// === 工具权限确认弹框组件 ===
+
+interface AskUserQuestionDef {
+    question: string;
+    header: string;
+    options: Array<{label: string; description: string}>;
+    multiSelect?: boolean;
+}
+
+interface PermissionDialogProps {
+    permConfirm: {
+        open: boolean;
+        permissionRequestId?: string;
+        toolName?: string;
+        toolInput?: Record<string, unknown>;
+        title?: string;
+    };
+    askUserAnswers: Record<string, string>;
+    setAskUserAnswers: (v: Record<string, string>) => void;
+    onConfirm: (decision: 'allow' | 'deny', remember?: boolean, modifiedInput?: Record<string, unknown>) => void;
+    onClose: () => void;
+}
+
+function PermissionDialog({permConfirm, askUserAnswers, setAskUserAnswers, onConfirm, onClose}: PermissionDialogProps) {
+    // 结构性检测 AskUserQuestion（支持 MCP 前缀如 mcp__server__AskUserQuestion）
+    const isAskUser = useMemo(() => {
+        if (!permConfirm.toolInput) return false;
+        // Case 1: 有 questions 数组，且首项含 question + options
+        const qs = permConfirm.toolInput.questions;
+        if (Array.isArray(qs) && qs.length > 0) {
+            const first = qs[0] as Record<string, unknown>;
+            if (typeof first.question === 'string' && Array.isArray(first.options)) return true;
+        }
+        // Case 2: 顶层 options 数组（简化 AskUser 模式）
+        const opts = permConfirm.toolInput.options;
+        if (Array.isArray(opts) && opts.length > 0
+            && typeof (opts[0] as Record<string, unknown>)?.label === 'string') {
+            return true;
+        }
+        return false;
+    }, [permConfirm.toolInput]);
+
+    const questions: AskUserQuestionDef[] = useMemo(() => {
+        if (!isAskUser || !permConfirm.toolInput) return [];
+        // Case 1: 标准 questions 数组
+        const raw = permConfirm.toolInput.questions;
+        if (Array.isArray(raw)) return raw as AskUserQuestionDef[];
+        // Case 2: 顶层 options → 合成单个问题
+        const topOpts = permConfirm.toolInput.options;
+        if (Array.isArray(topOpts)) {
+            return [{
+                question: (permConfirm.toolInput.question as string) || '请选择',
+                header: (permConfirm.toolInput.header as string) || '选项',
+                options: topOpts as Array<{label: string; description: string}>,
+                multiSelect: (permConfirm.toolInput.multiSelect as boolean) || false,
+            }];
+        }
+        return [];
+    }, [isAskUser, permConfirm.toolInput]);
+
+    const allAnswered = useMemo(() => {
+        if (questions.length === 0) return true;
+        return questions.every(q => askUserAnswers[q.question] != null && askUserAnswers[q.question] !== '');
+    }, [questions, askUserAnswers]);
+
+    const selectOption = (questionText: string, optionLabel: string, multiSelect: boolean | undefined) => {
+        setAskUserAnswers(prev => {
+            if (multiSelect) {
+                // 多选：逗号分隔追加/移除
+                const current = (prev[questionText] || '').split(',').filter(Boolean);
+                const idx = current.indexOf(optionLabel);
+                if (idx >= 0) current.splice(idx, 1);
+                else current.push(optionLabel);
+                return {...prev, [questionText]: current.join(',')};
+            }
+            // 单选
+            return {...prev, [questionText]: optionLabel};
+        });
+    };
+
+    // 非 AskUserQuestion：展示标准权限确认 + JSON 输入预览
+    if (!isAskUser || questions.length === 0) {
+        return (
+            <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="glass-panel rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto">
+                    <h3 className="text-base font-semibold mb-1">工具权限确认</h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                        {permConfirm.title || 'Agent 请求使用工具'}
+                    </p>
+                    <div className="bg-muted/50 border border-border rounded-md p-3 mb-4">
+                        <div className="text-xs text-muted-foreground mb-1">工具：{permConfirm.toolName}</div>
+                        {permConfirm.toolInput && (
+                            <pre className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/90 max-h-40 overflow-y-auto">
+                                {permConfirm.toolInput.command
+                                    ? String(permConfirm.toolInput.command)
+                                    : JSON.stringify(permConfirm.toolInput, null, 2)}
+                            </pre>
+                        )}
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => onConfirm('deny')}>
+                            拒绝
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => onConfirm('allow', true)}>
+                            允许并记住
+                        </Button>
+                        <Button size="sm" onClick={() => onConfirm('allow')}>
+                            允许
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // AskUserQuestion：渲染问题与选项
+    return (
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="glass-panel rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto">
+                <h3 className="text-base font-semibold mb-1">
+                    {permConfirm.title || 'Agent 向您提问'}
+                </h3>
+                <p className="text-xs text-muted-foreground mb-4">
+                    请回答以下问题，帮助 Agent 更好地完成任务
+                </p>
+
+                <div className="space-y-4 mb-4">
+                    {questions.map((q, qi) => (
+                        <div key={qi} className="bg-muted/30 border border-border rounded-lg p-3">
+                            <div className="flex items-center gap-1.5 mb-2">
+                                <span className="text-[10px] font-medium text-muted-foreground uppercase bg-muted-foreground/10 px-1.5 py-0.5 rounded">
+                                    {q.header || `问题 ${qi + 1}`}
+                                </span>
+                            </div>
+                            <p className="text-sm font-medium mb-2">{q.question}</p>
+                            <div className="space-y-1">
+                                {q.options.map((opt, oi) => {
+                                    const isSelected = q.multiSelect
+                                        ? (askUserAnswers[q.question] || '').split(',').includes(opt.label)
+                                        : askUserAnswers[q.question] === opt.label;
+                                    return (
+                                        <button
+                                            key={oi}
+                                            onClick={() => selectOption(q.question, opt.label, q.multiSelect)}
+                                            className={cn(
+                                                'w-full text-left rounded-md border px-3 py-2 text-xs transition-all',
+                                                isSelected
+                                                    ? 'border-primary bg-primary/10 text-primary'
+                                                    : 'border-border hover:bg-accent/30 text-foreground/80',
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <span className={cn(
+                                                    'w-3.5 h-3.5 rounded border-2 shrink-0 flex items-center justify-center transition-colors',
+                                                    q.multiSelect ? 'rounded' : 'rounded-full',
+                                                    isSelected
+                                                        ? 'border-primary bg-primary'
+                                                        : 'border-muted-foreground/40',
+                                                )}>
+                                                    {isSelected && (
+                                                        <CheckCircle2 className="h-2.5 w-2.5 text-primary-foreground"/>
+                                                    )}
+                                                </span>
+                                                <span className="font-medium">{opt.label}</span>
+                                            </div>
+                                            {opt.description && (
+                                                <p className="text-[10px] text-muted-foreground mt-1 ml-5.5">
+                                                    {opt.description}
+                                                </p>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => onConfirm('deny')}>
+                        拒绝
+                    </Button>
+                    <Button
+                        size="sm"
+                        disabled={!allAnswered}
+                        onClick={() => {
+                            // 将答案编码为 modifiedInput 传给 bridge
+                            const answersMap: Record<string, string> = {};
+                            questions.forEach(q => {
+                                answersMap[q.question] = askUserAnswers[q.question] || '';
+                            });
+                            onConfirm('allow', false, {answers: answersMap});
+                        }}
+                    >
+                        <Send className="h-3.5 w-3.5 mr-1.5"/>
+                        提交回答
+                    </Button>
+                </div>
+            </div>
         </div>
     );
 }

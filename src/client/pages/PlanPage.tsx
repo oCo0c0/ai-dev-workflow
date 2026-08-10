@@ -183,11 +183,10 @@ export default function PlanPage() {
     // 日志消息（planLogs → LogMessageData[]，供 LogViewer 渲染；折叠/自动滚动由 LogViewer 内部处理）
     const logMessages = useMemo<LogMessageData[]>(() => {
         return planLogs.map((log) => {
-            // 用户消息：以 **User:** 开头（右侧蓝色气泡）
-            if (log.includes('**User:**')) return {kind: 'user', content: log};
-            // 结构化日志（thinking / tool_use / tool_result / error / warning）
+            // 优先 JSON 解析（新格式，type 字段准确区分消息类型）
             try {
                 const parsed = JSON.parse(log) as { type?: string; content?: string; toolName?: string };
+                if (parsed?.type === 'user') return {kind: 'user', content: parsed.content || log};
                 if (parsed?.type === 'thinking') return {kind: 'thinking', content: parsed.content || ''};
                 if (parsed?.type === 'tool_use') return {kind: 'tool_use', content: parsed.toolName || 'Tool'};
                 if (parsed?.type === 'tool_result') return {kind: 'tool_result', content: parsed.content || ''};
@@ -195,6 +194,8 @@ export default function PlanPage() {
                 if (parsed?.type === 'warning') return {kind: 'warning', content: parsed.content || ''};
                 return {kind: 'output', content: parsed?.content || log};
             } catch {
+                // 旧格式兼容：**User:** 前缀检测
+                if (log.startsWith('**User:**')) return {kind: 'user', content: log};
                 return {kind: 'output', content: log};
             }
         });

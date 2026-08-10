@@ -43,11 +43,12 @@ export function LogViewer({
                               className,
                           }: LogViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
+    const bottomRef = useRef<HTMLDivElement>(null);
     const [copiedAll, setCopiedAll] = useState(false);
 
     // ── 智能自动滚动 ──
     const [autoScroll, setAutoScroll] = useState(true);
-    const scrollRafRef = useRef<number | null>(null);
+    const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const isNearBottom = useCallback(() => {
         const el = containerRef.current;
@@ -55,12 +56,20 @@ export function LogViewer({
         return el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     }, []);
 
+    /** 滚动到底部：requestAnimationFrame 双帧延迟确保 Markdown 渲染 + DOM 布局完成 */
     const scrollToBottom = useCallback(() => {
-        if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-        scrollRafRef.current = requestAnimationFrame(() => {
-            const el = containerRef.current;
-            if (el) el.scrollTop = el.scrollHeight;
-            scrollRafRef.current = null;
+        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+        // 等两帧确保 DOM 绘制完成
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                bottomRef.current?.scrollIntoView({behavior: 'instant', block: 'end'});
+                // 延迟兜底（Markdown 包含图片/表格等重量内容时可能晚于两帧）
+                scrollTimeoutRef.current = setTimeout(() => {
+                    const el = containerRef.current;
+                    if (el) el.scrollTop = el.scrollHeight;
+                    scrollTimeoutRef.current = null;
+                }, 200);
+            });
         });
     }, []);
 
@@ -68,13 +77,41 @@ export function LogViewer({
         setAutoScroll(isNearBottom());
     }, [isNearBottom]);
 
+    // 尺寸变化观察器：当容器高度因内容渲染而增长时自动滚动
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+
+        const ro = new ResizeObserver(() => {
+            if (autoScroll) scrollToBottom();
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [autoScroll, scrollToBottom]);
+
+    // MutationObserver：DOM 节点新增后再次滚动（兜底 Markdown 异步渲染）
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const mo = new MutationObserver(() => {
+            if (autoScroll) {
+                requestAnimationFrame(() => {
+                    const el2 = containerRef.current;
+                    if (el2) el2.scrollTop = el2.scrollHeight;
+                });
+            }
+        });
+        mo.observe(el, {childList: true, subtree: true});
+        return () => mo.disconnect();
+    }, [autoScroll]);
+
     useEffect(() => {
         if (autoScroll) scrollToBottom();
     }, [messages, autoScroll, scrollToBottom]);
 
     useEffect(() => {
         return () => {
-            if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
         };
     }, []);
 
@@ -243,6 +280,8 @@ export function LogViewer({
                                 </div>
                             );
                         })}
+                        {/* 底部哨兵：scrollIntoView 锚点 */}
+                        <div ref={bottomRef} className="h-0"/>
                     </div>
                 )}
             </div>

@@ -3,8 +3,7 @@
  * @description 执行分析引擎
  *
  * 订阅 eventBus 的 execution:complete 和 test:complete 事件，
- * 记录分析数据、检测非平凡模式（连续失败、恢复模式、技能效果），
- * 并通过 eventBus 发出 analytics:pattern 事件供 SkillDerivationService 消费。
+ * 记录分析数据、检测非平凡模式（连续失败、恢复模式、技能效果）。
  */
 import {eventBus} from '../event-bus.js';
 import {AnalyticsStoreService, type ExecutionAnalytics} from './analytics-store-service.js';

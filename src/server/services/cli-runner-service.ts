@@ -223,8 +223,8 @@ export class CLIRunnerService {
     /**
      * 反向写回工具权限决策（透传给当前 Provider，唤醒挂起的 canUseTool）
      */
-    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string): void {
-        this.provider.confirmPermission(permissionRequestId, decision, message);
+    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string, modifiedInput?: Record<string, unknown>): void {
+        this.provider.confirmPermission(permissionRequestId, decision, message, modifiedInput);
     }
 
     /**

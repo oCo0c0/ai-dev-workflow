@@ -410,7 +410,7 @@ export class CodexProvider implements CLIProvider {
     }
 
     /** 工具权限确认（Codex 暂不支持，空实现以满足接口） */
-    confirmPermission(_permissionRequestId: string, _decision: 'allow' | 'deny', _message?: string): void {
+    confirmPermission(_permissionRequestId: string, _decision: 'allow' | 'deny', _message?: string, _modifiedInput?: Record<string, unknown>): void {
         // no-op: Codex 走自有 SDK，无 canUseTool 机制
     }
 

@@ -62,6 +62,7 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
     router.post('/:id/start', async (req, res) => {
         try {
             const {id} = req.params;
+            const {message} = req.body || {};
 
             const execution = await store.get(id);
             if (!execution) {
@@ -72,6 +73,16 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
                 return res.status(400).json({
                     code: 'INVALID_STATUS',
                     message: `Execution is not ready: ${execution.status}`
+                });
+            }
+
+            // 如果用户在回复框中输入了详细需求但未点发送，start 时一并写入日志
+            if (message && typeof message === 'string' && message.trim()) {
+                const userMsg = JSON.stringify({type: 'user', content: message.trim()});
+                await store.addLog(id, userMsg);
+                broadcast({
+                    type: 'agent-execution:log',
+                    data: {executionId: id, log: userMsg},
                 });
             }
 
@@ -128,8 +139,8 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
                 return res.status(404).json({code: 'NOT_FOUND', message: 'Execution not found'});
             }
 
-            // 添加用户消息到日志（coordinator 会通过 onOutput 再次广播，此处不再重复广播）
-            const userMsg = `**User:** ${message}`;
+            // 添加用户消息到日志（JSON 格式，避免字符串前缀误判）
+            const userMsg = JSON.stringify({type: 'user', content: message});
             await store.addLog(id, userMsg);
 
             // 如果执行已完成/失败/中止，直接重新执行（coordinator 内部会设 running 并广播）
@@ -153,7 +164,7 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
     router.post('/:id/confirm-tool', async (req, res) => {
         try {
             const {id} = req.params;
-            const {permissionRequestId, decision, remember} = req.body || {};
+            const {permissionRequestId, decision, remember, modifiedInput} = req.body || {};
 
             if (!permissionRequestId || typeof permissionRequestId !== 'string') {
                 return res.status(400).json({code: 'VALIDATION_ERROR', message: 'permissionRequestId is required'});
@@ -162,7 +173,7 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
                 return res.status(400).json({code: 'VALIDATION_ERROR', message: 'decision must be allow or deny'});
             }
 
-            await coordinator.confirmTool(id, permissionRequestId, decision, remember);
+            await coordinator.confirmTool(id, permissionRequestId, decision, remember, modifiedInput);
             res.json({success: true});
         } catch (error) {
             res.status(500).json({code: 'INTERNAL_ERROR', message: (error as Error).message});

@@ -82,7 +82,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `memory/feedback-log-store.ts` | `FeedbackLogStore` | 反馈日志存储 |
 | `memory/user-profile-store.ts` | `UserProfileStore` | 用户画像存储 |
 | `analytics-service.ts` | `AnalyticsService` | 数据分析服务 |
-| `skill-derivation-service.ts` | `SkillDerivationService` | 技能自动派生 |
+| `skill-derivation-service.ts` | `SkillDerivationService` | （已废弃）技能自动派生 — 不再实例化 |
 
 **测试 Provider**：
 

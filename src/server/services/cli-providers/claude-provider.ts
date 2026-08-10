@@ -549,7 +549,7 @@ export class ClaudeProvider implements CLIProvider {
      * 反向写回工具权限决策给 bridge（JSON-RPC agent.confirmPermission 方法调用）
      * 唤醒 bridge 中挂起的 canUseTool Promise
      */
-    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string): void {
+    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string, modifiedInput?: Record<string, unknown>): void {
         const proc = this.process;
         if (proc && proc.stdin) {
             const jsonRpcId = String(++this.jsonRpcIdCounter);
@@ -561,6 +561,7 @@ export class ClaudeProvider implements CLIProvider {
                     permissionRequestId,
                     decision,
                     ...(message ? {message} : {}),
+                    ...(modifiedInput ? {modifiedInput} : {}),
                 },
             }) + '\n');
         }

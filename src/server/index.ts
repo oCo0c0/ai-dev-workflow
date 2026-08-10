@@ -28,11 +28,11 @@ import {PipelineService} from './services/pipeline-service.js';
 import {RequirementStoreService} from './services/requirement-store-service.js';
 import {PlanStoreService} from './services/plan-store-service.js';
 import {ExecutionStoreService} from './services/execution-store-service.js';
-import {AgentExecutionStore} from './services/agent-execution-store.js';
+
 import {MemoryService} from './services/memory/memory-service.js';
 import {AnalyticsStoreService} from './services/analytics-store-service.js';
 import {AnalyticsService} from './services/analytics-service.js';
-import {SkillDerivationService} from './services/skill-derivation-service.js';
+
 import {SandboxService} from './services/sandbox-service.js';
 import {MinerUService} from './services/mineru-service.js';
 import {ConfigService} from './services/config-service.js';
@@ -150,15 +150,6 @@ export async function createServer(port: number): Promise<http.Server> {
     const memoryService = new MemoryService();
     const analyticsStore = new AnalyticsStoreService();
     const analyticsService = new AnalyticsService(analyticsStore, memoryService);
-    const skillDerivationService = new SkillDerivationService(
-        analyticsService,
-        skillsService,
-        analyticsStore,
-        cliRunnerService,
-        executionStoreMigrator,
-        AgentExecutionStore.getInstance(),
-        memoryService,
-    );
 
     // 多任务调度服务
     const taskStoreService = new TaskStoreService();
@@ -210,7 +201,7 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/plan', createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
     app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService));
     app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService));
-    app.use('/api/skills', createSkillsRoutes(skillsService, cliRunnerService, skillDerivationService));
+    app.use('/api/skills', createSkillsRoutes(skillsService, cliRunnerService));
     app.use('/api/mcp-servers', createMCPServersRoutes(mcpConfigService, cliRunnerService));
     app.use('/api/pipelines', createPipelineRoutes(pipelineService));
     app.use('/api/system', createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService));
@@ -224,7 +215,6 @@ export async function createServer(port: number): Promise<http.Server> {
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;
-    void skillDerivationService;
     void memoryService;
     void mineruService;
 

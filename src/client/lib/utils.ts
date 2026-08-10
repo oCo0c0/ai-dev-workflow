@@ -47,3 +47,16 @@ export function formatRelativeTime(iso: string): string {
     if (hours < 24) return `${hours}h ago`;
     return `${days}d ago`;
 }
+
+/**
+ * 判断日志条目是否为用户消息。
+ * 兼容旧格式（**User:** 前缀）和新格式（JSON {type: 'user', content: '...'}）。
+ */
+export function isUserMessage(log: string): boolean {
+    try {
+        const parsed = JSON.parse(log);
+        return parsed.type === 'user';
+    } catch {
+        return log.startsWith('**User:**');
+    }
+}

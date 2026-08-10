@@ -425,7 +425,7 @@ async function handleExecute(msg) {
  * 唤醒挂起的 canUseTool Promise。
  */
 function handleConfirmPermission(msg) {
-    const {permissionRequestId, decision, message} = msg.params || {};
+    const {permissionRequestId, decision, message, modifiedInput} = msg.params || {};
 
     if (!permissionRequestId) {
         emitJsonRpcError(msg.id, -32602, 'Invalid params: permissionRequestId is required');
@@ -443,7 +443,10 @@ function handleConfirmPermission(msg) {
     const responseMessage = behavior === 'deny'
         ? (message || '用户拒绝了该工具')
         : message;
-    resolver({behavior, message: responseMessage});
+    const result = {behavior, message: responseMessage};
+    // modifiedInput 透传给 SDK（如 AskUserQuestion 的用户答案）
+    if (modifiedInput) result.modifiedInput = modifiedInput;
+    resolver(result);
     pendingPermissionResolvers.delete(permissionRequestId);
 
     emitJsonRpcResponse(msg.id, {acknowledged: true});

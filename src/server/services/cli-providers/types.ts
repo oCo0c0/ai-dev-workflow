@@ -77,8 +77,9 @@ export interface CLIProvider {
 
     /**
      * 反向写回工具权限决策，唤醒挂起的 canUseTool（仅 Claude 实现真正逻辑）
+     * @param modifiedInput - 可选，修改工具输入（如 AskUserQuestion 的用户答案）
      */
-    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string): void;
+    confirmPermission(permissionRequestId: string, decision: 'allow' | 'deny', message?: string, modifiedInput?: Record<string, unknown>): void;
 }
 
 /**
