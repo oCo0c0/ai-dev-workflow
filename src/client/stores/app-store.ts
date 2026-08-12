@@ -290,6 +290,13 @@ interface ModelConfig {
         streaming: boolean;
         maxTokens?: number;
     };
+    pi: {
+        provider: string;
+        model: string;
+        streaming: boolean;
+        reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+        maxTokens?: number;
+    };
 }
 
 /**
@@ -389,6 +396,11 @@ interface AppState {
     claudeModelTiers: Array<{ tier: string; label: string; model: string }>;
     /** Codex 当前模型（从配置文件读取） */
     codexModel: string | null;
+    /** Pi 检测到的元数据（可用 LLM 提供商和模型列表） */
+    piMeta: {
+        availableProviders: string[];
+        availableModels: Array<{ provider: string; id: string; name: string }>;
+    } | null;
     /** CLI Provider 相关状态 */
     cliProvider: {
         /** 是否已完成首次引导 */
@@ -516,18 +528,20 @@ interface AppState {
     setShowModelConfigModal: (show: boolean) => void;
     /** 更新指定 Provider 的模型配置（局部合并） */
     setModelConfig: (
-        provider: 'claude' | 'codex',
-        config: Partial<ModelConfig['claude']> | Partial<ModelConfig['codex']>,
+        provider: 'claude' | 'codex' | 'pi',
+        config: Partial<ModelConfig['claude']> | Partial<ModelConfig['codex']> | Partial<ModelConfig['pi']>,
     ) => void;
     /** 从后端加载模型配置 */
     fetchModelConfig: () => Promise<void>;
     /** 保存模型配置到后端 */
     saveModelConfig: (
-        provider: 'claude' | 'codex',
-        config: ModelConfig['claude'] | ModelConfig['codex'],
+        provider: 'claude' | 'codex' | 'pi',
+        config: ModelConfig['claude'] | ModelConfig['codex'] | ModelConfig['pi'],
     ) => Promise<void>;
     /** 从配置文件读取可用模型列表 */
     fetchAvailableModels: () => Promise<void>;
+    /** 保存 pi 检测到的元数据 */
+    setPiMeta: (meta: AppState['piMeta']) => void;
 
     // 项目空间 actions
     /** 设置项目空间列表 */
@@ -689,6 +703,7 @@ export const useAppStore = create<AppState>((set) => {
         },
         claudeModelTiers: [],
         codexModel: null,
+        piMeta: null,
         cliProvider: {
             configured: false,
             active: 'claude',
@@ -704,6 +719,12 @@ export const useAppStore = create<AppState>((set) => {
                 codex: {
                     model: 'codex-mini-latest',
                     streaming: true,
+                },
+                pi: {
+                    provider: 'anthropic',
+                    model: 'claude-sonnet-4-20250514',
+                    streaming: true,
+                    reasoningEffort: 'medium',
                 },
             },
         },
@@ -835,6 +856,17 @@ export const useAppStore = create<AppState>((set) => {
                         },
                     };
                 }
+                if (provider === 'pi') {
+                    return {
+                        cliProvider: {
+                            ...state.cliProvider,
+                            modelConfig: {
+                                ...state.cliProvider.modelConfig,
+                                pi: {...state.cliProvider.modelConfig.pi, ...config},
+                            },
+                        },
+                    };
+                }
                 return state;
             }),
         fetchModelConfig: async () => {
@@ -846,7 +878,11 @@ export const useAppStore = create<AppState>((set) => {
                 set((state) => ({
                     cliProvider: {
                         ...state.cliProvider,
-                        modelConfig: data,
+                        modelConfig: {
+                            claude: data.claude || state.cliProvider.modelConfig.claude,
+                            codex: data.codex || state.cliProvider.modelConfig.codex,
+                            pi: data.pi || state.cliProvider.modelConfig.pi,
+                        },
                     },
                 }));
             } catch (err) {
@@ -873,9 +909,14 @@ export const useAppStore = create<AppState>((set) => {
                                 ...state.cliProvider.modelConfig,
                                 claude: {...state.cliProvider.modelConfig.claude, ...config}
                             }
-                            : {
+                            : provider === 'codex'
+                            ? {
                                 ...state.cliProvider.modelConfig,
                                 codex: {...state.cliProvider.modelConfig.codex, ...config}
+                            }
+                            : {
+                                ...state.cliProvider.modelConfig,
+                                pi: {...state.cliProvider.modelConfig.pi, ...config}
                             },
                     },
                 }));
@@ -886,6 +927,8 @@ export const useAppStore = create<AppState>((set) => {
                 set((state) => ({cliProvider: {...state.cliProvider, saving: false}}));
             }
         },
+        setPiMeta: (meta) => set({piMeta: meta}),
+
         fetchAvailableModels: async () => {
             try {
                 const response = await fetch('/api/system/available-models');

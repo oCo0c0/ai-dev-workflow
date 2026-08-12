@@ -39,6 +39,7 @@ import {
     Cpu,
     ImagePlus,
     Trash2,
+    Sparkles,
 } from 'lucide-react';
 import {ProviderSetupModal} from './ProviderSetupModal';
 import {ModelConfigModal} from './ModelConfigModal';
@@ -316,10 +317,12 @@ export default function Layout() {
                         >
                             {cliProvider.active === 'codex'
                                 ? <Terminal className="h-4 w-4"/>
+                                : cliProvider.active === 'pi'
+                                ? <Sparkles className="h-4 w-4"/>
                                 : <Bot className="h-4 w-4"/>
                             }
                             <span className="hidden sm:inline">
-                                {cliProvider.active === 'codex' ? 'Codex' : 'Claude'}
+                                {cliProvider.active === 'codex' ? 'Codex' : cliProvider.active === 'pi' ? 'Pi' : 'Claude'}
                             </span>
                         </button>
                         {/* 模型配置 */}
@@ -332,6 +335,8 @@ export default function Layout() {
                             <span className="hidden md:inline">
                                 {cliProvider.active === 'codex'
                                     ? (cliProvider.modelConfig.codex.model || '未配置')
+                                    : cliProvider.active === 'pi'
+                                    ? (cliProvider.modelConfig.pi.model || '未配置')
                                     : (() => {
                                         const tier = claudeModelTiers.find(
                                             t => t.tier === cliProvider.modelConfig.claude.model

@@ -9,7 +9,7 @@
 
 import {useState, useEffect} from 'react';
 import {useAppStore} from '../stores/app-store';
-import {X, Bot, Terminal, Check, Loader2} from 'lucide-react';
+import {X, Bot, Terminal, Sparkles, Check, Loader2} from 'lucide-react';
 import {Button} from './ui/button';
 
 /** 推理强度选项 */
@@ -34,6 +34,7 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
     const modelConfig = useAppStore((s) => s.cliProvider.modelConfig);
     const claudeModelTiers = useAppStore((s) => s.claudeModelTiers);
     const codexModel = useAppStore((s) => s.codexModel);
+    const piMeta = useAppStore((s) => s.piMeta);
     const fetchModelConfig = useAppStore((s) => s.fetchModelConfig);
     const fetchAvailableModels = useAppStore((s) => s.fetchAvailableModels);
     const saveModelConfig = useAppStore((s) => s.saveModelConfig);
@@ -53,8 +54,11 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
     if (!open) return null;
 
     const isClaude = activeProvider === 'claude';
+    const isCodex = activeProvider === 'codex';
+    const isPi = activeProvider === 'pi';
     const claudeConfig = modelConfig.claude;
     const codexConfig = modelConfig.codex;
+    const piConfig = modelConfig.pi;
 
     /** 保存当前 Provider 配置 */
     const handleSave = async () => {
@@ -62,8 +66,10 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
         try {
             if (isClaude) {
                 await saveModelConfig('claude', claudeConfig);
-            } else {
+            } else if (isCodex) {
                 await saveModelConfig('codex', codexConfig);
+            } else {
+                await saveModelConfig('pi', piConfig);
             }
             onClose();
         } catch {
@@ -81,10 +87,12 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
                     <div className="flex items-center gap-2">
                         {isClaude
                             ? <Bot className="h-5 w-5 text-primary"/>
-                            : <Terminal className="h-5 w-5 text-primary"/>
+                            : isCodex
+                                ? <Terminal className="h-5 w-5 text-primary"/>
+                                : <Sparkles className="h-5 w-5 text-primary"/>
                         }
                         <h2 className="text-lg font-semibold text-foreground">
-                            模型配置 — {isClaude ? 'Claude Code' : 'Codex'}
+                            模型配置 — {isClaude ? 'Claude Code' : isCodex ? 'Codex' : 'Pi'}
                         </h2>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
@@ -107,11 +115,17 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
                             modelTiers={claudeModelTiers}
                             onChange={(updates) => setModelConfig('claude', updates)}
                         />
-                    ) : (
+                    ) : isCodex ? (
                         <CodexConfigPanel
                             config={codexConfig}
                             currentModel={codexModel}
                             onChange={(updates) => setModelConfig('codex', updates)}
+                        />
+                    ) : (
+                        <PiConfigPanel
+                            config={piConfig}
+                            piMeta={piMeta}
+                            onChange={(updates) => setModelConfig('pi', updates)}
                         />
                     )}
                 </div>
@@ -270,6 +284,148 @@ function CodexConfigPanel({
                 description="启用后实时输出响应内容"
                 checked={config.streaming}
                 onChange={(v) => onChange({streaming: v})}
+            />
+        </div>
+    );
+}
+
+/** Pi Coding Agent 配置面板 */
+function PiConfigPanel({
+    config,
+    piMeta,
+    onChange,
+}: {
+    config: {
+        provider: string;
+        model: string;
+        streaming: boolean;
+        reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    };
+    piMeta: {
+        availableProviders: string[];
+        availableModels: Array<{ provider: string; id: string; name: string }>;
+    } | null;
+    onChange: (updates: Partial<typeof config>) => void;
+}) {
+    const ALL_PROVIDERS = [
+        { value: 'anthropic', label: 'Anthropic' },
+        { value: 'openai', label: 'OpenAI' },
+        { value: 'deepseek', label: 'DeepSeek' },
+        { value: 'google', label: 'Google Gemini' },
+        { value: 'groq', label: 'Groq' },
+        { value: 'xai', label: 'xAI' },
+        { value: 'openrouter', label: 'OpenRouter' },
+        { value: 'ollama', label: 'Ollama (本地)' },
+    ];
+
+    // 根据检测到的可用提供商过滤和标记
+    const detectedProviders = piMeta?.availableProviders || [];
+    const currentModels = (piMeta?.availableModels || []).filter(m => m.provider === config.provider);
+    const hasDetected = detectedProviders.length > 0;
+
+    // 自动选择：当前模型不在可用列表中时，选第一个
+    const currentModelValid = currentModels.some(m => m.id === config.model);
+    if (currentModels.length > 0 && !currentModelValid && config.model) {
+        // 延迟到下一个渲染周期执行，避免在 render 中直接触发 setState
+        setTimeout(() => onChange({ model: currentModels[0].id }), 0);
+    }
+
+    return (
+        <div className="space-y-4">
+            {/* 检测状态提示 */}
+            {hasDetected && (
+                <div className="rounded-md bg-emerald-500/10 border border-emerald-500/30 px-3 py-2 text-xs text-emerald-600">
+                    已检测到 {detectedProviders.length} 个已配置 API Key 的提供商：{detectedProviders.join(', ')}
+                </div>
+            )}
+            {!hasDetected && (
+                <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-600">
+                    未检测到 API Key 配置。请在 ~/.pi/agent/auth.json 或环境变量中设置 API Key
+                </div>
+            )}
+
+            {/* LLM 提供商选择 */}
+            <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">LLM 提供商</label>
+                <select
+                    value={config.provider}
+                    onChange={(e) => onChange({ provider: e.target.value })}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                    {ALL_PROVIDERS.map(p => (
+                        <option key={p.value} value={p.value}>
+                            {p.label}{detectedProviders.includes(p.value) ? ' ✓ 已配置' : ''}
+                        </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground/70 mt-1.5">
+                    {hasDetected
+                        ? '选择 pi 连接的底层 LLM 服务商。API Key 从 ~/.pi/agent/auth.json 或环境变量读取'
+                        : '需先在 ~/.pi/agent/auth.json 或环境变量中配置对应提供商的 API Key'
+                    }
+                </p>
+            </div>
+
+            {/* 模型选择 */}
+            <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">模型</label>
+                {currentModels.length > 0 ? (
+                    <select
+                        value={config.model}
+                        onChange={(e) => onChange({ model: e.target.value })}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                        {currentModels.map(m => (
+                            <option key={m.id} value={m.id}>
+                                {m.name || m.id}
+                            </option>
+                        ))}
+                    </select>
+                ) : (
+                    <input
+                        type="text"
+                        value={config.model}
+                        onChange={(e) => onChange({ model: e.target.value })}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        placeholder="例如: claude-sonnet-4-20250514"
+                    />
+                )}
+                <p className="text-xs text-muted-foreground/70 mt-1.5">
+                    {currentModels.length > 0
+                        ? `检测到 ${currentModels.length} 个可用模型（来自本地 pi 配置）`
+                        : '模型 ID 需与所选提供商兼容。pi 内置支持所有主流模型'
+                    }
+                </p>
+            </div>
+
+            {/* 推理强度 */}
+            <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    推理强度（Reasoning Effort）
+                </label>
+                <div className="flex gap-1.5 flex-wrap">
+                    {REASONING_EFFORTS.map(effort => (
+                        <button
+                            key={effort.value}
+                            onClick={() => onChange({ reasoningEffort: effort.value })}
+                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                                config.reasoningEffort === effort.value
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                            }`}
+                        >
+                            {effort.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* 流式开关 */}
+            <ToggleRow
+                label="流式输出（Streaming）"
+                description="启用后实时输出响应内容"
+                checked={config.streaming}
+                onChange={(v) => onChange({ streaming: v })}
             />
         </div>
     );

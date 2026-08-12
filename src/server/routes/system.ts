@@ -155,8 +155,8 @@ export function createSystemRoutes(
         try {
             const {providerId} = req.body as {providerId?: string};
 
-            if (!providerId || (providerId !== 'claude' && providerId !== 'codex')) {
-                res.status(400).json({code: 'INVALID_PROVIDER', message: 'providerId must be "claude" or "codex"'});
+            if (!providerId || (providerId !== 'claude' && providerId !== 'codex' && providerId !== 'pi')) {
+                res.status(400).json({code: 'INVALID_PROVIDER', message: 'providerId must be "claude", "codex", or "pi"'});
                 return;
             }
 
@@ -186,9 +186,9 @@ export function createSystemRoutes(
             }
 
             config.cliProvider = {
+                ...config.cliProvider,
                 active: providerId,
                 setupCompleted: true,
-                ...config.cliProvider,
             };
             configService.save(config);
 
@@ -243,6 +243,12 @@ export function createSystemRoutes(
                     model: 'codex-mini-latest',
                     streaming: true,
                 },
+                pi: config.cliProvider?.pi || {
+                    provider: 'anthropic',
+                    model: 'claude-sonnet-4-20250514',
+                    streaming: true,
+                    reasoningEffort: 'medium',
+                },
             });
         } catch (err) {
             res.status(500).json({code: 'CONFIG_ERROR', message: getErrorMessage(err)});
@@ -252,8 +258,8 @@ export function createSystemRoutes(
     // PUT /api/system/model-config - 更新模型配置
     router.put('/model-config', async (req, res) => {
         try {
-            const {provider, claude, codex} = req.body as {
-                provider?: 'claude' | 'codex';
+            const {provider, claude, codex, pi} = req.body as {
+                provider?: 'claude' | 'codex' | 'pi';
                 claude?: {
                     model?: string;
                     extendedThinking?: boolean;
@@ -266,13 +272,20 @@ export function createSystemRoutes(
                     streaming?: boolean;
                     maxTokens?: number;
                 };
+                pi?: {
+                    provider?: string;
+                    model?: string;
+                    streaming?: boolean;
+                    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+                    maxTokens?: number;
+                };
             };
 
             const configService = new ConfigService();
             const config = configService.load();
 
             // 更新 Provider（如果指定）
-            if (provider && (provider === 'claude' || provider === 'codex')) {
+            if (provider && (provider === 'claude' || provider === 'codex' || provider === 'pi')) {
                 config.cliProvider = {...config.cliProvider, active: provider};
             }
 
@@ -289,6 +302,14 @@ export function createSystemRoutes(
                 config.cliProvider = {
                     ...config.cliProvider,
                     codex: {...config.cliProvider?.codex, ...codex},
+                };
+            }
+
+            // 更新 Pi 配置
+            if (pi) {
+                config.cliProvider = {
+                    ...config.cliProvider,
+                    pi: {...config.cliProvider?.pi, ...pi},
                 };
             }
 

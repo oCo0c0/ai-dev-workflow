@@ -9,6 +9,7 @@
 import type {CLIProvider, CLIProviderStatus} from './types.js';
 import {ClaudeProvider} from './claude-provider.js';
 import {CodexProvider} from './codex-provider.js';
+import {PiProvider} from './pi-provider.js';
 
 /** 已注册的 Provider 实例映射 */
 const providers = new Map<string, CLIProvider>();
@@ -16,6 +17,7 @@ const providers = new Map<string, CLIProvider>();
 // 注册内置 Provider
 registerProvider(new ClaudeProvider());
 registerProvider(new CodexProvider());
+registerProvider(new PiProvider());
 
 /**
  * 注册一个 CLI Provider
@@ -58,6 +60,7 @@ export async function detectInstalledProviders(): Promise<DetectedProviderStatus
                 version: status.version,
                 path: status.path,
                 error: status.error,
+                meta: status.meta,
             });
         } catch (err) {
             results.push({
@@ -81,6 +84,8 @@ export interface DetectedProviderStatus {
     version?: string;
     path?: string;
     error?: string;
+    /** Provider 特定的元数据（如 pi 的可用 LLM 提供商列表） */
+    meta?: Record<string, unknown>;
 }
 
 // 重导出类型

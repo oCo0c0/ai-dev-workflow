@@ -6,7 +6,7 @@
 
 import {useState, useEffect} from 'react';
 import {apiGet, apiPost} from '../api';
-import {X, Check, Loader2, Terminal, Bot} from 'lucide-react';
+import {X, Check, Loader2, Terminal, Bot, Sparkles} from 'lucide-react';
 import {Button} from './ui/button';
 
 /** 检测到的 Provider 状态 */
@@ -17,6 +17,7 @@ interface DetectedProvider {
     version?: string;
     path?: string;
     error?: string;
+    meta?: Record<string, unknown>;
 }
 
 /** Provider 状态查询响应 */
@@ -157,7 +158,11 @@ function ProviderCard(
         onSelect: () => void;
     }
 ) {
-    const icon = provider.id === 'claude' ? <Bot className="h-5 w-5"/> : <Terminal className="h-5 w-5"/>;
+    const icon = provider.id === 'claude'
+        ? <Bot className="h-5 w-5"/>
+        : provider.id === 'pi'
+            ? <Sparkles className="h-5 w-5"/>
+            : <Terminal className="h-5 w-5"/>;
 
     return (
         <button
@@ -181,9 +186,20 @@ function ProviderCard(
                         <div className="font-medium text-foreground">{provider.label}</div>
                         <div className="text-xs text-muted-foreground mt-0.5">
                             {provider.available
-                                ? provider.version
-                                    ? `${provider.version} — ${provider.path ?? '已检测到'}`
-                                    : '已安装'
+                                ? (() => {
+                                    if (provider.id === 'pi' && provider.meta) {
+                                        const meta = provider.meta as Record<string, unknown>;
+                                        const provs = meta.availableProviders as string[] | undefined;
+                                        const modelCount = (meta.availableModels as unknown[])?.length || 0;
+                                        if (provs?.length) {
+                                            return `已检测到 ${provs.length} 个提供商(${provs.join(', ')})，${modelCount} 个模型`;
+                                        }
+                                        return '已安装 — 请设置 API Key（~/.pi/agent/auth.json 或环境变量）';
+                                    }
+                                    return provider.version
+                                        ? `${provider.version} — ${provider.path ?? '已检测到'}`
+                                        : '已安装';
+                                })()
                                 : provider.error ?? '未安装'}
                         </div>
                     </div>

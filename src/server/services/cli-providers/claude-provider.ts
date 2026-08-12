@@ -106,6 +106,8 @@ export class ClaudeProvider implements CLIProvider {
     private healthCheckTimer: NodeJS.Timeout | null = null;
     /** JSON-RPC 自增 id 计数器 */
     private jsonRpcIdCounter = 0;
+    /** 是否正在主动释放（避免 kill 触发的 exit 日志噪音） */
+    private disposing = false;
 
     async detect(): Promise<CLIProviderStatus> {
         try {
@@ -254,6 +256,7 @@ export class ClaudeProvider implements CLIProvider {
     }
 
     async dispose(): Promise<void> {
+        this.disposing = true;
         if (this.healthCheckTimer) {
             clearInterval(this.healthCheckTimer);
             this.healthCheckTimer = null;
@@ -334,7 +337,10 @@ export class ClaudeProvider implements CLIProvider {
             });
 
             child.on('exit', (code, signal) => {
-                console.error(`[claude-provider] process exited with code ${code}, signal ${signal}`);
+                if (!this.disposing) {
+                    console.error(`[claude-provider] process exited with code ${code}, signal ${signal}`);
+                }
+                this.disposing = false;
                 clearTimeout(timeout);
                 this.ready = false;
                 this.process = null;
@@ -346,9 +352,11 @@ export class ClaudeProvider implements CLIProvider {
                     this.healthCheckTimer = null;
                 }
 
-                // Reject 所有 pending 请求（状态同步）
-                for (const [, req] of this.pendingRequests) {
-                    req.reject(new Error(`Bridge process exited with code ${code}`));
+                // Reject 所有 pending 请求（主动释放时不 reject，避免噪音）
+                if (!this.disposing) {
+                    for (const [, req] of this.pendingRequests) {
+                        req.reject(new Error(`Bridge process exited with code ${code}`));
+                    }
                 }
                 this.pendingRequests.clear();
                 this.sessionRequests.clear();

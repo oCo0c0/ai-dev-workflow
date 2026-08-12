@@ -66,7 +66,7 @@ export interface AppConfig {
     /** CLI Provider 配置（Claude Code / OpenAI Codex） */
     cliProvider?: {
         /** 当前激活的 CLI Provider ID */
-        active?: 'claude' | 'codex';
+        active?: 'claude' | 'codex' | 'pi';
         /** 是否已完成首次引导选择 */
         setupCompleted?: boolean;
         /** Claude 特定配置 */
@@ -88,6 +88,19 @@ export interface AppConfig {
             model?: string;
             /** 是否启用流式输出（默认 true） */
             streaming?: boolean;
+            /** 最大 token 数（可选） */
+            maxTokens?: number;
+        };
+        /** Pi Coding Agent 特定配置 */
+        pi?: {
+            /** LLM 提供商（如 'anthropic', 'openai', 'deepseek' 等，默认 'anthropic'） */
+            provider?: string;
+            /** 使用的模型名称（默认 'claude-sonnet-4-20250514'） */
+            model?: string;
+            /** 是否启用流式输出（默认 true） */
+            streaming?: boolean;
+            /** 推理强度（默认 'medium'） */
+            reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
             /** 最大 token 数（可选） */
             maxTokens?: number;
         };
@@ -279,8 +292,8 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
             errors.push({field: 'cliProvider', message: 'cliProvider must be an object'});
         } else {
             const cliProvider = obj.cliProvider as Record<string, unknown>;
-            if (cliProvider.active !== undefined && cliProvider.active !== 'claude' && cliProvider.active !== 'codex') {
-                errors.push({field: 'cliProvider.active', message: 'cliProvider.active must be "claude" or "codex"'});
+            if (cliProvider.active !== undefined && cliProvider.active !== 'claude' && cliProvider.active !== 'codex' && cliProvider.active !== 'pi') {
+                errors.push({field: 'cliProvider.active', message: 'cliProvider.active must be "claude", "codex", or "pi"'});
             }
             if (cliProvider.setupCompleted !== undefined && typeof cliProvider.setupCompleted !== 'boolean') {
                 errors.push({

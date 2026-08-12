@@ -34,7 +34,7 @@ export interface CLIProvider {
     /** Provider 能力声明 */
     readonly capabilities: CLIProviderCapabilities;
     /** Provider 唯一标识 */
-    readonly id: 'claude' | 'codex';
+    readonly id: 'claude' | 'codex' | 'pi';
     /** 显示名称 */
     readonly label: string;
 
@@ -94,6 +94,8 @@ export interface CLIProviderStatus {
     path?: string;
     /** 不可用时的错误信息 */
     error?: string;
+    /** Provider 特定的元数据 */
+    meta?: Record<string, unknown>;
 }
 
 /**

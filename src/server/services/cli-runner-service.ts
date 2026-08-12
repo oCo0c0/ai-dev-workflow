@@ -187,6 +187,13 @@ export class CLIRunnerService {
                     model: config.cliProvider.codex.model,
                     streaming: config.cliProvider.codex.streaming,
                 };
+            } else if (this.activeProviderId === 'pi' && config.cliProvider?.pi) {
+                modelOptions = {
+                    model: config.cliProvider.pi.model,
+                    streaming: config.cliProvider.pi.streaming,
+                    reasoningEffort: config.cliProvider.pi.reasoningEffort,
+                    piProvider: config.cliProvider.pi.provider,
+                } as any;
             }
         } catch {
             // 配置读取失败时使用 Provider 默认行为
