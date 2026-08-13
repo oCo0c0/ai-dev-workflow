@@ -44,6 +44,8 @@ import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
 import {MarkdownContent} from '../components/MarkdownContent';
+import {ExpandableContent} from '../components/ExpandableContent';
+import {ExpandableTextarea} from '../components/ExpandableTextarea';
 import type {LogMessageData} from '../components/LogMessage';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
 
@@ -770,17 +772,19 @@ export default function AgentExecutionPage() {
                                                                 </div>
                                                             </div>
 
-                                                            {/* 步骤日志展开区 */}
+                                                            {/* 步骤日志展开区（可放大查看完整日志） */}
                                                             {showLogs && hasLogs && (
-                                                                <div
-                                                                    className="border-t border-border/30 px-3 py-2 space-y-1 max-h-48 overflow-y-auto bg-black/10 rounded-b-lg">
-                                                                    {step.logs.map((logLine, li) => (
-                                                                        <div key={li}
-                                                                             className="text-[10px] text-muted-foreground font-mono leading-relaxed break-all">
-                                                                            {logLine}
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
+                                                                <ExpandableContent title={step.title || '步骤日志'}>
+                                                                    <div
+                                                                        className="border-t border-border/30 px-3 py-2 space-y-1 max-h-48 overflow-y-auto bg-black/10 rounded-b-lg">
+                                                                        {step.logs.map((logLine, li) => (
+                                                                            <div key={li}
+                                                                                 className="text-[10px] text-muted-foreground font-mono leading-relaxed break-all">
+                                                                                {logLine}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </ExpandableContent>
                                                             )}
                                                         </div>
                                                     );
@@ -830,11 +834,13 @@ export default function AgentExecutionPage() {
                                         </button>
 
                                         {thoughtsExpanded && (
-                                            <div className="space-y-2 max-h-72 overflow-y-auto">
-                                                {(detail?.thoughts || []).map((thought, idx) => (
-                                                    <ThoughtEntry key={idx} thought={thought} theme={theme}/>
-                                                ))}
-                                            </div>
+                                            <ExpandableContent title="思考过程">
+                                                <div className="space-y-2 max-h-72 overflow-y-auto">
+                                                    {(detail?.thoughts || []).map((thought, idx) => (
+                                                        <ThoughtEntry key={idx} thought={thought} theme={theme}/>
+                                                    ))}
+                                                </div>
+                                            </ExpandableContent>
                                         )}
                                     </CardContent>
                                 </Card>
@@ -865,7 +871,7 @@ export default function AgentExecutionPage() {
                                         />
                                     </div>
                                     <div className="flex gap-2">
-                                        <textarea
+                                        <ExpandableTextarea
                                             value={replyText}
                                             onChange={(e) => setReplyText(e.target.value)}
                                             onKeyDown={(e) => {
@@ -877,7 +883,11 @@ export default function AgentExecutionPage() {
                                             placeholder="输入回复或补充信息... (Ctrl+Enter发送)"
                                             rows={2}
                                             disabled={isRunning}
-                                            className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+                                            title="发送消息给 Agent"
+                                            optimizable
+                                            optimizePurpose="reply"
+                                            wrapperClassName="flex-1"
+                                            className="bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
                                         />
                                         <Button
                                             onClick={handleReply}

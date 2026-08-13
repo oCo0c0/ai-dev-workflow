@@ -55,6 +55,7 @@ import {createMinerURoutes} from './routes/mineru.js';
 import {createTaskRoutes} from './routes/projects.js';
 import {createAgentExecutionRoutes} from './routes/agent-execution.js';
 import {createModelProviderRoutes} from './routes/model-providers.js';
+import {createPromptsRoutes} from './routes/prompts.js';
 
 /**
  * 创建并启动应用服务器
@@ -229,6 +230,7 @@ export async function createServer(port: number): Promise<http.Server> {
         memoryService,
     }));
     app.use('/api/model-providers', createModelProviderRoutes(modelProviderStore));
+    app.use('/api/prompts', createPromptsRoutes(cliRunnerService));
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;

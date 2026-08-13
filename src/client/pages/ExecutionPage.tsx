@@ -45,6 +45,7 @@ import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
+import {ExpandableTextarea} from '../components/ExpandableTextarea';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
 import type {LogMessageData} from '../components/LogMessage';
@@ -853,7 +854,7 @@ export default function ExecutionPage() {
                                     />
                                 </div>
                                 <div className="flex gap-2">
-                  <textarea
+                  <ExpandableTextarea
                       ref={replyInputRef}
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
@@ -867,7 +868,11 @@ export default function ExecutionPage() {
                       placeholder={t('execution.replyPlaceholder')}
                       rows={2}
                       disabled={isRunning} // Claude 运行时禁用回复输入
-                      className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+                      title={t('execution.replyTitle')}
+                      optimizable
+                      optimizePurpose="reply"
+                      wrapperClassName="flex-1"
+                      className="bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
                   />
                                     <Button
                                         onClick={handleReply}

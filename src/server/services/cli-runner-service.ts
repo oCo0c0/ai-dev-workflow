@@ -33,6 +33,13 @@ export interface CLIRunnerOptions {
     signal?: AbortSignal;
     /** 工具权限请求回调（agent 执行时注入；不传则 bridge 不启用权限确认） */
     onPermissionRequest?: (meta: Record<string, unknown>) => void;
+    /**
+     * 覆盖推理强度（跨 Provider 通用：Claude/Codex/Pi 各自映射）。
+     * 仅显式传值时生效，用于轻量调用降低推理强度。
+     */
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    /** 覆盖是否启用扩展思考（仅显式传值时生效；对不支持的 Provider 无影响） */
+    extendedThinking?: boolean;
 }
 
 /**
@@ -97,13 +104,15 @@ export class CLIRunnerService {
                 this.provider = getProvider('claude')!;
                 this.activeProviderId = activeProviderId;
                 this.applyModelRecord(rec);
-                this.provider.initialize().catch(() => {});
+                this.provider.initialize().catch(() => {
+                });
                 return;
             }
             // 记录不存在 → fallback 到 claude
             this.provider = getProvider('claude')!;
             this.activeProviderId = 'claude';
-            this.provider.initialize().catch(() => {});
+            this.provider.initialize().catch(() => {
+            });
             return;
         }
 
@@ -114,6 +123,7 @@ export class CLIRunnerService {
             this.activeProviderId = 'claude';
         } else {
             this.provider = provider;
+            this.activeProviderId = activeProviderId;
         }
 
         // 预热：非阻塞启动 Provider
@@ -174,7 +184,8 @@ export class CLIRunnerService {
         // 释放当前 Provider 资源
         try {
             await this.provider.dispose();
-        } catch { /* ignore dispose errors */ }
+        } catch { /* ignore dispose errors */
+        }
 
         if (!builtin) {
             // 自定义供应商记录：读取 models.json 中的 kind='custom' 记录，经 Claude 引擎调用 Anthropic 兼容端点
@@ -238,7 +249,15 @@ export class CLIRunnerService {
      * @returns 执行结果
      */
     async runBridge(
-        input: { prompt: string; cwd?: string; sessionId?: string; maxTurns?: number; maxHistoryMessages?: number; skills?: string[] | 'all'; mcpServers?: McpStdioMap },
+        input: {
+            prompt: string;
+            cwd?: string;
+            sessionId?: string;
+            maxTurns?: number;
+            maxHistoryMessages?: number;
+            skills?: string[] | 'all';
+            mcpServers?: McpStdioMap
+        },
         options?: CLIRunnerOptions
     ): Promise<CLIExecutionResult> {
         // 从配置文件读取当前 Provider 的模型配置并注入到 options
@@ -301,6 +320,9 @@ export class CLIRunnerService {
                 onError: options?.onError,
                 onPermissionRequest: options?.onPermissionRequest,
                 ...modelOptions,
+                // 调用方显式覆盖（优先级高于配置文件），用于轻量调用降低推理强度等场景
+                ...(options?.reasoningEffort !== undefined ? {reasoningEffort: options.reasoningEffort} : {}),
+                ...(options?.extendedThinking !== undefined ? {extendedThinking: options.extendedThinking} : {}),
             }
         );
 

@@ -27,6 +27,8 @@ import {cn, formatRelativeTime} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {MarkdownContent} from '../components/MarkdownContent';
+import {ExpandableContent} from '../components/ExpandableContent';
+import {ExpandableTextarea} from '../components/ExpandableTextarea';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
 import type {LogMessageData} from '../components/LogMessage';
@@ -1129,34 +1131,35 @@ export default function PlanPage() {
                                         )}
                                     </div>
                                     {editing ? (
-                                        /* 编辑模式：可编辑的文本区域 */
-                                        <textarea
+                                        /* 编辑模式：可编辑的文本区域，可放大编辑 */
+                                        <ExpandableTextarea
                                             value={editedSummary}
                                             onChange={(e) => setEditedSummary(e.target.value)}
+                                            title={t('plan.generatedPlan')}
                                             className="w-full min-h-[400px] bg-muted/30 border border-input rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring resize-y"
                                         />
                                     ) : (
                                         /* 查看模式：Markdown 渲染 + 折叠功能 */
-                                        <>
-                                            <div
-                                                className={cn(
-                                                    "text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto transition-all duration-200",
-                                                    !isSummaryExpanded && "max-h-96 overflow-y-auto"
-                                                )}
-                                                data-tour="plan-content"
-                                            >
-                                                <MarkdownContent
-                                                    content={plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
-                                                />
-                                            </div>
-                                            {/* 折叠提示遮罩：未展开时显示渐变遮罩 */}
-                                            {!isSummaryExpanded && (plan.rawOutput || plan.summary || '').split('\n').length > SUMMARY_PREVIEW_LINES && (
-                                                <div className="relative mt-2">
-                                                    <div
-                                                        className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none rounded-md h-8"/>
+                                        <div className="relative">
+                                            <ExpandableContent title={t('plan.generatedPlan')}>
+                                                <div
+                                                    className={cn(
+                                                        "text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto transition-all duration-200",
+                                                        !isSummaryExpanded && "max-h-96 overflow-y-auto"
+                                                    )}
+                                                    data-tour="plan-content"
+                                                >
+                                                    <MarkdownContent
+                                                        content={plan.rawOutput || plan.summary || (generating && planLogs.length > 0 ? planLogs.join('') : t('plan.noPlanContent'))}
+                                                    />
                                                 </div>
+                                            </ExpandableContent>
+                                            {/* 折叠提示遮罩：未展开时显示渐变遮罩，覆盖在内容底部 */}
+                                            {!isSummaryExpanded && (plan.rawOutput || plan.summary || '').split('\n').length > SUMMARY_PREVIEW_LINES && (
+                                                <div
+                                                    className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none rounded-b-md"/>
                                             )}
-                                        </>
+                                        </div>
                                     )}
                                 </CardContent>
                             </Card>
@@ -1182,10 +1185,11 @@ export default function PlanPage() {
                                                 : <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto"/>}
                                         </button>
                                         {isTaskBreakdownExpanded && (
-                                            <div
-                                                className="mt-3 text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto max-h-96 overflow-y-auto">
-                                                <MarkdownContent content={plan.taskBreakdown}/>
-                                            </div>
+                                            <ExpandableContent title="任务拆分与工时评估" className="mt-3">
+                                                <div className="text-sm leading-relaxed bg-muted/20 rounded-md p-4 overflow-x-auto max-h-96 overflow-y-auto">
+                                                    <MarkdownContent content={plan.taskBreakdown}/>
+                                                </div>
+                                            </ExpandableContent>
                                         )}
                                     </CardContent>
                                 </Card>
@@ -1210,8 +1214,8 @@ export default function PlanPage() {
                                             />
                                         </div>
                                         <div className="flex gap-2">
-                                            {/* 回复输入框：支持Ctrl+Enter快捷发送 */}
-                                            <textarea
+                                            {/* 回复输入框：支持Ctrl+Enter快捷发送，可放大编辑 */}
+                                            <ExpandableTextarea
                                                 ref={replyInputRef}
                                                 value={replyText}
                                                 onChange={(e) => setReplyText(e.target.value)}
@@ -1224,7 +1228,11 @@ export default function PlanPage() {
                                                 placeholder={t('plan.replyPlaceholder')}
                                                 rows={3}
                                                 disabled={generating}
-                                                className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+                                                title={t('plan.replyTitle')}
+                                                optimizable
+                                                optimizePurpose="reply"
+                                                wrapperClassName="flex-1"
+                                                className="bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
                                             />
                                             {/* 发送按钮 */}
                                             <Button

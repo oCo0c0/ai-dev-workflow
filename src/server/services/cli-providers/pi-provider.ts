@@ -117,12 +117,61 @@ export class PiProvider implements CLIProvider {
         const pi = await this.importPiSdk();
 
         try {
-            // 获取模型配置
-            const modelProvider = (options as any)?.piProvider || 'anthropic';
-            const modelId = options?.model || 'claude-sonnet-4-20250514';
+            // 获取模型配置：优先用调用方（页面配置）传入的 provider/model，未指定时自动检测，绝不硬编码默认供应商
+            let modelProvider = (options as any)?.piProvider as string | undefined;
+            let modelId = options?.model as string | undefined;
 
             // 创建 AuthStorage（读取 pi 的认证配置）
             const authStorage = pi.AuthStorage.create();
+
+            // 1) pi 自身认证存储里已配置 key 的提供商（自动检测）
+            let availableModels: Array<{ provider: string; id: string }> = [];
+            try {
+                availableModels = (await pi.ModelRegistry.create(authStorage).getAvailable()) ?? [];
+            } catch {
+                // 读取失败时忽略，继续走后续兑底
+            }
+
+            if (!modelProvider) {
+                const first = availableModels[0];
+                if (first) {
+                    modelProvider = first.provider;
+                    if (!modelId) modelId = first.id;
+                }
+            }
+
+            // 2) 应用自有模型供应商配置（models.json 的 pi:<provider> 记录）
+            if (!modelProvider) {
+                try {
+                    const store = new ModelProviderStore();
+                    const rec = store.list().find(
+                        (r) => r.kind === 'pi' && r.enabled !== false && r.apiKey
+                    );
+                    if (rec) {
+                        modelProvider = rec.id.startsWith('pi:') ? rec.id.slice(3) : rec.id;
+                        if (!modelId) modelId = rec.defaultModel || rec.models?.[0];
+                    }
+                } catch {
+                    // 忽略
+                }
+            }
+
+            // 仍未确定提供商 → 明确报错，指导用户去页面配置
+            if (!modelProvider) {
+                throw new Error(
+                    '未配置 pi 的 LLM 提供商。请在「模型配置」里选择提供商并配置 API Key（~/.pi/agent/auth.json 或环境变量）'
+                );
+            }
+
+            // 已确定提供商但缺模型时，从可用模型里匹配；仍缺则报错
+            if (!modelId) {
+                modelId = availableModels.find((m) => m.provider === modelProvider)?.id;
+            }
+            if (!modelId) {
+                throw new Error(
+                    `未配置 pi 提供商「${modelProvider}」的模型。请在「模型配置」里选择模型`
+                );
+            }
 
             // 免 CLI 依赖：若调用方未显式传入 apiKey，则从自有模型供应商配置兜底注入
             if (!(options as any)?.apiKey) {

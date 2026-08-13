@@ -363,19 +363,20 @@ async function handleExecute(msg) {
     const extraArgs = [];
     if (extendedThinking) {
         extraArgs.push('--thinking');
-    }
-    if (reasoningEffort) {
-        const effortMap = {
-            low: '--reasoning-effort-low',
-            medium: '--reasoning-effort-medium',
-            high: '--reasoning-effort-high',
-            xhigh: '--reasoning-effort-xhigh',
-            max: '--reasoning-effort-max',
-        };
-        if (effortMap[reasoningEffort]) {
-            extraArgs.push(effortMap[reasoningEffort]);
-        } else {
-            dbg('warning', {message: `Unknown reasoningEffort value: ${reasoningEffort}`});
+        // reasoning-effort 仅在与 --thinking 一起时有效，避免单独传入导致 CLI 报错
+        if (reasoningEffort) {
+            const effortMap = {
+                low: '--reasoning-effort-low',
+                medium: '--reasoning-effort-medium',
+                high: '--reasoning-effort-high',
+                xhigh: '--reasoning-effort-xhigh',
+                max: '--reasoning-effort-max',
+            };
+            if (effortMap[reasoningEffort]) {
+                extraArgs.push(effortMap[reasoningEffort]);
+            } else {
+                dbg('warning', {message: `Unknown reasoningEffort value: ${reasoningEffort}`});
+            }
         }
     }
     if (extraArgs.length > 0) {
