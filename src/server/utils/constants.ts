@@ -18,6 +18,10 @@ export const MEMORY_DIR = path.join(APP_DATA_DIR, 'memory');
 export const REQUIREMENTS_DIR = path.join(APP_DATA_DIR, 'requirements');
 /** 旧版需求图片目录（兼容迁移） */
 export const LEGACY_IMAGE_DIR = path.join(APP_DATA_DIR, 'requirement-images');
+/** 自有模型供应商配置文件路径（统一配置读写入口） */
+export const MODEL_PROVIDERS_FILE = path.join(APP_DATA_DIR, 'models.json');
+/** API Key 加密密钥文件路径（AES-256-GCM 密钥，权限 0600） */
+export const SECRET_KEY_FILE = path.join(APP_DATA_DIR, '.secret-key');
 
 // === 超时时间 (ms) ===
 

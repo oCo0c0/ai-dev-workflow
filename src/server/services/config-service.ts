@@ -63,10 +63,10 @@ export interface AppConfig {
         /** 预创建的沙箱 ID（指定后不再自动创建，所有工作空间共用此沙箱） */
         sandboxId?: string;
     };
-    /** CLI Provider 配置（Claude Code / OpenAI Codex） */
+    /** CLI Provider 配置（Claude Code / OpenAI Codex / Pi / 自定义供应商） */
     cliProvider?: {
-        /** 当前激活的 CLI Provider ID */
-        active?: 'claude' | 'codex' | 'pi';
+        /** 当前激活的 CLI Provider ID：内置为 'claude' | 'codex' | 'pi'，自定义供应商为 models.json 中的记录 id */
+        active?: string;
         /** 是否已完成首次引导选择 */
         setupCompleted?: boolean;
         /** Claude 特定配置 */
@@ -292,8 +292,9 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
             errors.push({field: 'cliProvider', message: 'cliProvider must be an object'});
         } else {
             const cliProvider = obj.cliProvider as Record<string, unknown>;
-            if (cliProvider.active !== undefined && cliProvider.active !== 'claude' && cliProvider.active !== 'codex' && cliProvider.active !== 'pi') {
-                errors.push({field: 'cliProvider.active', message: 'cliProvider.active must be "claude", "codex", or "pi"'});
+            // active 允许内置 id（claude/codex/pi）或自定义供应商记录 id（如智谱），只需是字符串
+            if (cliProvider.active !== undefined && typeof cliProvider.active !== 'string') {
+                errors.push({field: 'cliProvider.active', message: 'cliProvider.active must be a string (builtin id or custom provider record id)'});
             }
             if (cliProvider.setupCompleted !== undefined && typeof cliProvider.setupCompleted !== 'boolean') {
                 errors.push({

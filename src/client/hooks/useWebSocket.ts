@@ -40,6 +40,7 @@ export function calculateBackoff(attempt: number, baseDelay: number = BASE_DELAY
     return baseDelay * Math.pow(2, attempt);
 }
 
+
 /**
  * WebSocket 连接管理 Hook
  *
@@ -73,6 +74,7 @@ export function useWebSocket() {
     const setAgentExecutions = useAppStore((s) => s.setAgentExecutions);
     const setActiveAgentExecution = useAppStore((s) => s.setActiveAgentExecution);
     const addAgentLog = useAppStore((s) => s.addAgentLog);
+    const addAgentLogToExecution = useAppStore((s) => s.addAgentLogToExecution);
 
     /**
      * WebSocket 消息处理回调
@@ -328,7 +330,10 @@ export function useWebSocket() {
                                 thought.type === 'planning' ? '📋' :
                                     thought.type === 'decision' ? '🤔' :
                                         thought.type === 'tool_selection' ? '🔧' : '💭';
-                            addAgentLog(`${icon} ${thought.content}`);
+                            // 日志写入该 execution 自己的分桶（多 Agent 并行隔离）
+                            if (typeof message.data?.executionId === 'string') {
+                                addAgentLogToExecution(message.data.executionId, `${icon} ${thought.content}`);
+                            }
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {type: 'thought', executionId: message.data?.executionId, thought}
                             }));
@@ -338,21 +343,16 @@ export function useWebSocket() {
                     // Agent执行页 - 执行计划
                     case 'agent-execution:plan':
                         const subTasks = message.data?.subTasks;
-                        if (subTasks && Array.isArray(subTasks)) {
-                            addAgentLog(`📋 执行计划已生成，包含 ${subTasks.length} 个子任务`);
+                        if (subTasks && Array.isArray(subTasks) && typeof message.data?.executionId === 'string') {
+                            addAgentLogToExecution(message.data.executionId, `📋 执行计划已生成，包含 ${subTasks.length} 个子任务`);
                         }
                         break;
 
-                    // Agent执行页 - 子任务状态
+                    // Agent执行页 - 子任务/步骤状态
+                    // 注意：不再把「[✅ 完成] X」写入执行日志 —— 工具执行细节由「执行步骤」面板展示
                     case 'agent-execution:subtask':
                         const subTaskMsg = message.data;
                         if (subTaskMsg) {
-                            if (subTaskMsg.status !== 'running') {
-                                const statusText = subTaskMsg.status === 'completed' ? '✅ 完成' :
-                                    subTaskMsg.status === 'failed' ? '❌ 失败' : '⏳ 等待';
-                                const title = subTaskMsg.title || subTaskMsg.subTaskId?.substring(0, 8) || '';
-                                addAgentLog(`  [${statusText}] ${title}`);
-                            }
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {
                                     type: 'subtask',
@@ -376,7 +376,9 @@ export function useWebSocket() {
                                         execStatus === 'paused' ? '⏸️' :
                                             execStatus === 'completed' ? '🎉' :
                                                 execStatus === 'failed' ? '❌' : '⏹️';
-                            addAgentLog(`${statusEmoji} 状态: ${execStatus}`);
+                            if (typeof message.data?.executionId === 'string') {
+                                addAgentLogToExecution(message.data.executionId, `${statusEmoji} 状态: ${execStatus}`);
+                            }
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {type: 'status', executionId: message.data?.executionId, status: execStatus}
                             }));
@@ -386,12 +388,13 @@ export function useWebSocket() {
                     // Agent执行页 - 完成通知
                     case 'agent-execution:complete':
                         const completeStatus = message.data?.status;
-                        if (completeStatus === 'completed') {
-                            addAgentLog('🎉 Agent执行完成！');
-                        } else if (completeStatus === 'aborted') {
-                            addAgentLog('⏹️ Agent执行已中止');
-                        } else if (completeStatus === 'failed') {
-                            addAgentLog('❌ Agent执行失败');
+                        if (typeof message.data?.executionId === 'string') {
+                            const statusEmoji2 = completeStatus === 'completed' ? '🎉 Agent执行完成！' :
+                                completeStatus === 'aborted' ? '⏹️ Agent执行已中止' :
+                                    completeStatus === 'failed' ? '❌ Agent执行失败' : '';
+                            if (statusEmoji2) {
+                                addAgentLogToExecution(message.data.executionId, statusEmoji2);
+                            }
                         }
                         if (message.data?.executionId && message.data?.status) {
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
@@ -408,7 +411,9 @@ export function useWebSocket() {
                     case 'agent-execution:log':
                         const logMsg = message.data?.log;
                         if (logMsg) {
-                            addAgentLog(logMsg);
+                            if (typeof message.data?.executionId === 'string') {
+                                addAgentLogToExecution(message.data.executionId, logMsg);
+                            }
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {type: 'log', executionId: message.data?.executionId, log: logMsg}
                             }));
@@ -434,7 +439,9 @@ export function useWebSocket() {
                     case 'agent-execution:permission_request': {
                         const pr = message.data;
                         if (pr?.permissionRequestId) {
-                            addAgentLog(`⏸ 请求确认工具：${pr.toolName || ''}`);
+                            if (typeof pr.executionId === 'string') {
+                                addAgentLogToExecution(pr.executionId, `⏸ 请求确认工具：${pr.toolName || ''}`);
+                            }
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {
                                     type: 'permission_request',
@@ -454,7 +461,7 @@ export function useWebSocket() {
                 // 非标准 JSON 消息，静默忽略（如心跳帧等）
             }
         },
-        [addExecutionLog, addPlanLog, setExecutionId, setExecutionStatus, setPlanStatus, setTestResults, setTestRunning, setTestPhase, setAgentExecutions, setActiveAgentExecution, addAgentLog]
+        [addExecutionLog, addPlanLog, setExecutionId, setExecutionStatus, setPlanStatus, setTestResults, setTestRunning, setTestPhase, setAgentExecutions, setActiveAgentExecution, addAgentLog, addAgentLogToExecution]
     );
 
     /**

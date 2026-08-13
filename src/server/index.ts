@@ -38,6 +38,7 @@ import {MinerUService} from './services/mineru-service.js';
 import {ConfigService} from './services/config-service.js';
 import {TaskStoreService} from './services/task-store-service.js';
 import {TaskScheduler} from './services/task-scheduler-service.js';
+import {ModelProviderStore} from './services/model-provider-store.js';
 
 // 路由层
 import {createRequirementsRoutes} from './routes/requirements.js';
@@ -53,6 +54,7 @@ import {createAnalyticsRoutes} from './routes/analytics.js';
 import {createMinerURoutes} from './routes/mineru.js';
 import {createTaskRoutes} from './routes/projects.js';
 import {createAgentExecutionRoutes} from './routes/agent-execution.js';
+import {createModelProviderRoutes} from './routes/model-providers.js';
 
 /**
  * 创建并启动应用服务器
@@ -155,6 +157,20 @@ export async function createServer(port: number): Promise<http.Server> {
     const taskStoreService = new TaskStoreService();
     const taskScheduler = new TaskScheduler(config.scheduler?.maxConcurrent ?? 3);
 
+    // 自有模型供应商配置体系：实例化存储并启动时自动导入外部 CLI 配置（幂等）
+    const modelProviderStore = new ModelProviderStore();
+    try {
+        const importSummary = modelProviderStore.importExternal();
+        if (importSummary.imported.length > 0) {
+            console.log(`[model-providers] auto-imported from external CLI configs: ${importSummary.imported.join(', ')}`);
+        }
+        if (importSummary.skipped.length > 0) {
+            console.log(`[model-providers] skipped external sources: ${importSummary.skipped.join(', ')}`);
+        }
+    } catch (err) {
+        console.warn(`[model-providers] auto-import failed: ${err instanceof Error ? err.message : err}`);
+    }
+
     // 注入流水线依赖，让 TaskScheduler 内部编排完整 plan→execution→test
     taskScheduler.setDependencies({
         requirementStore,
@@ -212,6 +228,7 @@ export async function createServer(port: number): Promise<http.Server> {
         cliRunner: cliRunnerService,
         memoryService,
     }));
+    app.use('/api/model-providers', createModelProviderRoutes(modelProviderStore));
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;

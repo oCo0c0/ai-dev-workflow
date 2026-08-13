@@ -9,9 +9,12 @@
  */
 
 import {getErrorMessage} from '../utils/error-utils.js';
-import {getProvider} from './cli-providers/index.js';
+import {getProvider} from './cli-providers';
 import type {CLIProvider, McpStdioMap} from './cli-providers/types.js';
+import {ClaudeProvider} from './cli-providers/claude-provider.js';
 import {ConfigService} from './config-service.js';
+import {ModelProviderStore} from './model-provider-store.js';
+import type {ModelProviderRecord} from './model-provider-types.js';
 
 // === 数据模型（保持原有接口不变，向后兼容） ===
 
@@ -74,16 +77,36 @@ export interface CLIExecutionResult {
  */
 export class CLIRunnerService {
     /** 当前激活的 Provider */
-    private provider: CLIProvider;
+    private provider!: CLIProvider;
     /** 当前 Provider ID */
-    private activeProviderId: string;
+    private activeProviderId!: string;
+    /** 当前激活的自定义供应商记录 id（models.json 中 kind='custom'），null = 内置 provider */
+    private modelRecordId: string | null = null;
 
     /**
      * 构造 CLI 运行器服务
-     * @param activeProviderId - 初始 Provider ID，默认 'claude'
+     * @param activeProviderId - 初始 Provider ID，默认 'claude'（内置或自定义供应商记录 id）
      */
     constructor(activeProviderId: string = 'claude') {
-        this.activeProviderId = activeProviderId;
+        const builtin = activeProviderId === 'claude' || activeProviderId === 'codex' || activeProviderId === 'pi';
+        if (!builtin) {
+            // 自定义供应商记录：经 Claude 引擎调用 Anthropic 兼容端点（如智谱）
+            const rec = this.readCustomRecord(activeProviderId);
+            if (rec) {
+                this.modelRecordId = activeProviderId;
+                this.provider = getProvider('claude')!;
+                this.activeProviderId = activeProviderId;
+                this.applyModelRecord(rec);
+                this.provider.initialize().catch(() => {});
+                return;
+            }
+            // 记录不存在 → fallback 到 claude
+            this.provider = getProvider('claude')!;
+            this.activeProviderId = 'claude';
+            this.provider.initialize().catch(() => {});
+            return;
+        }
+
         const provider = getProvider(activeProviderId);
         if (!provider) {
             // fallback 到 claude
@@ -114,19 +137,72 @@ export class CLIRunnerService {
     }
 
     /**
+     * 读取 models.json 中的自定义供应商记录（kind='custom' 且启用）。
+     * 不存在/非法时返回 undefined。
+     */
+    private readCustomRecord(id: string): ModelProviderRecord | undefined {
+        try {
+            const rec = new ModelProviderStore().get(id);
+            return rec && rec.kind === 'custom' ? rec : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * 将自定义供应商记录注入到 Claude 引擎（baseUrl/apiKey/defaultModel）。
+     * bridge 会在下一次 initialize 重启时加载新 env。
+     */
+    private applyModelRecord(rec: ModelProviderRecord): void {
+        const claude = getProvider('claude') as ClaudeProvider | undefined;
+        if (claude) {
+            claude.setModelRecord({
+                baseUrl: rec.baseUrl,
+                apiKey: rec.apiKey,
+                defaultModel: rec.defaultModel,
+            });
+        }
+    }
+
+    /**
      * 切换到指定的 Provider
-     * @param providerId - 目标 Provider ID
+     * @param providerId - 目标 Provider ID（内置 'claude' | 'codex' | 'pi'，或自定义供应商记录 id）
      */
     async switchProvider(providerId: string): Promise<void> {
-        const newProvider = getProvider(providerId);
-        if (!newProvider) {
-            throw new Error(`Unknown CLI provider: ${providerId}`);
-        }
+        const builtin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi';
 
         // 释放当前 Provider 资源
         try {
             await this.provider.dispose();
         } catch { /* ignore dispose errors */ }
+
+        if (!builtin) {
+            // 自定义供应商记录：读取 models.json 中的 kind='custom' 记录，经 Claude 引擎调用 Anthropic 兼容端点
+            const rec = this.readCustomRecord(providerId);
+            if (!rec) {
+                throw new Error(`Unknown custom provider: ${providerId}`);
+            }
+            this.modelRecordId = providerId;
+            const claude = getProvider('claude') as ClaudeProvider | undefined;
+            if (!claude) {
+                throw new Error('Claude provider unavailable for custom model routing');
+            }
+            this.provider = claude;
+            this.activeProviderId = providerId;
+            // 注入 baseUrl/apiKey/defaultModel 到 Claude 引擎，bridge 重启时加载新 env
+            this.applyModelRecord(rec);
+            await this.provider.initialize();
+            return;
+        }
+
+        const newProvider = getProvider(providerId);
+        if (!newProvider) {
+            throw new Error(`Unknown CLI provider: ${providerId}`);
+        }
+        // 切回内置：清除自定义记录，恢复默认环境
+        this.modelRecordId = null;
+        const claude = getProvider('claude') as ClaudeProvider | undefined;
+        if (claude) claude.setModelRecord(null);
 
         this.provider = newProvider;
         this.activeProviderId = providerId;
@@ -175,7 +251,17 @@ export class CLIRunnerService {
         try {
             const configService = new ConfigService();
             const config = configService.load();
-            if (this.activeProviderId === 'claude' && config.cliProvider?.claude) {
+            if (this.modelRecordId) {
+                // 自定义供应商记录激活：用记录自身的默认模型，不传 reasoningEffort/extendedThinking
+                //（第三方 Anthropic 兼容端点未必支持这些参数），streaming 沿用 claude 偏好
+                const rec = this.readCustomRecord(this.modelRecordId);
+                if (rec) {
+                    modelOptions = {
+                        model: rec.defaultModel || rec.models?.[0] || config.cliProvider?.claude?.model,
+                        streaming: config.cliProvider?.claude?.streaming,
+                    };
+                }
+            } else if (this.activeProviderId === 'claude' && config.cliProvider?.claude) {
                 modelOptions = {
                     model: config.cliProvider.claude.model,
                     reasoningEffort: config.cliProvider.claude.reasoningEffort,

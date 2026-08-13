@@ -24,6 +24,7 @@ import {MCPConfigService} from '../services/mcp-config-service.js';
 import type {SandboxService} from '../services/sandbox-service.js';
 import {ConfigService, type AppConfig} from '../services/config-service.js';
 import {detectInstalledProviders, getProvider} from '../services/cli-providers';
+import {ModelProviderStore} from '../services/model-provider-store.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 
 /** Claude Code settings.json 路径 */
@@ -139,6 +140,29 @@ export function createSystemRoutes(
 
             const detected = await detectInstalledProviders();
 
+            // 合并 models.json 中的自定义供应商记录（kind='custom' 且启用），作为可选 Provider
+            try {
+                const store = new ModelProviderStore();
+                const customs = store.listSafe().filter((r) => r.kind === 'custom' && r.enabled);
+                for (const r of customs) {
+                    detected.push({
+                        id: r.id,
+                        label: r.label || r.id,
+                        available: !!(r.hasApiKey && r.baseUrl && r.models.length > 0),
+                        version: 'custom',
+                        path: r.baseUrl,
+                        error: !r.hasApiKey || !r.baseUrl || r.models.length === 0
+                            ? '需配置 API Key、Base URL 和至少一个模型'
+                            : undefined,
+                        meta: {
+                            kind: 'custom',
+                            models: r.models,
+                            defaultModel: r.defaultModel,
+                        },
+                    });
+                }
+            } catch { /* custom 读取失败不影响内置列表 */ }
+
             res.json({
                 configured: config.cliProvider?.setupCompleted ?? false,
                 active: config.cliProvider?.active ?? 'claude',
@@ -155,25 +179,50 @@ export function createSystemRoutes(
         try {
             const {providerId} = req.body as {providerId?: string};
 
-            if (!providerId || (providerId !== 'claude' && providerId !== 'codex' && providerId !== 'pi')) {
-                res.status(400).json({code: 'INVALID_PROVIDER', message: 'providerId must be "claude", "codex", or "pi"'});
+            if (!providerId) {
+                res.status(400).json({code: 'INVALID_PROVIDER', message: 'providerId is required'});
                 return;
             }
 
-            // 检测选择的 Provider 是否可用
-            const provider = getProvider(providerId);
-            if (!provider) {
-                res.status(404).json({code: 'PROVIDER_NOT_FOUND', message: `Provider "${providerId}" not found`});
-                return;
+            const isBuiltin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi';
+
+            // 自定义供应商记录：校验 models.json 中存在且 kind='custom'
+            let customLabel = '';
+            if (!isBuiltin) {
+                let rec;
+                try {
+                    rec = new ModelProviderStore().get(providerId);
+                } catch { /* fallthrough */ }
+                if (!rec || rec.kind !== 'custom') {
+                    res.status(400).json({code: 'INVALID_PROVIDER', message: `providerId must be "claude", "codex", "pi", or a custom provider record id`});
+                    return;
+                }
+                if (rec.enabled === false || !rec.apiKey || !rec.baseUrl) {
+                    res.status(400).json({
+                        code: 'PROVIDER_UNAVAILABLE',
+                        message: 'Custom provider 需启用并配置 API Key 与 Base URL',
+                    });
+                    return;
+                }
+                customLabel = rec.label || rec.id;
             }
 
-            const status = await provider.detect();
-            if (!status.available) {
-                res.status(400).json({
-                    code: 'PROVIDER_UNAVAILABLE',
-                    message: status.error ?? `${provider.label} is not available`,
-                });
-                return;
+            if (isBuiltin) {
+                // 检测选择的 Provider 是否可用
+                const provider = getProvider(providerId);
+                if (!provider) {
+                    res.status(404).json({code: 'PROVIDER_NOT_FOUND', message: `Provider "${providerId}" not found`});
+                    return;
+                }
+
+                const status = await provider.detect();
+                if (!status.available) {
+                    res.status(400).json({
+                        code: 'PROVIDER_UNAVAILABLE',
+                        message: status.error ?? `${provider.label} is not available`,
+                    });
+                    return;
+                }
             }
 
             // 持久化选择到 config
@@ -192,16 +241,21 @@ export function createSystemRoutes(
             };
             configService.save(config);
 
-            // 切换运行时 Provider
+            // 切换运行时 Provider（custom 记录经 claude 引擎调用）
             await cliRunnerService.switchProvider(providerId);
 
-            // 读取对应 Provider 的 skills 和 MCP 配置
-            const skills = await provider.loadSkills();
-            const mcpServers = await provider.loadMcpServers();
+            // 读取对应 Provider 的 skills 和 MCP 配置（custom 复用 claude 引擎的能力）
+            const engineProvider = isBuiltin ? getProvider(providerId) : getProvider('claude');
+            let skills: Awaited<ReturnType<NonNullable<typeof engineProvider>['loadSkills']>> = [];
+            let mcpServers: Awaited<ReturnType<NonNullable<typeof engineProvider>['loadMcpServers']>> = [];
+            if (engineProvider) {
+                skills = await engineProvider.loadSkills();
+                mcpServers = await engineProvider.loadMcpServers();
+            }
 
             res.json({
                 success: true,
-                provider: {id: provider.id, label: provider.label},
+                provider: {id: providerId, label: customLabel || providerId},
                 skills,
                 mcpServers,
             });
@@ -259,7 +313,7 @@ export function createSystemRoutes(
     router.put('/model-config', async (req, res) => {
         try {
             const {provider, claude, codex, pi} = req.body as {
-                provider?: 'claude' | 'codex' | 'pi';
+                provider?: string;
                 claude?: {
                     model?: string;
                     extendedThinking?: boolean;
@@ -281,11 +335,22 @@ export function createSystemRoutes(
                 };
             };
 
+            // 内置 provider 或有效的 custom 记录 id 才算合法
+            const isKnownProvider = (id: string): boolean => {
+                if (id === 'claude' || id === 'codex' || id === 'pi') return true;
+                try {
+                    const rec = new ModelProviderStore().get(id);
+                    return !!rec && rec.kind === 'custom' && rec.enabled !== false;
+                } catch {
+                    return false;
+                }
+            };
+
             const configService = new ConfigService();
             const config = configService.load();
 
-            // 更新 Provider（如果指定）
-            if (provider && (provider === 'claude' || provider === 'codex' || provider === 'pi')) {
+            // 更新 Provider（如果指定且合法）
+            if (provider && isKnownProvider(provider)) {
                 config.cliProvider = {...config.cliProvider, active: provider};
             }
 

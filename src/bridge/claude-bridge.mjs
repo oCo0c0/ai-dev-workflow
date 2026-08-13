@@ -444,8 +444,8 @@ function handleConfirmPermission(msg) {
         ? (message || '用户拒绝了该工具')
         : message;
     const result = {behavior, message: responseMessage};
-    // modifiedInput 透传给 SDK（如 AskUserQuestion 的用户答案）
-    if (modifiedInput) result.modifiedInput = modifiedInput;
+    // 用户答案透传给 SDK（如 AskUserQuestion）。SDK 的 PermissionResult 认的是 updatedInput，不是 modifiedInput
+    if (modifiedInput) result.updatedInput = modifiedInput;
     resolver(result);
     pendingPermissionResolvers.delete(permissionRequestId);
 

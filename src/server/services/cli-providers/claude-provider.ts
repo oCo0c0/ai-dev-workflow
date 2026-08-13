@@ -14,15 +14,14 @@
 
 import {ChildProcess, spawn} from 'child_process';
 import path from 'path';
-import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {extractDescription} from '../../utils/markdown-utils.js';
 import {findSkillMdFile} from '../../utils/skill-utils.js';
+import {ModelProviderStore} from '../model-provider-store.js';
 import type {
     CLIProvider,
-    CLIProviderCapabilities,
     CLIProviderInput,
     CLIProviderOptions,
     CLIProviderResult,
@@ -63,6 +62,34 @@ function loadClaudeSettingsEnv(): Record<string, string> {
     } catch {
         return {};
     }
+}
+
+/**
+ * 从自有模型供应商配置（~/.ai-dev-workbench/models.json）读取 Claude 的 env 兜底。
+ *
+ * 免 CLI 依赖：当本地未安装 Claude CLI（无 ~/.claude/settings.json）时，
+ * 仍可使用自动导入/手动添加的 API Key / Base URL / 模型配置。
+ * 映射关系：claude 记录 → ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL。
+ */
+function loadOwnClaudeEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    try {
+        const store = new ModelProviderStore();
+        const rec = store.get('claude');
+        if (rec && rec.enabled !== false) {
+            if (rec.apiKey) env.ANTHROPIC_API_KEY = rec.apiKey;
+            if (rec.baseUrl) env.ANTHROPIC_BASE_URL = rec.baseUrl;
+            if (rec.defaultModel) {
+                env.ANTHROPIC_MODEL = rec.defaultModel;
+                // 默认档位为 sonnet，注入对应档位模型，保证 SDK 能解析 'sonnet' 别名
+                env.ANTHROPIC_DEFAULT_SONNET_MODEL = rec.defaultModel;
+            }
+            if (rec.env && typeof rec.env === 'object') Object.assign(env, rec.env);
+        }
+    } catch {
+        // 自有配置读取失败时静默降级
+    }
+    return env;
 }
 
 /** 待处理请求的内部数据结构 */
@@ -108,6 +135,8 @@ export class ClaudeProvider implements CLIProvider {
     private jsonRpcIdCounter = 0;
     /** 是否正在主动释放（避免 kill 触发的 exit 日志噪音） */
     private disposing = false;
+    /** 当前激活的自定义供应商记录（Anthropic 兼容端点），由 CLIRunnerService 在切换时注入 */
+    private modelRecord: { baseUrl?: string; apiKey?: string; defaultModel?: string } | null = null;
 
     async detect(): Promise<CLIProviderStatus> {
         try {
@@ -132,6 +161,19 @@ export class ClaudeProvider implements CLIProvider {
         } catch (err) {
             return {available: false, error: getErrorMessage(err)};
         }
+    }
+
+    /**
+     * 设置当前激活的自定义供应商记录（Anthropic 兼容端点）。
+     * 传入 null 清除。调用方需在设置后重启 bridge（dispose + initialize）以加载新 env。
+     */
+    setModelRecord(rec: { baseUrl?: string; apiKey?: string; defaultModel?: string } | null): void {
+        this.modelRecord = rec;
+    }
+
+    /** 当前激活的自定义供应商记录 */
+    getModelRecord(): { baseUrl?: string; apiKey?: string; defaultModel?: string } | null {
+        return this.modelRecord;
     }
 
     async initialize(): Promise<void> {
@@ -280,7 +322,24 @@ export class ClaudeProvider implements CLIProvider {
     private start(): Promise<void> {
         return new Promise((resolve, reject) => {
             // 清除 NODE_OPTIONS 中的 inspector 参数，避免子进程启动 debugger
-            const env = {...process.env, ...loadClaudeSettingsEnv()};
+            const settingsEnv = loadClaudeSettingsEnv();
+            const ownEnv = loadOwnClaudeEnv();
+            // 优先级：process.env > ~/.claude/settings.json > 自有配置（兜底）。
+            // 自有配置仅在 process.env 与 settings.json 均未提供时才注入，避免覆盖已有外部配置。
+            const fallbackEnv: Record<string, string> = {};
+            for (const [key, value] of Object.entries(ownEnv)) {
+                if (process.env[key] === undefined && settingsEnv[key] === undefined) {
+                    fallbackEnv[key] = value;
+                }
+            }
+            // 自定义供应商记录（Anthropic 兼容端点）以最高优先级覆盖，使 bridge 指向第三方端点
+            const recordEnv: Record<string, string> = {};
+            if (this.modelRecord) {
+                if (this.modelRecord.baseUrl) recordEnv.ANTHROPIC_BASE_URL = this.modelRecord.baseUrl;
+                if (this.modelRecord.apiKey) recordEnv.ANTHROPIC_API_KEY = this.modelRecord.apiKey;
+                if (this.modelRecord.defaultModel) recordEnv.ANTHROPIC_MODEL = this.modelRecord.defaultModel;
+            }
+            const env = {...process.env, ...fallbackEnv, ...settingsEnv, ...recordEnv};
             if (env.NODE_OPTIONS) {
                 env.NODE_OPTIONS = env.NODE_OPTIONS
                     .split(/\s+/)

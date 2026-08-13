@@ -24,6 +24,7 @@ import PipelinesPage from './pages/PipelinesPage';
 import MinerUPage from './pages/MinerUPage';
 import ProjectsPage from './pages/ProjectsPage';
 import AgentExecutionPage from './pages/AgentExecutionPage';
+import ModelProvidersPage from './pages/ModelProvidersPage';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
 
@@ -77,6 +78,7 @@ function App() {
                     <Route path="/tests" element={<TestsPage/>}/>
                     <Route path="/skills" element={<SkillsPage/>}/>
                     <Route path="/mcp" element={<MCPPage/>}/>
+                    <Route path="/model-providers" element={<ModelProvidersPage/>}/>
                     <Route path="/pipelines" element={<PipelinesPage/>}/>
                     <Route path="/mineru" element={<MinerUPage/>}/>
                     <Route path="/agent-execution" element={<AgentExecutionPage/>}/>

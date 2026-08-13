@@ -445,8 +445,10 @@ interface AppState {
         executions: AgentExecutionSummary[];
         /** 当前活跃的Agent执行ID */
         activeExecutionId: string | null;
-        /** Agent执行日志 */
+        /** Agent执行日志（全局缓冲，兼容保留，页面不再直接使用） */
         logs: string[];
+        /** 按执行ID分桶的日志（多 Agent 并行隔离：每个任务的日志只进自己的桶） */
+        logsByExecution: Record<string, string[]>;
     };
 
     // === Action 方法 ===
@@ -580,6 +582,12 @@ interface AppState {
     /** 清空Agent日志 */
     setAgentLogs: (logs: string[]) => void;
     clearAgentLogs: () => void;
+    /** 追加日志到指定执行的分桶（多 Agent 隔离：实时日志只进自己任务的桶） */
+    addAgentLogToExecution: (executionId: string, content: string) => void;
+    /** 覆盖指定执行的分桶日志（loadDetail 时用历史日志初始化） */
+    setAgentExecutionLogs: (executionId: string, logs: string[]) => void;
+    /** 删除指定执行的分桶日志（删除任务时清理） */
+    removeAgentExecutionLogs: (executionId: string) => void;
 }
 
 // === 辅助函数：主题持久化 ===
@@ -730,7 +738,7 @@ export const useAppStore = create<AppState>((set) => {
         },
         projects: {list: [], active: null, loading: false},
         tasks: {list: [], activeTaskId: null, logsByTask: {}, scheduler: null},
-        agents: {executions: [], activeExecutionId: null, logs: []},
+        agents: {executions: [], activeExecutionId: null, logs: [], logsByExecution: {}},
 
         // === 需求管理 Actions ===
         setRequirements: (list) =>
@@ -1042,6 +1050,29 @@ export const useAppStore = create<AppState>((set) => {
         setAgentLogs: (logs: string[]) =>
             set((state) => ({agents: {...state.agents, logs}})),
         clearAgentLogs: () =>
-            set((state) => ({agents: {...state.agents, logs: []}}))
+            set((state) => ({agents: {...state.agents, logs: []}})),
+        addAgentLogToExecution: (executionId, content) =>
+            set((state) => ({
+                agents: {
+                    ...state.agents,
+                    logsByExecution: {
+                        ...state.agents.logsByExecution,
+                        [executionId]: [...(state.agents.logsByExecution[executionId] || []), content],
+                    },
+                },
+            })),
+        setAgentExecutionLogs: (executionId, logs) =>
+            set((state) => ({
+                agents: {
+                    ...state.agents,
+                    logsByExecution: {...state.agents.logsByExecution, [executionId]: logs},
+                },
+            })),
+        removeAgentExecutionLogs: (executionId) =>
+            set((state) => {
+                const next = {...state.agents.logsByExecution};
+                delete next[executionId];
+                return {agents: {...state.agents, logsByExecution: next}};
+            })
     };
 });

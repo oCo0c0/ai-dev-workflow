@@ -14,7 +14,7 @@ import {AgentExecutionStore} from './agent-execution-store.js';
 import {CLIRunnerService} from './cli-runner-service.js';
 import {broadcast} from '../websocket.js';
 import {renderPrompt} from '../utils/prompt-renderer.js';
-import {PROMPTS} from '../prompts/index.js';
+import {PROMPTS} from '../prompts';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {runBridgeJson} from '../utils/bridge-json-runner.js';
 import {validateShape, type FieldSpec} from '../utils/json-validator.js';
@@ -34,6 +34,41 @@ const STEP_TOOLS = new Set([
     'Write', 'Edit', 'NotebookEdit', 'Bash', 'TaskCreate',
     'Workflow', 'Skill', 'CronCreate', 'CronDelete',
 ]);
+
+/**
+ * 从工具结果内容中抽取可展示的文本摘要。
+ * 兼容三种形态：
+ * - string：直接返回
+ * - Claude content block 数组：[{type:'text', text:'...'}, {type:'tool_result', content:[...]}] 等
+ * - 其他对象：JSON 序列化
+ */
+function extractToolResultText(content: unknown): string {
+    if (typeof content === 'string') return content.trim();
+    if (content == null) return '';
+    if (Array.isArray(content)) {
+        const parts: string[] = [];
+        for (const block of content) {
+            if (typeof block === 'string') {
+                parts.push(block);
+            } else if (block && typeof block === 'object') {
+                const b = block as Record<string, unknown>;
+                if (typeof b.text === 'string') parts.push(b.text);
+                else if (typeof b.content === 'string') parts.push(b.content);
+                else if (Array.isArray(b.content)) {
+                    const nested = extractToolResultText(b.content);
+                    if (nested) parts.push(nested);
+                }
+            }
+        }
+        return parts.join('\n').trim();
+    }
+    // 其他对象 → 序列化
+    try {
+        return JSON.stringify(content).trim();
+    } catch {
+        return '';
+    }
+}
 
 /** 任务分解输出校验规格：{subTasks: [{id?, title, description?}]}，1-8 项 */
 const SUBTASK_DECOMPOSE_SPEC: Record<string, FieldSpec> = {
@@ -139,19 +174,17 @@ export class AgentCoordinator {
 
     /**
      * 构造输出处理器（单次与子任务循环共用）。
-     * 日志记录 tool_result 截取摘要；结构化事件分发 thinking/tool_use/tool_result。
+     * 仅把对话/思考输出写入执行日志；tool_result 走「执行步骤」面板（stepLog），不刷执行日志。
      */
     private makeOutputHandler(executionId: string): (data: string, meta?: Record<string, unknown>) => void {
         return (data: string, meta?: Record<string, unknown>) => {
-            // 日志记录：tool_result 可能包含完整文件内容（几KB~几十KB），
-            // 只截取摘要存入日志，避免上下文爆炸
-            if (data) {
-                const logData = meta?.type === 'tool_result'
-                    ? data.slice(0, 200) + (data.length > 200 ? '...' : '')
-                    : data;
+            // 日志记录：仅记录对话/思考输出。
+            // tool_result 属工具执行细节，不写入执行日志（由「执行步骤」面板 + stepLog 事件展示），
+            // 避免每次工具调用都在日志里刷「输出」块。
+            if (data && meta?.type !== 'tool_result') {
                 // Store 写成功后再广播，保证前端收到日志时数据已持久化
-                this.store.addLog(executionId, logData)
-                    .then(() => this.broadcastLog(executionId, logData))
+                this.store.addLog(executionId, data)
+                    .then(() => this.broadcastLog(executionId, data))
                     .catch(err => {
                         console.error(`[coordinator] addLog failed for ${executionId}:`, err);
                     });
@@ -172,7 +205,8 @@ export class AgentCoordinator {
                     });
                     break;
                 case 'tool_result':
-                    this.handleToolResult(executionId, meta).catch(err => {
+                    // 工具结果内容（data）一并传给 handleToolResult，写入对应步骤的 stepLog 供面板展开查看
+                    this.handleToolResult(executionId, meta, data).catch(err => {
                         console.error(`[coordinator] handleToolResult failed:`, err);
                     });
                     break;
@@ -579,9 +613,10 @@ export class AgentCoordinator {
     }
 
     /**
-     * 处理 tool_result 事件 → 标记 step completed/failed + 广播
+     * 处理 tool_result 事件 → 标记 step completed/failed + 广播。
+     * @param content - 工具结果内容（来自 onOutput 的 data 参数，providers 将内容放在 data 而非 meta）
      */
-    private async handleToolResult(executionId: string, meta: Record<string, unknown>): Promise<void> {
+    private async handleToolResult(executionId: string, meta: Record<string, unknown>, content?: string): Promise<void> {
         const toolUseId = meta.toolUseId as string;
         const isError = meta.isError as boolean;
 
@@ -610,15 +645,17 @@ export class AgentCoordinator {
             },
         });
 
-        // 步骤级日志：将工具执行摘要通过 stepLog 事件推送，前端展开步骤面板可查看
-        if (meta.content && typeof meta.content === 'string' && meta.content.trim()) {
-            const summary = meta.content.slice(0, 300);
+        // 步骤级日志：将工具执行结果摘要通过 stepLog 事件推送，前端展开步骤面板可查看。
+        // 优先取 onOutput 的内容参数（data），兜底取 meta.content（兼容 provider 把内容放 meta 的实现）。
+        // 内容可能是结构化数组（Claude API content blocks）→ 抽取其中的文本块拼成摘要。
+        const raw = extractToolResultText(content) || extractToolResultText(meta.content);
+        if (raw) {
             broadcast({
                 type: 'agent-execution:stepLog',
                 data: {
                     executionId,
                     stepId: toolUseId,
-                    log: summary,
+                    log: raw.slice(0, 300),
                     isError,
                 },
             });

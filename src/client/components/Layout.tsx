@@ -57,6 +57,7 @@ const navItems = [
     {path: '/tests', labelKey: 'nav.tests', icon: TestTube},
     {path: '/projects', labelKey: 'nav.projects', icon: FolderKanban},
     {path: '/mcp', labelKey: 'nav.mcp', icon: Plug},
+    {path: '/model-providers', labelKey: 'nav.modelProviders', icon: Cpu},
     {path: '/skills', labelKey: 'nav.skills', icon: Zap},
     {path: '/mineru', labelKey: 'nav.mineru', icon: FileSearch},
 ];
@@ -74,6 +75,7 @@ const pageTitleKeys: Record<string, string> = {
     '/tests': 'pageTitle.tests',
     '/skills': 'pageTitle.skills',
     '/mcp': 'pageTitle.mcp',
+    '/model-providers': 'pageTitle.modelProviders',
     '/pipelines': 'pageTitle.pipelines',
     '/mineru': 'pageTitle.mineru',
 };

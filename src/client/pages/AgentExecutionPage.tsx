@@ -98,20 +98,39 @@ function formatDuration(seconds: number): string {
     return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
-/** 日志消息类型检测 */
-type LogKind = 'thinking' | 'tool_use' | 'tool_result' | 'user' | 'normal';
+/** 日志消息类型检测（normal 为 parseLog 内部哨兵，渲染时归为 output） */
+type LogKind = 'thinking' | 'tool_use' | 'tool_result' | 'user' | 'error' | 'warning' | 'output' | 'normal';
 
 function parseLog(log: string): { kind: LogKind; content: string } {
     try {
         const parsed = JSON.parse(log);
-        // 新格式 JSON {type: 'user', content: '...'}（优先级最高）
-        if (parsed.type === 'user') return {kind: 'user', content: parsed.content || ''};
-        if (parsed.type === 'thinking') return {kind: 'thinking', content: parsed.content || ''};
-        if (parsed.type === 'tool_use') return {kind: 'tool_use', content: parsed.toolName || 'Tool'};
-        if (parsed.type === 'tool_result') return {kind: 'tool_result', content: parsed.content || ''};
-        return {kind: 'normal', content: parsed.content || log};
+        // 新格式 JSON {type: '...', content: '...'}（优先级最高）。
+        // 支持不同供应商/来源产生的结构化日志（user/thinking/tool_use/tool_result/error/warning/output）
+        switch (parsed.type) {
+            case 'user':
+                return {kind: 'user', content: parsed.content || ''};
+            case 'thinking':
+                return {kind: 'thinking', content: parsed.content || ''};
+            case 'tool_use':
+                return {kind: 'tool_use', content: parsed.toolName || 'Tool'};
+            case 'tool_result':
+                return {kind: 'tool_result', content: parsed.content || ''};
+            case 'error':
+                return {kind: 'error', content: parsed.content || ''};
+            case 'warning':
+                return {kind: 'warning', content: parsed.content || ''};
+            case 'output':
+            case 'info':
+            case 'system':
+                return {kind: 'output', content: parsed.content || ''};
+            default:
+                break;
+        }
+        // 其他带 content 字符串字段的 JSON 对象统一归为输出，避免把结构化文本当普通文本整行展示
+        if (typeof parsed.content === 'string') return {kind: 'output', content: parsed.content};
+        return {kind: 'normal', content: log};
     } catch {
-        // 旧格式兼容：只有以 **User:** 开头才是用户消息
+        // 旧格式兼容：以 **User:** 开头才是用户消息
         if (log.startsWith('**User:**')) return {kind: 'user', content: log};
         return {kind: 'normal', content: log};
     }
@@ -131,9 +150,10 @@ export default function AgentExecutionPage() {
     useTranslation();
     const theme = useAppStore((s) => s.ui.theme);
 
-    const agentLogs = useAppStore((s) => s.agents.logs);
-    const setAgentLogs = useAppStore((s) => s.setAgentLogs);
-    const clearAgentLogs = useAppStore((s) => s.clearAgentLogs);
+    const logsByExecution = useAppStore((s) => s.agents.logsByExecution);
+    const setAgentExecutionLogs = useAppStore((s) => s.setAgentExecutionLogs);
+    const removeAgentExecutionLogs = useAppStore((s) => s.removeAgentExecutionLogs);
+    const setActiveAgentExecution = useAppStore((s) => s.setActiveAgentExecution);
 
     // 历史列表
     const [history, setHistory] = useState<AgentExecutionSummary[]>([]);
@@ -228,12 +248,14 @@ export default function AgentExecutionPage() {
             setDetail(data);
             setActiveId(id);
             setWorkspacePath(data.workspacePath);
-            // 用历史日志初始化 agentLogs，而非清空
-            setAgentLogs(data.logs || []);
+            // 用历史日志初始化该执行的分桶（多 Agent 隔离：每个任务只读自己的桶）
+            setAgentExecutionLogs(id, data.logs || []);
+            // 记录当前活跃执行
+            setActiveAgentExecution(id);
         } catch (err) {
             console.error('[AgentExec] loadDetail error:', err);
         }
-    }, [setAgentLogs]);
+    }, [setAgentExecutionLogs, setActiveAgentExecution]);
 
     const openCreateDialog = () => {
         setSelectedRequirement(null);
@@ -352,10 +374,12 @@ export default function AgentExecutionPage() {
         try {
             await apiDelete(`/agent-execution/${id}`);
             await loadHistory();
+            // 清理该执行的分桶日志，避免内存残留
+            removeAgentExecutionLogs(id);
             if (activeId === id) {
                 setDetail(null);
                 setActiveId(null);
-                clearAgentLogs();
+                setActiveAgentExecution(null);
             }
         } catch (err) {
             console.error('[AgentExec] delete error:', err);
@@ -489,11 +513,14 @@ export default function AgentExecutionPage() {
     useEffect(() => {
         return () => {
             if (pollRef.current) clearInterval(pollRef.current);
+            // 离开页面时清除活跃执行标记，避免后台事件继续写入全局日志缓冲
+            setActiveAgentExecution(null);
         };
-    }, []);
+    }, [setActiveAgentExecution]);
 
-    // 日志消息（agentLogs → LogMessageData[]，供 LogViewer 渲染）
-    const logMessages = useMemo<LogMessageData[]>(() => toLogMessages(agentLogs), [agentLogs]);
+    // 日志消息（当前执行分桶 → LogMessageData[]，供 LogViewer 渲染；多 Agent 并行互不混入）
+    const currentLogs = activeId ? (logsByExecution[activeId] || []) : [];
+    const logMessages = useMemo<LogMessageData[]>(() => toLogMessages(currentLogs), [currentLogs]);
 
     // 步骤统计（单次遍历）
     const stepsStats = useMemo(() => {
@@ -821,7 +848,7 @@ export default function AgentExecutionPage() {
                                 title="执行日志"
                                 isStreaming={isRunning}
                                 emptyText={isRunning ? 'Agent正在执行...' : '等待执行...'}
-                                onClear={clearAgentLogs}
+                                onClear={() => activeId && setAgentExecutionLogs(activeId, [])}
                             />
 
                             {/* --- 底部消息输入 --- */}
@@ -833,7 +860,7 @@ export default function AgentExecutionPage() {
                                             <span className="text-sm font-semibold">发送消息给 Agent</span>
                                         </div>
                                         <ContextIndicator
-                                            logs={agentLogs}
+                                            logs={currentLogs}
                                             onSuggestNewSession={handleNewSession}
                                         />
                                     </div>
@@ -898,7 +925,8 @@ export default function AgentExecutionPage() {
                     {/* 需求（可选） */}
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                            需求文档 <span className="text-muted-foreground/60">（可选，也可创建后在下方消息框补充详细信息）</span>
+                            需求文档 <span
+                            className="text-muted-foreground/60">（可选，也可创建后在下方消息框补充详细信息）</span>
                         </label>
                         <div className="grid grid-cols-2 gap-2 mb-2">
                             <button
@@ -1066,7 +1094,7 @@ function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }
 interface AskUserQuestionDef {
     question: string;
     header: string;
-    options: Array<{label: string; description: string}>;
+    options: Array<{ label: string; description: string }>;
     multiSelect?: boolean;
 }
 
@@ -1079,7 +1107,7 @@ interface PermissionDialogProps {
         title?: string;
     };
     askUserAnswers: Record<string, string>;
-    setAskUserAnswers: (v: Record<string, string>) => void;
+    setAskUserAnswers: (v: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
     onConfirm: (decision: 'allow' | 'deny', remember?: boolean, modifiedInput?: Record<string, unknown>) => void;
     onClose: () => void;
 }
@@ -1114,7 +1142,7 @@ function PermissionDialog({permConfirm, askUserAnswers, setAskUserAnswers, onCon
             return [{
                 question: (permConfirm.toolInput.question as string) || '请选择',
                 header: (permConfirm.toolInput.header as string) || '选项',
-                options: topOpts as Array<{label: string; description: string}>,
+                options: topOpts as Array<{ label: string; description: string }>,
                 multiSelect: (permConfirm.toolInput.multiSelect as boolean) || false,
             }];
         }
@@ -1153,7 +1181,8 @@ function PermissionDialog({permConfirm, askUserAnswers, setAskUserAnswers, onCon
                     <div className="bg-muted/50 border border-border rounded-md p-3 mb-4">
                         <div className="text-xs text-muted-foreground mb-1">工具：{permConfirm.toolName}</div>
                         {permConfirm.toolInput && (
-                            <pre className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/90 max-h-40 overflow-y-auto">
+                            <pre
+                                className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/90 max-h-40 overflow-y-auto">
                                 {permConfirm.toolInput.command
                                     ? String(permConfirm.toolInput.command)
                                     : JSON.stringify(permConfirm.toolInput, null, 2)}
@@ -1191,7 +1220,8 @@ function PermissionDialog({permConfirm, askUserAnswers, setAskUserAnswers, onCon
                     {questions.map((q, qi) => (
                         <div key={qi} className="bg-muted/30 border border-border rounded-lg p-3">
                             <div className="flex items-center gap-1.5 mb-2">
-                                <span className="text-[10px] font-medium text-muted-foreground uppercase bg-muted-foreground/10 px-1.5 py-0.5 rounded">
+                                <span
+                                    className="text-[10px] font-medium text-muted-foreground uppercase bg-muted-foreground/10 px-1.5 py-0.5 rounded">
                                     {q.header || `问题 ${qi + 1}`}
                                 </span>
                             </div>
@@ -1247,12 +1277,16 @@ function PermissionDialog({permConfirm, askUserAnswers, setAskUserAnswers, onCon
                         size="sm"
                         disabled={!allAnswered}
                         onClick={() => {
-                            // 将答案编码为 modifiedInput 传给 bridge
+                            // 将答案编码后传给 bridge（SDK 的 PermissionResult 认 updatedInput 字段）
                             const answersMap: Record<string, string> = {};
                             questions.forEach(q => {
                                 answersMap[q.question] = askUserAnswers[q.question] || '';
                             });
-                            onConfirm('allow', false, {answers: answersMap});
+                            // updatedInput 会替换工具输入，需同时带上原始 questions 和用户 answers
+                            onConfirm('allow', false, {
+                                ...(permConfirm.toolInput?.questions ? {questions: permConfirm.toolInput.questions} : {}),
+                                answers: answersMap,
+                            });
                         }}
                     >
                         <Send className="h-3.5 w-3.5 mr-1.5"/>

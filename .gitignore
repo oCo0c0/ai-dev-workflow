@@ -13,6 +13,9 @@ dist/
 # Kiro
 .kiro/
 
+# Claude Code (local project state, not to be committed)
+.claude/
+
 # Spec workflow
 .spec-workflow/
 

@@ -12,6 +12,7 @@ import fs from 'fs';
 import os from 'os';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {extractDescription, inferServerType} from '../../utils/markdown-utils.js';
+import {ModelProviderStore} from '../model-provider-store.js';
 import type {
     CLIProvider,
     CLIProviderStatus,
@@ -26,6 +27,33 @@ import type {
 const CODEX_DIR = path.join(os.homedir(), '.codex');
 /** Codex 配置文件路径（TOML 格式） */
 const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
+
+/**
+ * 免 CLI 依赖：从自有模型供应商配置（models.json）读取 codex 的 API Key / Base URL，
+ * 在环境变量未设置时注入到 process.env，供 @openai/codex-sdk 使用。
+ *
+ * 仅回填空缺（process.env 已设置时不动），避免覆盖外部配置。
+ */
+function applyOwnCodexEnv(): void {
+    try {
+        const store = new ModelProviderStore();
+        const rec = store.get('codex');
+        if (!rec || !rec.enabled) return;
+        if (rec.apiKey && process.env.OPENAI_API_KEY === undefined) {
+            process.env.OPENAI_API_KEY = rec.apiKey;
+        }
+        if (rec.baseUrl && process.env.OPENAI_BASE_URL === undefined) {
+            process.env.OPENAI_BASE_URL = rec.baseUrl;
+        }
+        if (rec.env && typeof rec.env === 'object') {
+            for (const [key, value] of Object.entries(rec.env)) {
+                if (value && process.env[key] === undefined) process.env[key] = value;
+            }
+        }
+    } catch {
+        // 读取失败静默降级
+    }
+}
 
 /** 解析结果：顶层 table + 数组表 */
 interface TomlParseResult {
@@ -416,6 +444,8 @@ export class CodexProvider implements CLIProvider {
 
     /** 动态导入并创建 Codex 客户端 */
     private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {
+        // 免 CLI 依赖：优先从自有配置注入 OPENAI_API_KEY / OPENAI_BASE_URL
+        applyOwnCodexEnv();
         // ESM-only SDK 在 CJS 编译产物中需要特殊处理：
         // 使用 Function 构造器绕过 bundler/tsc 的静态分析，确保运行时动态 import
         const dynamicImport = new Function('modulePath', 'return import(modulePath)') as (m: string) => Promise<typeof import('@openai/codex-sdk')>;

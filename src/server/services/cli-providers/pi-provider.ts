@@ -10,6 +10,7 @@
  */
 
 import { getErrorMessage } from '../../utils/error-utils.js';
+import {ModelProviderStore} from '../model-provider-store.js';
 import type {
     CLIProvider,
     CLIProviderCapabilities,
@@ -123,6 +124,19 @@ export class PiProvider implements CLIProvider {
             // 创建 AuthStorage（读取 pi 的认证配置）
             const authStorage = pi.AuthStorage.create();
 
+            // 免 CLI 依赖：若调用方未显式传入 apiKey，则从自有模型供应商配置兜底注入
+            if (!(options as any)?.apiKey) {
+                try {
+                    const store = new ModelProviderStore();
+                    const ownRec = store.get(`pi:${modelProvider}`);
+                    if (ownRec?.apiKey) {
+                        authStorage.setRuntimeApiKey(modelProvider, ownRec.apiKey);
+                    }
+                } catch {
+                    // 自有配置读取失败时静默降级
+                }
+            }
+
             // 运行时注入 API key（如果通过 options 传入）
             if ((options as any)?.apiKey) {
                 authStorage.setRuntimeApiKey(modelProvider, (options as any).apiKey);
@@ -159,6 +173,14 @@ export class PiProvider implements CLIProvider {
             // 累积文本缓冲区：pi 的 text_delta 逐字符/词发出，
             // 不在逐 delta 时调用 onOutput（会炸日志），而是累积后在关键节点批量发送
             let textBuf = '';
+            // 思考文本缓冲区：与 Claude/Codex 一致，把 thinking_delta 归集为 {type:'thinking'}
+            // 事件，供协调器写入「思考过程」面板，而非混入普通执行日志
+            let thinkingBuf = '';
+            // 工具输出缓冲区：把 tool_execution_update 的文本归集为 tool_result 内容，
+            // 供「执行步骤」面板展开查看，而非混入普通执行日志
+            let toolBuf = '';
+            // 最近一次 toolcall_start 的 toolUseId，用于 tool_execution_end 关联步骤
+            let pendingToolUseId = '';
 
             // 仅当有缓冲内容时才 emit 执行日志
             const flushBuffer = () => {
@@ -166,6 +188,22 @@ export class PiProvider implements CLIProvider {
                     options?.onOutput?.(textBuf);
                     textBuf = '';
                 }
+            };
+
+            // 累积的思考文本在关键边界（工具调用开始 / 消息结束 / Agent 结束）作为一条 thinking 事件发出
+            const flushThinking = () => {
+                if (thinkingBuf) {
+                    options?.onOutput?.(thinkingBuf, {type: 'thinking'});
+                    thinkingBuf = '';
+                }
+            };
+
+            // 工具输出随 tool_result 一并发出（内容作为 onOutput 第一参数，
+            // 由协调器 handleToolResult 写入「执行步骤」面板的 stepLog）
+            const takeToolOutput = () => {
+                const out = toolBuf;
+                toolBuf = '';
+                return out;
             };
 
             // 用于等待 agent 完成的 Promise
@@ -190,52 +228,54 @@ export class PiProvider implements CLIProvider {
                                     textBuf += msgEvent.delta || '';
                                     break;
                                 case 'thinking_delta':
-                                    // thinking 也累积不单独 emit
-                                    textBuf += msgEvent.delta || '';
+                                    // 思考文本累积到独立缓冲，在关键边界作为 thinking 事件发出
+                                    thinkingBuf += msgEvent.delta || '';
                                     break;
                                 case 'toolcall_start':
-                                    // tool 开始 → flush 前面的文本
+                                    // tool 开始 → 先 flush 思考与文本，再发出 tool_use
+                                    flushThinking();
                                     flushBuffer();
+                                    pendingToolUseId = msgEvent.toolCall?.id || '';
                                     options?.onOutput?.('', {
                                         type: 'tool_use',
                                         toolName: msgEvent.toolCall?.name || 'Tool',
                                         toolInput: msgEvent.toolCall?.arguments || {},
-                                        toolUseId: msgEvent.toolCall?.id || '',
+                                        toolUseId: pendingToolUseId,
                                     });
                                     break;
                                 case 'toolcall_end':
-                                    options?.onOutput?.('', {
-                                        type: 'tool_result',
-                                        toolUseId: msgEvent.toolCall?.id || '',
-                                        isError: false,
-                                    });
+                                    // 模型侧工具声明结束；结果随 tool_execution_end 一并发出
                                     break;
                             }
                             break;
                         }
 
                         case 'tool_execution_update':
-                            // 工具输出也累积
+                            // 工具输出累积到独立缓冲，作为 tool_result 内容（进入「执行步骤」面板）
                             if (typeof evt.textDelta === 'string') {
-                                textBuf += evt.textDelta;
+                                toolBuf += evt.textDelta;
                             }
                             break;
                         case 'tool_execution_end':
-                            // 工具结束 → flush 输出 + tool_result
-                            flushBuffer();
-                            options?.onOutput?.('', {
+                            // 工具结束 → 发出 tool_result（携带工具输出内容 + 关联的 toolUseId）
+                            flushThinking();
+                            options?.onOutput?.(takeToolOutput(), {
                                 type: 'tool_result',
                                 toolName: evt.toolName,
+                                toolUseId: pendingToolUseId,
                                 isError: evt.isError,
                             });
+                            pendingToolUseId = '';
                             break;
 
                         case 'message_end':
-                            // 消息完成 → flush 剩余文本
+                            // 消息完成 → flush 思考 + 剩余文本
+                            flushThinking();
                             flushBuffer();
                             break;
 
                         case 'agent_end':
+                            flushThinking();
                             flushBuffer();
                             unsubscribe();
                             resolve();
