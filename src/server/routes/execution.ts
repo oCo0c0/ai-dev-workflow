@@ -24,7 +24,7 @@ import {getPhaseSkills} from '../utils/skill-utils.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {renderPrompt} from '../utils/prompt-renderer.js';
-import {PROMPTS} from '../prompts/index.js';
+import {PROMPTS} from '../prompts';
 import {ExecutionStoreService, type PersistedExecution} from '../services/execution-store-service.js';
 import {TestStoreService, type PersistedTestRun} from '../services/test-store-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';

@@ -21,7 +21,7 @@
  */
 
 import type {SkillSetConfig, PhaseToolsConfig, MCPToolSetConfig} from '../services/pipeline-service.js';
-import type {MCPConfigService} from '../services/mcp-config-service.js';
+import type {MCPServerConfig} from '../services/mcp-config-service.js';
 import type {McpStdioMap} from '../services/cli-providers/types.js';
 import {readdirSync} from 'fs';
 import {join} from 'path';
@@ -140,12 +140,12 @@ export function getPhaseMcpServers(
  * 找不到的服务器名收集到 missing，由调用方记 warning 跳过。
  *
  * @param names - MCP 服务器名数组（undefined/空 → 不约束，返回 undefined）
- * @param mcpService - MCP 配置服务实例（调用方注入）
+ * @param mcpService - MCP 配置源（MCPRegistryService / MCPConfigService，均实现 get(name)）
  * @returns { map, missing }：map 为 SDK 注入用配置，undefined 表示不注入；missing 为未找到的服务器名
  */
 export function resolveMcpServerMap(
     names: string[] | undefined,
-    mcpService: MCPConfigService
+    mcpService: {get(name: string): MCPServerConfig | undefined}
 ): { map: McpStdioMap | undefined; missing: string[] } {
     if (!names || names.length === 0) return {map: undefined, missing: []};
     const map: McpStdioMap = {};

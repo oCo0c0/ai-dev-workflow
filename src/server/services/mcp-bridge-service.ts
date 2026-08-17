@@ -8,7 +8,8 @@
 
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
-import {MCPConfigService, MCPServerConfig} from './mcp-config-service.js';
+import {McpError, ErrorCode} from '@modelcontextprotocol/sdk/types.js';
+import type {MCPServerConfig} from './mcp-config-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import {extractJsonValue} from '../utils/structured-json.js';
 
@@ -79,6 +80,13 @@ export interface RelatedIssue {
 // === MCP 桥接服务 ===
 
 /**
+ * 需求桥接所需的能力标识
+ * @description 业务侧只声明“要做什么”（能力），具体工具名由 listTools 动态解析，
+ *   避免将上游 MCP 服务器的工具名硬编码在业务代码中。
+ */
+type ToolCapability = 'fetchDetail' | 'search';
+
+/**
  * MCP 桥接服务类
  * @description 封装了与 MCP 服务器的通信逻辑，提供需求获取和搜索的统一接口。
  *   核心特性包括：
@@ -86,25 +94,52 @@ export interface RelatedIssue {
  *   - 连接复用：已建立的连接会被缓存，后续调用直接复用
  *   - 并发保护：通过 connecting 标志位防止重复连接
  *   - 动态切换：支持运行时切换目标 MCP 服务器
+ *   - 能力化工具解析：连接后通过 listTools 动态发现工具，按能力（fetchDetail/search）
+ *     解析工具名并缓存，业务侧不硬编码上游工具名，兼容上游工具改名
  *   - 多格式解析：支持 JSON 和 Markdown 两种 MCP 响应格式的解析
  */
 export class MCPBridgeService {
-    /** MCP 配置服务实例，用于获取服务器连接配置 */
-    private mcpConfigService: MCPConfigService;
+    /** MCP 配置源（注册中心或兼容 get(name) 的服务），用于获取服务器连接配置 */
+    private mcpConfigSource: {get(name: string): MCPServerConfig | undefined};
     /** 当前使用的 MCP 服务器名称，默认为 'ones-api' */
     private serverName: string;
     /** MCP 客户端实例，为 null 表示尚未连接 */
     private client: Client | null = null;
     /** 连接中标志位，防止并发连接请求导致的竞争条件 */
     private connecting: boolean = false;
+    /** 已连接 MCP 服务器的工具名清单缓存（null 表示未知） */
+    private availableTools: Set<string> | null = null;
+    /** 能力 → 已解析工具名映射（连接后通过 listTools 发现并缓存） */
+    private toolByCapability: Partial<Record<ToolCapability, string>> = {};
+
+    /**
+     * 能力 → 工具名匹配模式（按优先级排列）
+     * @description 遵循 MCP 动态发现（listTools）设计：不硬编码具体工具名，
+     *   而是在连接后按命名约定从服务端实际提供的工具清单中解析出对应工具。
+     *   上游改名后只要仍符合命名约定即可自动适配，无需改动调用方；
+     *   已知版本的工具名保留在前，作为精确命中项。
+     */
+    private static readonly CAPABILITY_PATTERNS: Record<ToolCapability, RegExp[]> = {
+        // 需求/工作项详情：ones-api 0.1.x 为 get_requirement，0.2.0 起为 get_work_item
+        fetchDetail: [
+            /^get_work_item$/,   // ones-api >= 0.2.0（需求/任务）
+            /^get_requirement$/, // ones-api <= 0.1.x
+            /^(get|fetch|read)_(?:work_item|workitem|requirement)(?:_detail)?$/, // 未来重命名兜底
+        ],
+        // 需求搜索：ones-api 全版本均为 search_requirements
+        search: [
+            /^search_requirements$/,
+            /^search_(?:requirement|issues|work_items)$/, // 未来重命名兜底
+        ],
+    };
 
     /**
      * 构造函数
-     * @param mcpConfigService - MCP 配置服务实例，提供服务器配置信息
+     * @param mcpConfigSource - MCP 配置源（MCPRegistryService / MCPConfigService，均实现 get(name)）
      * @param serverName - 可选的 MCP 服务器名称，默认为 'ones-api'
      */
-    constructor(mcpConfigService: MCPConfigService, serverName?: string) {
-        this.mcpConfigService = mcpConfigService;
+    constructor(mcpConfigSource: {get(name: string): MCPServerConfig | undefined}, serverName?: string) {
+        this.mcpConfigSource = mcpConfigSource;
         this.serverName = serverName ?? 'ones-api';
     }
 
@@ -149,6 +184,17 @@ export class MCPBridgeService {
             );
 
             await client.connect(transport);
+            // 动态发现工具（MCP 核心设计）：按能力解析并缓存工具名，失败不阻塞连接
+            try {
+                const tools = await client.listTools();
+                this.availableTools = new Set(tools.tools.map(t => t.name));
+                for (const capability of Object.keys(MCPBridgeService.CAPABILITY_PATTERNS) as ToolCapability[]) {
+                    const resolved = this.resolveTool(capability, tools.tools);
+                    if (resolved) this.toolByCapability[capability] = resolved;
+                }
+            } catch {
+                this.availableTools = null;
+            }
             this.client = client;
             return client;
         } finally {
@@ -165,6 +211,8 @@ export class MCPBridgeService {
             await this.client.close();
             this.client = null;
         }
+        this.availableTools = null;
+        this.toolByCapability = {};
     }
 
     /**
@@ -175,8 +223,12 @@ export class MCPBridgeService {
      */
     async fetchRequirementDetail(id: string): Promise<RequirementDetail> {
         try {
-            const client = await this.ensureConnected();
-            const result = await client.callTool({name: 'get_requirement', arguments: {id}});
+            // 通过能力解析工具：ones-api 0.2.0 起 get_requirement 被拆分为 get_work_item（需求/任务），
+            // 0.1.x 仅提供 get_requirement，由 resolveTool 按工具清单自动适配
+            const result = await this.callToolByCapability(
+                'fetchDetail',
+                {id},
+            );
             return this.parseRequirementDetail(result.content);
         } catch (err) {
             throw new Error(
@@ -193,8 +245,10 @@ export class MCPBridgeService {
      */
     async searchRequirements(query: string): Promise<Requirement[]> {
         try {
-            const client = await this.ensureConnected();
-            const result = await client.callTool({name: 'search_requirements', arguments: {query}});
+            const result = await this.callToolByCapability(
+                'search',
+                {query},
+            );
             return this.parseRequirementList(result.content);
         } catch (err) {
             throw new Error(
@@ -226,11 +280,104 @@ export class MCPBridgeService {
     // === 私有方法 ===
 
     /**
+     * 判断错误是否为 JSON-RPC "工具不存在"（-32602 Invalid params: Tool xxx not found）
+     * @param err - 原始错误对象
+     * @returns 是否为工具不存在错误
+     */
+    private isToolNotFoundError(err: unknown): boolean {
+        if (err instanceof McpError) {
+            return err.code === ErrorCode.InvalidParams && /not found/i.test(err.message);
+        }
+        const msg = getErrorMessage(err);
+        return msg.includes('-32602') && /not found/i.test(msg);
+    }
+
+    /**
+     * 从服务端工具清单中按能力解析出应调用的工具名
+     * @param capability - 能力标识
+     * @param tools - listTools 返回的工具清单
+     * @returns 解析出的工具名，未命中返回 undefined
+     */
+    private resolveTool(
+        capability: ToolCapability,
+        tools: {name: string; description?: string}[],
+    ): string | undefined {
+        const patterns = MCPBridgeService.CAPABILITY_PATTERNS[capability];
+        for (const pattern of patterns) {
+            const hit = tools.find(t => pattern.test(t.name));
+            if (hit) return hit.name;
+        }
+        return undefined;
+    }
+
+    /**
+     * 按能力调用工具（能力 → 工具动态映射）
+     * @description 优先使用 listTools 发现并解析出的工具名；
+     *   若解析失败（工具清单未知 / 命名约定未命中），回退逐个尝试已知候选名并跳过
+     *   "工具不存在" 错误；全部失败时抛出包含服务端实际工具清单的可操作错误。
+     * @param capability - 能力标识
+     * @param args - 工具参数
+     * @returns MCP 工具调用结果
+     * @throws 无可用工具时抛出错误（含服务端工具清单便于排查）
+     */
+    private async callToolByCapability(
+        capability: ToolCapability,
+        args: Record<string, unknown>,
+    ): Promise<{content: unknown}> {
+        const client = await this.ensureConnected();
+
+        // 1. 已通过 listTools 按能力解析到工具名
+        const resolved = this.toolByCapability[capability];
+        if (resolved) {
+            return (await client.callTool({name: resolved, arguments: args})) as unknown as {content: unknown};
+        }
+
+        // 2. 解析失败（工具清单不可用 / 命名约定未命中）：回退尝试已知候选名
+        const legacyCandidates = this.knownCandidateNames(capability);
+        let lastErr: unknown;
+        for (const name of legacyCandidates) {
+            try {
+                return (await client.callTool({name, arguments: args})) as unknown as {content: unknown};
+            } catch (err) {
+                if (this.isToolNotFoundError(err)) {
+                    lastErr = err;
+                    continue;
+                }
+                throw err;
+            }
+        }
+
+        // 3. 全部失败：抛出可操作错误，列出服务端实际提供的工具
+        const available = this.availableTools && this.availableTools.size > 0
+            ? ` Available tools: [${[...this.availableTools].join(', ')}]`
+            : '';
+        throw lastErr ?? new Error(
+            `No tool found on MCP server "${this.serverName}" for capability "${capability}".${available}`
+        );
+    }
+
+    /**
+     * 已知版本的候选工具名（兜底用，仅当 listTools 不可用或解析失败时尝试）
+     * @param capability - 能力标识
+     * @returns 已知候选工具名数组
+     */
+    private knownCandidateNames(capability: ToolCapability): string[] {
+        switch (capability) {
+            case 'fetchDetail':
+                return ['get_work_item', 'get_requirement'];
+            case 'search':
+                return ['search_requirements'];
+            default:
+                return [];
+        }
+    }
+
+    /**
      * 获取当前 MCP 服务器的配置信息（公开方法，供路由层读取认证参数等）
      * @returns 服务器配置对象，如果未配置则返回 undefined
      */
     getServerConfig(): MCPServerConfig | undefined {
-        return this.mcpConfigService.get(this.serverName);
+        return this.mcpConfigSource.get(this.serverName);
     }
 
     /**
@@ -448,7 +595,8 @@ export class MCPBridgeService {
         // 优先使用 "Requirement Documents"（ONES 标准文档章节）和 "Requirement Detail"，
         // "Description" 章节可能包含嵌套的元数据内容故优先级较低
         const sectionOrder = [
-            'Requirement Documents', 'Requirement Detail',
+            // 0.2.0 起描述章节更名为 Untrusted ONES Description（含安全提示行）
+            'Requirement Documents', 'Untrusted ONES Description', 'Requirement Detail',
             'Description', '需求详情', '需求文档', '详情', 'Content',
         ];
 
@@ -495,6 +643,9 @@ export class MCPBridgeService {
             }
         }
 
+        // 移除 0.2.0 版本在描述开头注入的安全提示行（Security boundary: ...）
+        description = description.replace(/^>\s*Security boundary:[^\n]*\n?/i, '').trim();
+
         // 解析验收标准章节（支持中英文标题）
         const acIdx = lines.findIndex(l => /^##\s+(Acceptance Criteria|验收标准)/i.test(l));
         if (acIdx >= 0) {
@@ -517,6 +668,16 @@ export class MCPBridgeService {
                         name: attMatch[1],
                         url: attMatch[2],
                         type: attMatch[3]?.split(',')[0]?.trim() || 'file',
+                    });
+                    continue;
+                }
+                // 兼容 0.2.0：附件 URL 被省略（- name (mimeType, size bytes; URL omitted)）
+                const attNoUrlMatch = lines[i].match(/^[-*]\s+([^(]+?)\s*\(([^)]+)\)\s*$/);
+                if (attNoUrlMatch) {
+                    parsedAttachments.push({
+                        name: attNoUrlMatch[1].trim(),
+                        url: '', // 0.2.0 出于安全考虑省略附件 URL，图片以 content 内嵌 base64 返回
+                        type: attNoUrlMatch[2].split(',')[0]?.trim() || 'file',
                     });
                 }
             }

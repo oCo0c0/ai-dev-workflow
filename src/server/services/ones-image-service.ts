@@ -15,6 +15,7 @@
 
 import crypto from 'crypto';
 import fs from 'fs';
+import path from 'path';
 import http from 'http';
 import https from 'https';
 import {downloadFile as httpDownloadFile} from '../utils/http-utils.js';
@@ -82,6 +83,15 @@ export class OnesImageService {
                     title
                     errorMessage
                 }
+            }
+        }
+    `;
+
+    /** GraphQL 查询任务原始富文本描述（用于提取 <img> 附件 URL） */
+    private static readonly TASK_RICH_TEXT_QUERY = `
+        query Task($key: Key) {
+            task(key: $key) {
+                description
             }
         }
     `;
@@ -416,6 +426,115 @@ export class OnesImageService {
     }
 
     /**
+     * 通过 GraphQL 拉取任务原始富文本描述，提取其中 <img> 标签引用的 ONES 附件图片
+     * @description 不依赖 MCP 输出格式（0.2.0 将图片降级为 [image] 占位符），
+     *   直接从 ONES 拿原始 HTML，图片为 /project/api/project/team/{team}/res/attachment/{uuid}?redirect=true
+     * @param taskUuid - 任务/需求 UUID
+     * @returns 图片列表 [{ uuid, url }]，按 <img> 出现顺序
+     */
+    async fetchTaskRichTextImages(taskUuid: string): Promise<Array<{uuid: string; url: string}>> {
+        try {
+            const result = await this.graphql<{data?: {task?: {description?: string}}}>(
+                OnesImageService.TASK_RICH_TEXT_QUERY,
+                {key: `task-${taskUuid}`},
+            );
+            const html = result.data?.task?.description ?? '';
+            const images: Array<{uuid: string; url: string}> = [];
+            const re = /<img\b[^>]*\bsrc="([^"]+)"/gi;
+            let match: RegExpExecArray | null;
+            while ((match = re.exec(html)) !== null) {
+                const url = match[1];
+                const uuidMatch = url.match(/\/res\/attachment\/([^/?]+)/);
+                if (uuidMatch) {
+                    images.push({uuid: uuidMatch[1], url});
+                }
+            }
+            return images;
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * 下载任务富文本描述中的全部 <img> 图片到本地目录
+     * @param taskUuid - 任务/需求 UUID
+     * @param imgDir - 图片保存目录
+     * @returns 成功下载的图片列表（含本地文件名/路径），按 <img> 出现顺序
+     */
+    async downloadTaskImages(
+        taskUuid: string,
+        imgDir: string,
+    ): Promise<Array<{uuid: string; filename: string; localPath: string}>> {
+        const images = await this.fetchTaskRichTextImages(taskUuid);
+        const results: Array<{uuid: string; filename: string; localPath: string}> = [];
+
+        for (const img of images) {
+            // 已下载过则跳过（按 uuid 前缀匹配任意扩展名）
+            const existing = fs.existsSync(imgDir)
+                ? fs.readdirSync(imgDir).find(f => f.startsWith(`${img.uuid}.`))
+                : undefined;
+            if (existing) {
+                results.push({uuid: img.uuid, filename: existing, localPath: path.join(imgDir, existing)});
+                continue;
+            }
+
+            // 先下载到临时文件，再从签名 URL / content-type / 魔数推断扩展名后重命名
+            const tmpPath = path.join(imgDir, `${img.uuid}.tmp`);
+            const ext = await this.downloadTaskImage(img.uuid, tmpPath);
+            if (!ext) continue;
+
+            const filename = `${img.uuid}.${ext}`;
+            const localPath = path.join(imgDir, filename);
+            fs.renameSync(tmpPath, localPath);
+            results.push({uuid: img.uuid, filename, localPath});
+        }
+        return results;
+    }
+
+    /**
+     * 下载单个 ONES 项目附件图片
+     * @description 附件 URL（?redirect=true）返回 302 指向带签名 CDN 地址，
+     *   先手动请求拿 location（避免把 ONES Bearer 令牌转发给第三方 CDN），
+     *   再无认证下载签名地址。
+     * @param uuid - 附件资源 UUID
+     * @param destPath - 本地保存路径
+     * @returns 推断出的文件扩展名（png/jpg/gif/webp/svg/bmp），失败返回 null
+     */
+    async downloadTaskImage(uuid: string, destPath: string): Promise<string | null> {
+        try {
+            const session = await this.ensureSession();
+            const url = `${this.apiBase}/project/api/project/team/${session.teamUuid}/res/attachment/${encodeURIComponent(uuid)}?redirect=true`;
+            const res = await this.fetch(url, {
+                headers: {Authorization: `Bearer ${session.accessToken}`},
+                redirect: 'manual',
+            });
+
+            // 1. 302 → 签名 CDN 地址
+            const location = res.headers.get('location');
+            if (location) {
+                const ext = extFromUrl(location);
+                await httpDownloadFile(location, destPath, TIMEOUTS.HTTP_DOWNLOAD);
+                return ext;
+            }
+
+            // 2. 免签名直出（部分环境/资源直接返回图片内容）
+            if (res.ok) {
+                const buf = Buffer.from(await res.arrayBuffer());
+                if (buf.length > 0) {
+                    const ext = extFromContentType(res.headers.get('content-type'))
+                        ?? sniffImageExt(buf)
+                        ?? 'png';
+                    fs.writeFileSync(destPath, buf);
+                    return ext;
+                }
+            }
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * 下载图片到本地（多策略自动回退）
      * @param resourceUuid - 资源 UUID（hash）
      * @param destPath - 本地保存路径
@@ -569,4 +688,41 @@ export class OnesImageService {
     private downloadFile(url: string, destPath: string): Promise<void> {
         return httpDownloadFile(url, destPath, TIMEOUTS.BRIDGE_START);
     }
+}
+
+// === 工具函数 ===
+
+/** 从 URL 推断图片扩展名（签名 CDN 地址通常带扩展名） */
+function extFromUrl(url: string): string {
+    const m = url.match(/\.(png|jpe?g|gif|webp|svg|bmp)(?:[?#]|$)/i);
+    if (!m) return 'png';
+    return m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase();
+}
+
+/** 从 content-type 推断图片扩展名 */
+function extFromContentType(contentType: string | null): string | null {
+    const ct = (contentType ?? '').toLowerCase();
+    const map: Record<string, string> = {
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/gif': 'gif',
+        'image/webp': 'webp',
+        'image/svg+xml': 'svg',
+        'image/bmp': 'bmp',
+    };
+    for (const [k, v] of Object.entries(map)) {
+        if (ct.includes(k)) return v;
+    }
+    return null;
+}
+
+/** 从文件魔数（magic bytes）嗅探图片扩展名 */
+function sniffImageExt(buf: Buffer): string | null {
+    if (buf.length >= 8 && buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+    if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
+    if (buf.length >= 4 && buf.toString('latin1', 0, 4) === 'GIF8') return 'gif';
+    if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+    if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4d) return 'bmp';
+    if (buf.length >= 5 && ['<svg', '<?xml'].some(p => buf.toString('latin1', 0, 5).toLowerCase().startsWith(p))) return 'svg';
+    return null;
 }

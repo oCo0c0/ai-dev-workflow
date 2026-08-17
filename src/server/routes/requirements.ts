@@ -15,9 +15,9 @@ import {getErrorMessage} from '../utils/error-utils.js';
 import {broadcast} from '../websocket.js';
 
 /**
- * 把用户输入（需求号 / issue key / ONES 链接）规整为 ones-api get_requirement 可用的标识。
+ * 把用户输入（需求号 / issue key / ONES 链接）规整为 ones-api get_work_item / get_requirement 可用的标识。
  *
- * ONES 链接直接透传给 get_requirement：需求号可能跨项目重复，链接含 team 标识可唯一定位，
+ * ONES 链接直接透传给 get_work_item：需求号可能跨项目重复，链接含 team 标识可唯一定位，
  * 故不再从中截取需求号。实测 wiki page 链接（https://1s.oristand.com/wiki#/team/.../page/xxx）
  * 可直接拉取；issue 链接（.../issue/CWXT-xxx）ones-api 返回 403，需改用 wiki 链接或 number/uuid。
  *
@@ -217,14 +217,14 @@ export function createRequirementsRoutes(
                 // 输入中的纯数字编号（用于回填 detail.number）
                 const inputNumber = resolvedId.match(/^(\d+)$/)?.[1];
 
-                // 纯数字编号：先通过搜索获取实际的 ID，搜索失败时回退到直接用编号调用 get_requirement
+                // 纯数字编号：先通过搜索获取实际的 ID，搜索失败时回退到直接用编号调用 get_work_item / get_requirement
                 if (inputNumber) {
                     const results = await mcpBridgeService.searchRequirements(inputNumber);
                     if (results.length > 0) {
                         // 取第一个匹配结果的 ID 作为实际查询 ID
                         resolvedId = results[0].id;
                     }
-                    // 搜索无结果时不中断，继续用编号直接调用 get_requirement
+                    // 搜索无结果时不中断，继续用编号直接调用 get_work_item / get_requirement
                 }
 
                 // 通过 MCP 获取需求详情，并自动保存到本地存储

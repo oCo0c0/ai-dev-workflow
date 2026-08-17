@@ -220,6 +220,25 @@ export class RequirementStoreService {
             }
         }
 
+        // 策略1.5: MCP 输出无图片资源时（ai-dev-requirements 0.2.0 将图片降级为 [image] 占位符），
+        // 直接从 ONES 任务富文本提取 <img> 附件下载，不依赖 MCP 输出格式
+        let richTextImages: Array<{uuid: string; filename: string; localPath: string}> = [];
+        if (onesImageService && imageResources.size === 0) {
+            try {
+                richTextImages = await Promise.race([
+                    onesImageService.downloadTaskImages(reqId, imgDir),
+                    new Promise<Array<{uuid: string; filename: string; localPath: string}>>((_, reject) =>
+                        setTimeout(() => reject(new Error('Rich text image download timeout')), 30000)
+                    ),
+                ]);
+                if (richTextImages.length > 0) {
+                    console.log(`[ones-image] Rich text download: ${richTextImages.length} images for ${reqId}`);
+                }
+            } catch (err) {
+                console.warn(`[ones-image] Rich text download failed: ${err instanceof Error ? err.message : err}`);
+            }
+        }
+
         // 策略2（回退）: 并行下载未成功的图片（每文件内回退链串行）
         await Promise.all(Array.from(imageResources.keys()).map(async (filename) => {
             const localPath = path.join(imgDir, filename);
@@ -247,6 +266,26 @@ export class RequirementStoreService {
         }));
 
         let desc = req.description;
+
+        // 替换 0.2.0 的 [image] / [Image omitted] 占位符（按出现顺序对应富文本图片）
+        if (richTextImages.length > 0) {
+            let imgIdx = 0;
+            desc = desc.replace(/\[image(?: omitted)?\]/gi, () => {
+                const img = richTextImages[imgIdx++];
+                if (!img) return '[图片未下载]';
+                const localUrl = `/api/requirements/images/${reqId}/${img.filename}`;
+                // 同步到附件列表，使前端附件面板可展示
+                if (!req.attachments.some(a => a.name === img.filename)) {
+                    const ext = (img.filename.split('.').pop() ?? 'png').toLowerCase();
+                    req.attachments.push({
+                        name: img.filename,
+                        url: localUrl,
+                        type: ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`,
+                    });
+                }
+                return `![${img.uuid}](${localUrl})`;
+            });
+        }
 
         // 替换 [Image: filename.png] 格式
         desc = desc.replace(/\[Image:\s*([^\]]+)\]/g, (_match, imageName: string) => {
@@ -285,6 +324,12 @@ export class RequirementStoreService {
                     att.url = `/api/requirements/images/${reqId}/${att.name}`;
                 }
             }
+        }
+
+        // 持久化：把替换后的描述与附件写回存储（图片本地化完成）
+        const existing = this.get(reqId);
+        if (existing) {
+            this.upsert({...existing, description: req.description, attachments: req.attachments});
         }
     }
 

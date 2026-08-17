@@ -20,6 +20,8 @@ export const REQUIREMENTS_DIR = path.join(APP_DATA_DIR, 'requirements');
 export const LEGACY_IMAGE_DIR = path.join(APP_DATA_DIR, 'requirement-images');
 /** 自有模型供应商配置文件路径（统一配置读写入口） */
 export const MODEL_PROVIDERS_FILE = path.join(APP_DATA_DIR, 'models.json');
+/** MCP 服务器注册中心文件路径（provider 无关的 adw 自有数据源） */
+export const MCP_REGISTRY_FILE = path.join(APP_DATA_DIR, 'mcp-servers.json');
 /** API Key 加密密钥文件路径（AES-256-GCM 密钥，权限 0600） */
 export const SECRET_KEY_FILE = path.join(APP_DATA_DIR, '.secret-key');
 

@@ -387,9 +387,30 @@ export class PiProvider implements CLIProvider {
     }
 
     async loadMcpServers(): Promise<McpServerInfo[]> {
-        // pi 通过 ~/.pi/agent/settings.json 管理 MCP 配置，
-        // 而不是像 Claude/Codex 那样有独立的 MCP 服务器配置。
-        return [];
+        // pi 官方不支持 MCP（README: No MCP），但预留读取 ~/.pi/agent/settings.json 的 mcpServers 段，
+        // 便于将来 pi 扩展或用户手动配置后 adw 侧可见。
+        try {
+            const fs = await import('fs');
+            const os = await import('os');
+            const path = await import('path');
+            const settingsFile = path.join(os.homedir(), '.pi', 'agent', 'settings.json');
+            if (!fs.existsSync(settingsFile)) return [];
+            const parsed = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+            const mcp = parsed?.mcpServers;
+            if (!mcp || typeof mcp !== 'object') return [];
+            return Object.entries(mcp as Record<string, {command?: string; args?: string[]; env?: Record<string, string>}>)
+                .filter(([, c]) => typeof c?.command === 'string' && c.command.trim() !== '')
+                .map(([name, c]) => ({
+                    name,
+                    type: 'custom',
+                    command: c?.command ?? '',
+                    args: Array.isArray(c?.args) ? c.args : [],
+                    env: (typeof c?.env === 'object' && c.env !== null) ? c.env : {},
+                    enabled: true,
+                }));
+        } catch {
+            return [];
+        }
     }
 
     async dispose(): Promise<void> {

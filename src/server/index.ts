@@ -18,7 +18,7 @@ import {requestLogger} from './middleware/logger.js';
 import {errorHandler} from './middleware/validation.js';
 
 // 服务层
-import {MCPConfigService} from './services/mcp-config-service.js';
+import {MCPRegistryService} from './services/mcp-registry-service.js';
 import {MCPBridgeService} from './services/mcp-bridge-service.js';
 import {WorkspaceService} from './services/workspace-service.js';
 import {CLIRunnerService} from './services/cli-runner-service.js';
@@ -117,8 +117,18 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use(requestLogger);
 
     // 实例化业务服务
-    const mcpConfigService = new MCPConfigService();
-    const mcpBridgeService = new MCPBridgeService(mcpConfigService);
+    // MCP 注册中心：adw 自有数据源（provider 无关），UI / Bridge / 运行时注入统一读取
+    const mcpRegistryService = new MCPRegistryService();
+    // 启动时把各 provider 本地 MCP 配置（claude/codex/pi）导入注册中心
+    try {
+        const stats = mcpRegistryService.importFromProviders();
+        if (stats.imported > 0) {
+            console.log(`[mcp-registry] imported ${stats.imported} MCP servers from provider configs: ${JSON.stringify(stats.sources)}`);
+        }
+    } catch (err) {
+        console.warn(`[mcp-registry] import failed: ${err instanceof Error ? err.message : err}`);
+    }
+    const mcpBridgeService = new MCPBridgeService(mcpRegistryService);
     const workspaceService = new WorkspaceService();
     const cliRunnerService = new CLIRunnerService(config.cliProvider?.active);
     const testExecutorService = new TestExecutorService();
@@ -218,10 +228,10 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/plan', createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
     app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService));
     app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService));
-    app.use('/api/skills', createSkillsRoutes(skillsService, cliRunnerService));
-    app.use('/api/mcp-servers', createMCPServersRoutes(mcpConfigService, cliRunnerService));
+    app.use('/api/skills', createSkillsRoutes(skillsService));
+    app.use('/api/mcp-servers', createMCPServersRoutes(mcpRegistryService));
     app.use('/api/pipelines', createPipelineRoutes(pipelineService));
-    app.use('/api/system', createSystemRoutes(cliRunnerService, mcpConfigService, sandboxService));
+    app.use('/api/system', createSystemRoutes(cliRunnerService, mcpRegistryService, sandboxService));
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));
     app.use('/api/mineru', createMinerURoutes(mineruService));
     app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService));

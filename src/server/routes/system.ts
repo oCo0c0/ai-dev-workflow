@@ -20,7 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import {CLIRunnerService} from '../services/cli-runner-service.js';
-import {MCPConfigService} from '../services/mcp-config-service.js';
+import {MCPRegistryService} from '../services/mcp-registry-service.js';
 import type {SandboxService} from '../services/sandbox-service.js';
 import {ConfigService, type AppConfig} from '../services/config-service.js';
 import {detectInstalledProviders, getProvider} from '../services/cli-providers';
@@ -77,13 +77,13 @@ function readCodexModel(): string | null {
  * 创建系统状态路由实例
  *
  * @param cliRunnerService - CLI 运行器服务实例
- * @param mcpConfigService - MCP 配置服务实例
+ * @param mcpRegistryService - MCP 注册中心服务（adw 自有数据源）
  * @param sandboxService - 沙箱服务实例（可选）
  * @returns 配置好路由的 Express Router
  */
 export function createSystemRoutes(
     cliRunnerService: CLIRunnerService,
-    mcpConfigService: MCPConfigService,
+    mcpRegistryService: MCPRegistryService,
     sandboxService?: SandboxService
 ): Router {
     const router = Router();
@@ -92,7 +92,7 @@ export function createSystemRoutes(
     router.get('/status', async (_req, res) => {
         try {
             const cliInfo = await cliRunnerService.checkAvailability();
-            const mcpServers = mcpConfigService.list().map(s => ({
+            const mcpServers = mcpRegistryService.list().map(s => ({
                 name: s.name,
                 status: s.status ?? 'disconnected',
             }));
@@ -102,7 +102,7 @@ export function createSystemRoutes(
                 claudeCodeVersion: cliInfo.version,
                 activeProvider: cliRunnerService.getActiveProviderId(),
                 mcpServers,
-                configPath: mcpConfigService.getSettingsFile(),
+                configPath: mcpRegistryService.getRegistryFile(),
                 uptime: process.uptime(),
                 sandbox: sandboxService?.getStatus() ?? {enabled: false, apiUrl: '', activeCount: 0},
             });

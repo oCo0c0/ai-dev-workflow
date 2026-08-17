@@ -19,7 +19,7 @@ import {Router} from 'express';
 import fs from 'fs';
 import path from 'path';
 import {SkillsService} from '../services/skills-service.js';
-import type {CLIRunnerService} from '../services/cli-runner-service.js';
+import {getAllProviders} from '../services/cli-providers';
 import type {SkillInfo} from '../services/cli-providers';
 import {validateBody} from '../middleware/validation.js';
 import {getErrorMessage} from '../utils/error-utils.js';
@@ -53,26 +53,41 @@ function loadBuiltinSkills(): SkillInfo[] {
 }
 
 /**
+ * 合并所有 provider 的技能（provider 无关：不依赖当前激活的 provider）
+ * @description 遍历 claude/codex/pi 各自的 loadSkills()，按 name 去重（先到先得）。
+ */
+async function loadAllProviderSkills(): Promise<SkillInfo[]> {
+    const map = new Map<string, SkillInfo>();
+    for (const provider of getAllProviders()) {
+        try {
+            const skills = await provider.loadSkills();
+            for (const s of skills) {
+                if (!map.has(s.name)) {
+                    map.set(s.name, {...s, source: s.source ?? provider.id});
+                }
+            }
+        } catch { /* 单个 provider 扫描失败不影响整体 */ }
+    }
+    return Array.from(map.values());
+}
+
+/**
  * 创建技能路由实例
  */
 export function createSkillsRoutes(
     skillsService: SkillsService,
-    cliRunnerService: CLIRunnerService,
 ): Router {
     const router = Router();
 
-    // GET /api/skills - 获取所有技能列表（内置 + provider 合并，去重，内置优先）
+    // GET /api/skills - 获取所有技能列表（内置 + 所有 provider 技能合并，去重，内置优先）
     router.get('/', async (_req, res) => {
         try {
             const builtin = loadBuiltinSkills();
-            const provider = cliRunnerService.getProvider();
-            const external = await provider.loadSkills();
-            // 标记外部来源
-            const externalMarked = external.map(s => ({...s, source: s.source ?? 'external'}));
+            const external = await loadAllProviderSkills();
 
             // 合并去重：内置优先，外部同名跳过
             const seen = new Set(builtin.map(s => s.name));
-            const merged = [...builtin, ...externalMarked.filter(s => !seen.has(s.name))];
+            const merged = [...builtin, ...external.filter(s => !seen.has(s.name))];
             res.json(merged);
         } catch (err) {
             res.status(500).json({code: 'SKILLS_ERROR', message: getErrorMessage(err)});
@@ -89,9 +104,8 @@ export function createSkillsRoutes(
                 res.json(skill);
                 return;
             }
-            // 2. fallback：从 provider 扫描结果（含插件/命令）按 name 匹配，读 filePath 返回内容
-            const provider = cliRunnerService.getProvider();
-            const external = await provider.loadSkills();
+            // 2. fallback：从所有 provider 扫描结果（含插件/命令）按 name 匹配，读 filePath 返回内容
+            const external = await loadAllProviderSkills();
             const hit = external.find(s => s.name === name);
             if (hit) {
                 let content = '';

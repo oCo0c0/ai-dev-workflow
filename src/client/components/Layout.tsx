@@ -56,8 +56,8 @@ const navItems = [
     {path: '/execution', labelKey: 'nav.execution', icon: Play},
     {path: '/tests', labelKey: 'nav.tests', icon: TestTube},
     {path: '/projects', labelKey: 'nav.projects', icon: FolderKanban},
-    {path: '/mcp', labelKey: 'nav.mcp', icon: Plug},
     {path: '/model-providers', labelKey: 'nav.modelProviders', icon: Cpu},
+    {path: '/mcp', labelKey: 'nav.mcp', icon: Plug},
     {path: '/skills', labelKey: 'nav.skills', icon: Zap},
     {path: '/mineru', labelKey: 'nav.mineru', icon: FileSearch},
 ];

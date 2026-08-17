@@ -18,7 +18,7 @@ import AdmZip from 'adm-zip';
 import XLSX from 'xlsx';
 import {CLIRunnerService} from '../services/cli-runner-service.js';
 import {MCPBridgeService} from '../services/mcp-bridge-service.js';
-import {MCPConfigService} from '../services/mcp-config-service.js';
+import {MCPRegistryService} from '../services/mcp-registry-service.js';
 import {PipelineService} from '../services/pipeline-service.js';
 import {validateBody, validateWorkspacePath, validateOutputPath} from '../middleware/validation.js';
 import {broadcast} from '../websocket.js';
@@ -589,7 +589,7 @@ function resolvePlanSkills(
 function resolvePlanMcpServers(
     pipelineId: string | undefined,
     pipelineService: PipelineService | undefined,
-    mcpConfigService: MCPConfigService,
+    mcpConfigService: MCPRegistryService,
 ): { mcpServers: McpStdioMap | undefined; missing: string[] } {
     if (!pipelineId || !pipelineService) return {mcpServers: undefined, missing: []};
     const pipeline = pipelineService.get(pipelineId);
@@ -605,7 +605,7 @@ function resolvePlanMcpServers(
 function resolvePlanMcpWithWarn(
     plan: PersistedPlan,
     pipelineService: PipelineService | undefined,
-    mcpConfigService: MCPConfigService,
+    mcpConfigService: MCPRegistryService,
 ): McpStdioMap | undefined {
     const {mcpServers, missing} = resolvePlanMcpServers(plan.pipelineId, pipelineService, mcpConfigService);
     if (missing.length > 0) {
@@ -848,7 +848,7 @@ export function createPlanRoutes(
 ): Router {
     const planStore = new PlanStoreService();
     const reqStore = new RequirementStoreService();
-    const mcpConfigService = new MCPConfigService();
+    const mcpConfigService = new MCPRegistryService();
     const router = Router();
 
     // POST /api/plan/generate - 基于需求生成开发计划

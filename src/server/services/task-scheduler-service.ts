@@ -17,7 +17,7 @@ import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {renderPrompt} from '../utils/prompt-renderer.js';
 import {PROMPTS} from '../prompts/index.js';
 import {getPhaseSkills, getPhaseMcpServers, resolveMcpServerMap} from '../utils/skill-utils.js';
-import {MCPConfigService} from './mcp-config-service.js';
+import {MCPRegistryService} from './mcp-registry-service.js';
 import {broadcast} from '../websocket.js';
 import type {MemoryService} from './memory/memory-service.js';
 import type {PipelineService} from './pipeline-service.js';
@@ -80,7 +80,7 @@ export class TaskScheduler {
     private maxConcurrent: number;
     private deps: PipelineDependencies | null = null;
     /** MCP 配置服务（无状态，按名解析为 stdio 配置注入执行阶段） */
-    private mcpConfigService = new MCPConfigService();
+    private mcpConfigService = new MCPRegistryService();
     /** 持久化回调：状态变更时同步写入磁盘 */
     onPersist?: (task: TaskInfo) => void;
     /** 确认等待：taskId → resolve 回调 */
@@ -97,13 +97,30 @@ export class TaskScheduler {
 
     // === 基础访问 ===
 
-    getMaxConcurrent(): number { return this.maxConcurrent; }
-    setMaxConcurrent(n: number): void { this.maxConcurrent = Math.max(1, n); }
-    getRunningCount(): number { return this.running.size; }
-    getQueueLength(): number { return this.queue.length; }
+    getMaxConcurrent(): number {
+        return this.maxConcurrent;
+    }
 
-    registerTask(task: TaskInfo): void { this.tasks.set(task.id, task); }
-    getTask(taskId: string): TaskInfo | undefined { return this.tasks.get(taskId); }
+    setMaxConcurrent(n: number): void {
+        this.maxConcurrent = Math.max(1, n);
+    }
+
+    getRunningCount(): number {
+        return this.running.size;
+    }
+
+    getQueueLength(): number {
+        return this.queue.length;
+    }
+
+    registerTask(task: TaskInfo): void {
+        this.tasks.set(task.id, task);
+    }
+
+    getTask(taskId: string): TaskInfo | undefined {
+        return this.tasks.get(taskId);
+    }
+
     /**
      * 启动任务（如果达到并行上限则排队，否则直接执行完整流水线）
      */
@@ -167,7 +184,8 @@ export class TaskScheduler {
         const running = this.running.get(taskId);
         if (running) {
             running.abortController.abort();
-            await running.provider.dispose().catch(() => {});
+            await running.provider.dispose().catch(() => {
+            });
             this.running.delete(taskId);
         }
 
@@ -188,7 +206,8 @@ export class TaskScheduler {
         const running = this.running.get(taskId);
         if (running) {
             running.abortController.abort();
-            running.provider.dispose().catch(() => {});
+            running.provider.dispose().catch(() => {
+            });
             this.running.delete(taskId);
         }
         this.tasks.delete(taskId);
@@ -213,6 +232,7 @@ export class TaskScheduler {
             }
         );
     }
+
     updateTaskState(taskId: string, updates: Partial<Pick<TaskInfo, 'status' | 'phase' | 'name'>>): void {
         const task = this.tasks.get(taskId);
         if (task) {
@@ -295,7 +315,8 @@ export class TaskScheduler {
             }
         } finally {
             task.updatedAt = new Date().toISOString();
-            await provider.dispose().catch(() => {});
+            await provider.dispose().catch(() => {
+            });
             this.running.delete(taskId);
             this.notifyUpdate(task);
 
@@ -352,7 +373,8 @@ export class TaskScheduler {
             if (allDepsMet) {
                 this.addLog(id, 'idle', 'info', `所有前置任务完成，开始执行...`);
                 if (this.running.size < this.maxConcurrent) {
-                    this.executeTask(id).catch(() => {});
+                    this.executeTask(id).catch(() => {
+                    });
                 } else {
                     t.status = 'queued';
                     t.updatedAt = new Date().toISOString();
@@ -381,7 +403,10 @@ export class TaskScheduler {
         this.addLog(taskId, 'plan', 'info', '开始生成开发计划...');
 
         // 获取需求内容
-        const {title, description} = await this.getRequirementContent(task.requirementId, requirementStore, mcpBridgeService);
+        const {
+            title,
+            description
+        } = await this.getRequirementContent(task.requirementId, requirementStore, mcpBridgeService);
 
         const promptText = renderPrompt(PROMPTS.plan, {title, description});
 
@@ -481,7 +506,10 @@ export class TaskScheduler {
         }
 
         this.addLog(taskId, 'execution', 'info', '执行完成，等待用户确认...');
-        broadcast({type: 'execution:complete', data: {taskId, executionId: task.id, status: 'completed', workspacePath: task.workspacePath}});
+        broadcast({
+            type: 'execution:complete',
+            data: {taskId, executionId: task.id, status: 'completed', workspacePath: task.workspacePath}
+        });
 
         // --- 暂停：等待用户确认执行结果 ---
         this.updateTaskState(taskId, {phase: 'waiting_execution_confirm'});
@@ -505,7 +533,7 @@ export class TaskScheduler {
         requirementId: string,
         reqStore: RequirementStoreService,
         mcpBridgeService: MCPBridgeService,
-    ): Promise<{title: string; description: string}> {
+    ): Promise<{ title: string; description: string }> {
         const saved = reqStore.get(requirementId);
         if (saved) return {title: saved.title, description: saved.description};
         const detail = await mcpBridgeService.fetchRequirementDetail(requirementId);
@@ -517,7 +545,8 @@ export class TaskScheduler {
     private processQueue(): void {
         while (this.queue.length > 0 && this.running.size < this.maxConcurrent) {
             const nextId = this.queue.shift()!;
-            this.executeTask(nextId).catch(() => {});
+            this.executeTask(nextId).catch(() => {
+            });
         }
     }
 
@@ -541,7 +570,8 @@ export class TaskScheduler {
     async dispose(): Promise<void> {
         for (const [, running] of this.running) {
             running.abortController.abort();
-            await running.provider.dispose().catch(() => {});
+            await running.provider.dispose().catch(() => {
+            });
         }
         this.running.clear();
         this.queue.length = 0;
