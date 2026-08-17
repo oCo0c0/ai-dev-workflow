@@ -11,6 +11,7 @@
 
 import {Router} from 'express';
 import os from 'os';
+import fs from 'fs';
 import {spawn} from 'child_process';
 import {WorkspaceService} from '../services/workspace-service.js';
 import {validateBody, validateWorkspacePath} from '../middleware/validation.js';
@@ -97,6 +98,29 @@ function openSystemFolderPicker(title: string): Promise<string | null> {
             child.on('error', () => resolve(null));
         }
     });
+}
+
+/**
+ * 列出系统可用的根目录/盘符，供文件夹选择器作为起始位置。
+ * - Windows: 枚举 A: ~ Z: 中实际存在的盘符（如 C:\\、D:\\）
+ * - macOS/Linux: 返回根目录 /
+ * @returns {string[]} 盘符/根目录路径数组
+ */
+function listSystemDrives(): string[] {
+    if (process.platform === 'win32') {
+        const drives: string[] = [];
+        for (let code = 65; code <= 90; code++) {
+            const letter = String.fromCharCode(code);
+            const root = `${letter}:\\`;
+            try {
+                if (fs.existsSync(root)) drives.push(root);
+            } catch {
+                // 跳过无权限访问的盘符
+            }
+        }
+        return drives;
+    }
+    return ['/'];
 }
 
 /**
@@ -238,6 +262,47 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
             res.json(workspaceService.getHistory());
         } catch (err) {
             res.status(500).json({code: 'WORKSPACE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * GET /api/workspace/drives
+     * @description 获取系统可用盘符（Windows）或根目录（macOS/Linux），
+     *              作为文件夹选择器的起始位置（如 C:\、D:\ 等）。
+     * @returns {string[]} 盘符/根目录路径数组
+     */
+    router.get('/drives', (_req, res) => {
+        try {
+            res.json(listSystemDrives());
+        } catch (err) {
+            res.status(500).json({code: 'WORKSPACE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * GET /api/workspace/picker-browse?path=
+     * @description 浏览任意绝对路径（文件夹选择器专用，不受允许根目录限制）。
+     *              仅用于本机文件夹选择 UI，用户可浏览系统盘符下的任意目录。
+     * @param {string} path.query - 要浏览的目录绝对路径（必填）
+     * @returns {Object[]} 目录下的条目列表（文件和文件夹）
+     */
+    router.get('/picker-browse', (req, res) => {
+        try {
+            const dirPath = (req.query.path as string) || '';
+            if (!dirPath.trim()) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'path is required'});
+                return;
+            }
+            // 仅做路径规范化与遍历防护，不限制根目录（选择器需要浏览任意盘符）
+            const check = validateWorkspacePath(dirPath);
+            if (!check.valid) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: check.error});
+                return;
+            }
+            const entries = workspaceService.browse(check.path!);
+            res.json(entries);
+        } catch (err) {
+            res.status(400).json({code: 'WORKSPACE_ERROR', message: getErrorMessage(err)});
         }
     });
 

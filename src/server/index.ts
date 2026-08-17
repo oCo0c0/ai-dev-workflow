@@ -238,7 +238,7 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/agent-execution', createAgentExecutionRoutes({
         cliRunner: cliRunnerService,
         memoryService,
-    }));
+    }, workspaceService));
     app.use('/api/model-providers', createModelProviderRoutes(modelProviderStore));
     app.use('/api/prompts', createPromptsRoutes(cliRunnerService));
 

@@ -34,6 +34,12 @@ import {
     ChevronUp,
     ChevronRight,
     FolderOpen,
+    Folder,
+    HardDrive,
+    ArrowLeft,
+    Check,
+    Keyboard,
+    X,
     FileText,
     Bot,
     Plus,
@@ -55,6 +61,31 @@ interface SavedRequirement {
     number?: string;
     title: string;
     description?: string;
+}
+
+/** 已保存工作区（轻量） */
+interface SavedWorkspaceLite {
+    id: string;
+    path: string;
+    name: string;
+    projectType?: string;
+}
+
+/** 目录条目（文件夹选择器） */
+interface DirectoryEntry {
+    name: string;
+    path: string;
+    isDirectory: boolean;
+    size?: number;
+    modifiedAt: string;
+    extension?: string;
+}
+
+/** 工作空间下拉选项 */
+interface WorkspaceOption {
+    path: string;
+    label: string;
+    source: 'history' | 'saved' | 'manual';
 }
 
 /** 状态元数据映射 */
@@ -172,6 +203,14 @@ export default function AgentExecutionPage() {
     const [manualRequirementText, setManualRequirementText] = useState('');
     const [workspacePath, setWorkspacePath] = useState('');
     const [workspaceHistory, setWorkspaceHistory] = useState<string[]>([]);
+    const [savedWorkspaces, setSavedWorkspaces] = useState<SavedWorkspaceLite[]>([]);
+
+    // 工作空间选择 UI（下拉 / 文件夹浏览 / 手动输入）
+    const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
+    const [wsBrowserOpen, setWsBrowserOpen] = useState(false);
+    const [wsManualOpen, setWsManualOpen] = useState(false);
+    const [manualWorkspacePath, setManualWorkspacePath] = useState('');
+    const wsDropdownRef = useRef<HTMLDivElement>(null);
 
     // 回复
     const [replyText, setReplyText] = useState('');
@@ -228,8 +267,13 @@ export default function AgentExecutionPage() {
 
     const loadWorkspaceHistory = useCallback(async () => {
         try {
-            const data = await apiGet<string[]>('/workspace/history');
-            setWorkspaceHistory(data);
+            // 同时加载历史记录与已保存工作区，保证下拉选项完整
+            const [history, saved] = await Promise.all([
+                apiGet<string[]>('/workspace/history'),
+                apiGet<SavedWorkspaceLite[]>('/workspace/saved'),
+            ]);
+            setWorkspaceHistory(history || []);
+            setSavedWorkspaces(saved || []);
         } catch (err) {
             console.error('[AgentExec] loadWorkspaceHistory error:', err);
         }
@@ -263,6 +307,11 @@ export default function AgentExecutionPage() {
         setSelectedRequirement(null);
         setManualRequirementText('');
         setReqMode('saved');
+        // 重置工作空间选择 UI
+        setWsDropdownOpen(false);
+        setWsBrowserOpen(false);
+        setWsManualOpen(false);
+        setManualWorkspacePath('');
         setShowCreateDialog(true);
         // 延迟调用 showModal，确保 DOM 已渲染
         requestAnimationFrame(() => dialogRef.current?.showModal());
@@ -271,7 +320,42 @@ export default function AgentExecutionPage() {
     const closeCreateDialog = () => {
         dialogRef.current?.close();
         setShowCreateDialog(false);
+        setWsDropdownOpen(false);
+        setWsBrowserOpen(false);
+        setWsManualOpen(false);
     };
+
+    // 合并历史 + 已保存工作区为下拉选项（去重，最近使用的历史优先）
+    const workspaceOptions = useMemo<WorkspaceOption[]>(() => {
+        const map = new Map<string, WorkspaceOption>();
+        for (const p of workspaceHistory) {
+            if (p && !map.has(p)) map.set(p, {path: p, label: p, source: 'history'});
+        }
+        for (const ws of savedWorkspaces) {
+            if (ws?.path && !map.has(ws.path)) {
+                map.set(ws.path, {
+                    path: ws.path,
+                    label: ws.name && ws.name !== ws.path.split(/[\\/]/).pop()
+                        ? `${ws.name} (${ws.path})`
+                        : ws.path,
+                    source: 'saved',
+                });
+            }
+        }
+        return [...map.values()];
+    }, [workspaceHistory, savedWorkspaces]);
+
+    // 点击空白处关闭工作空间下拉
+    useEffect(() => {
+        if (!wsDropdownOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (wsDropdownRef.current && !wsDropdownRef.current.contains(e.target as Node)) {
+                setWsDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [wsDropdownOpen]);
 
     const handleCreate = async () => {
         if (!workspacePath) return;
@@ -302,6 +386,7 @@ export default function AgentExecutionPage() {
             closeCreateDialog();
             await loadDetail(res.executionId);
             loadHistory();
+            loadWorkspaceHistory();
         } catch (err) {
             console.error('创建失败:', err);
         }
@@ -912,7 +997,7 @@ export default function AgentExecutionPage() {
                 onClose={() => setShowCreateDialog(false)}
                 className="backdrop:bg-black/50 bg-transparent p-0 m-auto"
             >
-                <div className="bg-background border border-border rounded-lg shadow-xl w-[480px] p-6 space-y-4">
+                <div className="bg-background border border-border rounded-lg shadow-xl w-[480px] p-6 space-y-4 max-h-[85vh] overflow-y-auto">
                     <h2 className="text-sm font-semibold">新建 Agent 执行</h2>
 
                     {/* 工作空间（必选） */}
@@ -920,16 +1005,138 @@ export default function AgentExecutionPage() {
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                             工作空间 <span className="text-destructive">*</span>
                         </label>
-                        <select
-                            value={workspacePath}
-                            onChange={(e) => setWorkspacePath(e.target.value)}
-                            className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        >
-                            <option value="">选择工作空间...</option>
-                            {workspaceHistory.map((p) => (
-                                <option key={p} value={p}>{p}</option>
-                            ))}
-                        </select>
+
+                        {/* 自定义下拉：历史 + 已保存工作区（避免原生 select 在 dialog 内被裁剪） */}
+                        <div className="relative" ref={wsDropdownRef}>
+                            <button
+                                type="button"
+                                onClick={() => setWsDropdownOpen(o => !o)}
+                                className={cn(
+                                    'w-full h-9 flex items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                                    !workspacePath && 'text-muted-foreground',
+                                )}
+                            >
+                                <span className="truncate font-mono text-xs">
+                                    {workspacePath || '选择工作空间...'}
+                                </span>
+                                <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', wsDropdownOpen && 'rotate-180')}/>
+                            </button>
+
+                            {wsDropdownOpen && (
+                                <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-background shadow-xl max-h-48 overflow-y-auto">
+                                    {workspaceOptions.length === 0 && (
+                                        <p className="text-xs text-muted-foreground p-3 text-center">
+                                            暂无历史工作空间，可通过下方「浏览文件夹」选择
+                                        </p>
+                                    )}
+                                    {workspaceOptions.map((opt) => (
+                                        <button
+                                            key={opt.path}
+                                            type="button"
+                                            onClick={() => {
+                                                setWorkspacePath(opt.path);
+                                                setWsDropdownOpen(false);
+                                            }}
+                                            className={cn(
+                                                'w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-accent/50 transition-colors border-b border-border/50 last:border-0',
+                                                workspacePath === opt.path && 'bg-primary/5',
+                                            )}
+                                        >
+                                            {opt.source === 'saved'
+                                                ? <FolderOpen className="h-3.5 w-3.5 text-blue-400 shrink-0"/>
+                                                : <Folder className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0"/>}
+                                            <span className="flex-1 min-w-0">
+                                                <span className="block text-xs font-medium truncate">{opt.label}</span>
+                                                <span className="block text-[10px] text-muted-foreground/60 truncate font-mono">{opt.path}</span>
+                                            </span>
+                                            {workspacePath === opt.path && (
+                                                <Check className="h-3.5 w-3.5 text-primary shrink-0"/>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 选择方式：浏览文件夹 / 手动输入 */}
+                        <div className="flex items-center gap-2 mt-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    setWsBrowserOpen(o => !o);
+                                    setWsManualOpen(false);
+                                }}
+                            >
+                                <HardDrive className="h-3.5 w-3.5 mr-1.5"/>
+                                浏览文件夹
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    setWsManualOpen(o => !o);
+                                    setWsBrowserOpen(false);
+                                }}
+                            >
+                                <Keyboard className="h-3.5 w-3.5 mr-1.5"/>
+                                手动输入
+                            </Button>
+                            {workspacePath && (
+                                <span className="text-[10px] text-muted-foreground truncate flex-1 text-right font-mono">
+                                    {workspacePath}
+                                </span>
+                            )}
+                        </div>
+
+                        {/* 文件夹浏览器（从系统盘符开始） */}
+                        {wsBrowserOpen && (
+                            <FolderBrowser
+                                currentPath={workspacePath}
+                                onPick={(p) => {
+                                    setWorkspacePath(p);
+                                    setWsBrowserOpen(false);
+                                }}
+                                onClose={() => setWsBrowserOpen(false)}
+                            />
+                        )}
+
+                        {/* 手动输入路径 */}
+                        {wsManualOpen && (
+                            <div className="flex gap-2 mt-2">
+                                <input
+                                    type="text"
+                                    value={manualWorkspacePath}
+                                    onChange={(e) => setManualWorkspacePath(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            const v = manualWorkspacePath.trim();
+                                            if (v) {
+                                                setWorkspacePath(v);
+                                                setWsManualOpen(false);
+                                            }
+                                        }
+                                    }}
+                                    placeholder="例如 D:\\projects\\my-app"
+                                    className="flex-1 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                />
+                                <Button
+                                    size="sm"
+                                    onClick={() => {
+                                        const v = manualWorkspacePath.trim();
+                                        if (v) {
+                                            setWorkspacePath(v);
+                                            setWsManualOpen(false);
+                                        }
+                                    }}
+                                    disabled={!manualWorkspacePath.trim()}
+                                >
+                                    应用
+                                </Button>
+                            </div>
+                        )}
                     </div>
 
                     {/* 需求（可选） */}
@@ -1094,6 +1301,219 @@ function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }
                     {expanded ? <ChevronUp className="h-3 w-3"/> : <ChevronRight className="h-3 w-3"/>}
                     {expanded ? '收起' : '展开'}
                 </button>
+            )}
+        </div>
+    );
+}
+
+// === 文件夹选择器组件 ===
+
+/**
+ * 文件夹选择器：从系统盘符（Windows C:\ D:\ 等，macOS/Linux 为 /）开始浏览，
+ * 选择任意目录作为工作空间。
+ * - 顶部：盘符/根目录切换
+ * - 中部：面包屑导航 + 返回上级
+ * - 列表：仅展示目录（工作空间必须是目录）
+ * - 底部：当前路径 + 「使用此目录」确认
+ */
+function FolderBrowser({currentPath, onPick, onClose}: {
+    currentPath: string;
+    onPick: (path: string) => void;
+    onClose: () => void;
+}) {
+    const [drives, setDrives] = useState<string[]>([]);
+    const [dir, setDir] = useState<string | null>(null);
+    const [entries, setEntries] = useState<DirectoryEntry[]>([]);
+    const [stack, setStack] = useState<string[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // 加载系统盘符
+    useEffect(() => {
+        apiGet<string[]>('/workspace/drives')
+            .then((d) => setDrives(d || []))
+            .catch((err) => setError(`无法读取系统盘符: ${err instanceof Error ? err.message : String(err)}`));
+    }, []);
+
+    // 浏览指定目录
+    const browse = useCallback(async (path: string, push = true) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await apiGet<DirectoryEntry[]>('/workspace/picker-browse?path=' + encodeURIComponent(path));
+            // 目录优先 + 名称排序
+            const sorted = [...(data || [])].sort((a, b) => {
+                if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+                return a.name.localeCompare(b.name, 'zh-CN');
+            });
+            setDir(path);
+            setEntries(sorted.filter(e => e.isDirectory));
+            if (push) setStack(prev => [...prev, path]);
+        } catch (err) {
+            setError(`无法访问该目录: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    // 默认浏览第一个盘符
+    useEffect(() => {
+        if (drives.length > 0 && !dir && !loading) {
+            browse(drives[0], false);
+        }
+    }, [drives, dir, loading, browse]);
+
+    const goBack = () => {
+        const next = stack.slice(0, -1);
+        setStack(next);
+        const prevDir = next[next.length - 1] || null;
+        if (prevDir) browse(prevDir, false);
+        else setDir(null);
+    };
+
+    // 面包屑（Windows 盘符风格 C:\Users\xxx / Unix /home/user）
+    const crumbs = useMemo(() => {
+        if (!dir) return [] as string[];
+        if (/^[A-Za-z]:/.test(dir)) {
+            const parts = dir.split(/[\\/]+/).filter(Boolean);
+            const list: string[] = [];
+            let acc = '';
+            for (const p of parts) {
+                acc = /^[A-Za-z]:$/.test(p) ? p + '\\' : acc + p + '\\';
+                list.push(acc);
+            }
+            return list;
+        }
+        const parts = dir.split('/').filter(Boolean);
+        const list: string[] = [];
+        let acc = '/';
+        for (const p of parts) {
+            acc += p + '/';
+            list.push(acc);
+        }
+        return list;
+    }, [dir]);
+
+    const goToCrumb = (idx: number) => {
+        const target = crumbs[idx];
+        setStack(crumbs.slice(0, idx + 1));
+        if (target) browse(target, false);
+    };
+
+    return (
+        <div className="mt-2 rounded-md border border-border bg-muted/20 overflow-hidden">
+            {/* 头部：盘符切换 + 返回 + 关闭 */}
+            <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border/60 bg-muted/40">
+                {drives.length > 1 ? (
+                    <div className="flex items-center gap-1 flex-wrap">
+                        {drives.map((d) => (
+                            <button
+                                key={d}
+                                type="button"
+                                onClick={() => {
+                                    setStack([d]);
+                                    browse(d, false);
+                                }}
+                                className={cn(
+                                    'flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                                    dir === d
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-border text-muted-foreground hover:bg-accent/50',
+                                )}
+                                title={`盘符 ${d}`}
+                            >
+                                <HardDrive className="h-3 w-3"/>
+                                {d}
+                            </button>
+                        ))}
+                    </div>
+                ) : (
+                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <HardDrive className="h-3 w-3"/>
+                        {drives[0] || '...'}
+                    </span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={goBack}
+                        disabled={!dir}
+                        className="p-1 rounded hover:bg-accent/50 text-muted-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="返回上级"
+                    >
+                        <ArrowLeft className="h-3.5 w-3.5"/>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-1 rounded hover:bg-accent/50 text-muted-foreground"
+                        title="关闭"
+                    >
+                        <X className="h-3.5 w-3.5"/>
+                    </button>
+                </div>
+            </div>
+
+            {/* 面包屑 */}
+            {dir && crumbs.length > 0 && (
+                <div className="flex items-center gap-0.5 px-2 py-1 border-b border-border/40 overflow-x-auto whitespace-nowrap">
+                    {crumbs.map((c, i) => (
+                        <span key={c} className="flex items-center gap-0.5">
+                            {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0"/>}
+                            <button
+                                type="button"
+                                onClick={() => goToCrumb(i)}
+                                className="text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded px-1 py-0.5 transition-colors"
+                            >
+                                {c}
+                            </button>
+                        </span>
+                    ))}
+                </div>
+            )}
+
+            {/* 目录列表 */}
+            <div className="max-h-40 overflow-y-auto">
+                {error && (
+                    <p className="text-[10px] text-destructive p-2">{error}</p>
+                )}
+                {loading && (
+                    <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground p-2">
+                        <Loader2 className="h-3 w-3 animate-spin"/> 加载中...
+                    </p>
+                )}
+                {!loading && !error && entries.length === 0 && (
+                    <p className="text-[10px] text-muted-foreground p-2 text-center">此目录下没有子文件夹</p>
+                )}
+                {!loading && entries.map((entry) => (
+                    <button
+                        key={entry.path}
+                        type="button"
+                        onClick={() => browse(entry.path, true)}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-accent/40 transition-colors border-b border-border/30 last:border-0"
+                        title={entry.path}
+                    >
+                        <Folder className="h-3.5 w-3.5 text-blue-400 shrink-0"/>
+                        <span className="text-xs truncate">{entry.name}</span>
+                        {currentPath === entry.path && <Check className="h-3 w-3 text-primary ml-auto shrink-0"/>}
+                    </button>
+                ))}
+            </div>
+
+            {/* 底部：当前路径 + 确认 */}
+            {dir && (
+                <div className="flex items-center gap-2 px-2 py-1.5 border-t border-border/60 bg-muted/40">
+                    <span className="flex-1 min-w-0 truncate text-[10px] font-mono text-muted-foreground">{dir}</span>
+                    <Button
+                        type="button"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => onPick(dir)}
+                    >
+                        <Check className="h-3 w-3 mr-1"/>
+                        使用此目录
+                    </Button>
+                </div>
             )}
         </div>
     );

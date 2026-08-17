@@ -6,9 +6,10 @@
 import {Router} from 'express';
 import {AgentExecutionStore} from '../services/agent-execution-store.js';
 import {createAgentCoordinator, type CoordinatorConfig} from '../services/agent-coordinator.js';
+import {WorkspaceService} from '../services/workspace-service.js';
 import {broadcast} from '../websocket.js';
 
-export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
+export function createAgentExecutionRoutes(config: CoordinatorConfig, workspaceService?: WorkspaceService): Router {
     const router = Router();
     const store = AgentExecutionStore.getInstance();
     const coordinator = createAgentCoordinator(config);
@@ -48,6 +49,13 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig): Router {
                 workspacePath: workspacePath || '',
                 status: 'ready',
             });
+
+            // 记录到工作区历史，便于下次快速选择（静默失败）
+            if (workspacePath && typeof workspacePath === 'string' && workspacePath.trim()) {
+                try {
+                    workspaceService?.addToHistory(workspacePath);
+                } catch { /* 忽略历史记录失败 */ }
+            }
 
             res.json({executionId: execution.id});
         } catch (error) {
