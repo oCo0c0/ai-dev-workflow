@@ -8,10 +8,10 @@
 
 ## 架构总览
 
-- **单体 monorepo**，`src/` 下按职责分为 `client`、`server`、`cli`、`bridge` 四个顶层模块。
+- **pnpm workspace monorepo**，`src/` 下按职责分为 `client`、`server`、`cli`、`bridge` 四个顶层模块；`runtime-dsh/` 为 workspace 成员（自包含 dsh 运行时子包）。
 - **前后端分离**：React SPA (Vite) + Express REST API + WebSocket 实时推送。
 - **AI 通信层**：`bridge/claude-bridge.mjs` 作为独立子进程，封装 `@anthropic-ai/claude-agent-sdk`，通过 stdin/stdout JSON 行协议与主进程通信。
-- **CLI Provider 抽象**：`cli-providers/` 定义统一接口，支持 Claude Code 和 OpenAI Codex 两种后端，由 `CLIRunnerService` (Facade) 代理。
+- **CLI Provider 抽象**：`cli-providers/` 定义统一接口，支持 Claude Code、OpenAI Codex、Pi、DeepSeek Harness（dsh）四种后端，由 `CLIRunnerService` (Facade) 代理。dsh 后端经 `runtime-dsh/` 子进程以 stdio JSON-RPC 驱动（详见 `src/server/CLAUDE.md`）。
 - **数据持久化**：文件系统 JSON 存储，位于 `~/.ai-dev-workbench/` 目录下（需求、计划、执行、测试、配置、记忆等）。
 - **实时通信**：WebSocket `/ws` 端点 + 服务端 EventBus，广播执行进度、测试输出、Agent 状态等事件。
 
@@ -23,6 +23,7 @@ graph TD
     ROOT --> SERVER["src/server"]
     ROOT --> CLI["src/cli"]
     ROOT --> BRIDGE["src/bridge"]
+    ROOT --> RUNTIME_DSH["runtime-dsh"]
     ROOT --> SKILLS["skills/"]
     ROOT --> TEMPLATES["templates/"]
 
@@ -49,6 +50,7 @@ graph TD
 | **server** | `src/server/` | Express 后端，路由、服务层、中间件、工具库 | TS |
 | **cli** | `src/cli/` | CLI 入口，端口查找、横幅打印、服务启动 | TS |
 | **bridge** | `src/bridge/` | Claude Agent SDK 桥接子进程，stdin/stdout JSON 协议 | MJS |
+| **runtime-dsh** | `runtime-dsh/` | 自包含 DeepSeek Harness SDK 运行时（pnpm workspace 成员，bin.mjs 引导 cordis 插件树，stdio JSON-RPC 服务 dsh-provider） | MJS |
 | **skills** | `skills/` | 内置 AI 技能模板（SKILL.md），供 Claude 调用 | Markdown |
 | **templates** | `templates/` | Excel 模板（任务拆分工时评估） | xlsx |
 
@@ -64,12 +66,12 @@ graph TD
 | 国际化 | i18next + react-i18next |
 | 后端框架 | Express 4 |
 | 实时通信 | ws (WebSocket) |
-| AI SDK | @anthropic-ai/claude-agent-sdk + @openai/codex-sdk |
+| AI SDK | @anthropic-ai/claude-agent-sdk + @openai/codex-sdk + DeepSeek Harness SDK（runtime-dsh 子进程） |
 | MCP | @modelcontextprotocol/sdk |
 | 沙箱 | @daytona/sdk |
 | 包管理 | pnpm 11 |
 | 测试 | Vitest |
-| Node 要求 | >= 18.0.0 |
+| Node 要求 | >= 18.0.0（dsh 后端额外要求 >= 22.19.0，见 runtime-dsh） |
 
 ## 运行与开发
 

@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# pnpm workspace-local store (sandbox fallback artifact; use shared store)
+.pnpm-store/
+
 # Build output
 dist/
 

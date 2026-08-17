@@ -40,6 +40,7 @@ import {
     ImagePlus,
     Trash2,
     Sparkles,
+    Boxes,
 } from 'lucide-react';
 import {ProviderSetupModal} from './ProviderSetupModal';
 import {ModelConfigModal} from './ModelConfigModal';
@@ -321,10 +322,12 @@ export default function Layout() {
                                 ? <Terminal className="h-4 w-4"/>
                                 : cliProvider.active === 'pi'
                                 ? <Sparkles className="h-4 w-4"/>
+                                : cliProvider.active === 'dsh'
+                                ? <Boxes className="h-4 w-4"/>
                                 : <Bot className="h-4 w-4"/>
                             }
                             <span className="hidden sm:inline">
-                                {cliProvider.active === 'codex' ? 'Codex' : cliProvider.active === 'pi' ? 'Pi' : 'Claude'}
+                                {cliProvider.active === 'codex' ? 'Codex' : cliProvider.active === 'pi' ? 'Pi' : cliProvider.active === 'dsh' ? 'DSH' : 'Claude'}
                             </span>
                         </button>
                         {/* 模型配置 */}
@@ -339,6 +342,8 @@ export default function Layout() {
                                     ? (cliProvider.modelConfig.codex.model || '未配置')
                                     : cliProvider.active === 'pi'
                                     ? (cliProvider.modelConfig.pi.model || '未配置')
+                                    : cliProvider.active === 'dsh'
+                                    ? (cliProvider.modelConfig.dsh?.model || 'deepseek-chat')
                                     : (() => {
                                         const tier = claudeModelTiers.find(
                                             t => t.tier === cliProvider.modelConfig.claude.model

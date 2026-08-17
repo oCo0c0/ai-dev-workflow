@@ -104,6 +104,15 @@ export interface AppConfig {
             /** 最大 token 数（可选） */
             maxTokens?: number;
         };
+        /** DeepSeek Harness（dsh）特定配置 */
+        dsh?: {
+            /** 使用的模型名称（默认 'deepseek-chat'；运行时经 llm-deepseek 适配器路由） */
+            model?: string;
+            /** 是否启用流式输出（默认 true；dsh 事件流天然全量，此处仅作UI提示） */
+            streaming?: boolean;
+            /** 最大 token 数（可选；单请求输出上限，agent 及其后代继承） */
+            maxTokens?: number;
+        };
     };
     /** MinerU 文档解析服务配置 */
     mineru?: {
@@ -165,6 +174,10 @@ const DEFAULT_CONFIG: AppConfig = {
         },
         codex: {
             model: 'codex-mini-latest',
+            streaming: true,
+        },
+        dsh: {
+            model: 'deepseek-chat',
             streaming: true,
         },
     },
@@ -362,6 +375,32 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
                         errors.push({
                             field: 'cliProvider.claude.maxTokens',
                             message: 'cliProvider.claude.maxTokens must be a positive number'
+                        });
+                    }
+                }
+            }
+            // 验证 dsh 配置
+            if (cliProvider.dsh !== undefined) {
+                if (typeof cliProvider.dsh !== 'object' || cliProvider.dsh === null) {
+                    errors.push({field: 'cliProvider.dsh', message: 'cliProvider.dsh must be an object'});
+                } else {
+                    const dsh = cliProvider.dsh as Record<string, unknown>;
+                    if (dsh.model !== undefined && typeof dsh.model !== 'string') {
+                        errors.push({
+                            field: 'cliProvider.dsh.model',
+                            message: 'cliProvider.dsh.model must be a string'
+                        });
+                    }
+                    if (dsh.streaming !== undefined && typeof dsh.streaming !== 'boolean') {
+                        errors.push({
+                            field: 'cliProvider.dsh.streaming',
+                            message: 'cliProvider.dsh.streaming must be a boolean'
+                        });
+                    }
+                    if (dsh.maxTokens !== undefined && (typeof dsh.maxTokens !== 'number' || dsh.maxTokens < 1)) {
+                        errors.push({
+                            field: 'cliProvider.dsh.maxTokens',
+                            message: 'cliProvider.dsh.maxTokens must be a positive number'
                         });
                     }
                 }

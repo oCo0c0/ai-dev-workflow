@@ -42,11 +42,15 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 
 | 文件 | 类名 | 说明 |
 |------|------|------|
-| `cli-runner-service.ts` | `CLIRunnerService` | CLI Provider Facade，统一代理 Claude/Codex |
+| `cli-runner-service.ts` | `CLIRunnerService` | CLI Provider Facade，统一代理 Claude/Codex/Pi/dsh |
 | `cli-providers/types.ts` | -- | CLI Provider 接口定义（`CLIProvider`、`CLIProviderInput` 等） |
 | `cli-providers/index.ts` | -- | Provider 注册表与自动检测 |
 | `cli-providers/claude-provider.ts` | `ClaudeProvider` | Claude Code CLI Provider 实现 |
 | `cli-providers/codex-provider.ts` | `CodexProvider` | OpenAI Codex CLI Provider 实现 |
+| `cli-providers/dsh-provider.ts` | `DshProvider` | DeepSeek Harness Provider：实例池 + 运行时子进程生命周期（spawn/initialize/prompt/abort） |
+| `cli-providers/dsh-protocol.ts` | `DshJsonRpcClient` | dsh SDK stdio JSON-RPC 客户端（帧分帧、请求配对、close 阶梯、stableHash） |
+| `cli-providers/dsh-projector.ts` | `DshEventProjector` | dsh 事件流 -> adw `onOutput(data, meta)` 契约投影（工具名归一化、根会话过滤） |
+| `cli-providers/dsh-cordis.ts` | `buildCordisYml` | cordis.yml 生成器（对齐官方 examples/jsonrpc-agent 组成，含技能/MCP 注入） |
 | `config-service.ts` | `ConfigService` | 全局配置管理（`~/.ai-dev-workbench/config.json`） |
 | `mcp-bridge-service.ts` | `MCPBridgeService` | MCP 桥接服务，与外部需求管理系统通信 |
 | `mcp-config-service.ts` | `MCPConfigService` | MCP 服务器配置管理 |

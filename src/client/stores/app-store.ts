@@ -297,6 +297,11 @@ interface ModelConfig {
         reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
         maxTokens?: number;
     };
+    dsh?: {
+        model: string;
+        streaming: boolean;
+        maxTokens?: number;
+    };
 }
 
 /**
@@ -530,15 +535,15 @@ interface AppState {
     setShowModelConfigModal: (show: boolean) => void;
     /** 更新指定 Provider 的模型配置（局部合并） */
     setModelConfig: (
-        provider: 'claude' | 'codex' | 'pi',
-        config: Partial<ModelConfig['claude']> | Partial<ModelConfig['codex']> | Partial<ModelConfig['pi']>,
+        provider: 'claude' | 'codex' | 'pi' | 'dsh',
+        config: Partial<ModelConfig['claude']> | Partial<ModelConfig['codex']> | Partial<ModelConfig['pi']> | Partial<NonNullable<ModelConfig['dsh']>>,
     ) => void;
     /** 从后端加载模型配置 */
     fetchModelConfig: () => Promise<void>;
     /** 保存模型配置到后端 */
     saveModelConfig: (
-        provider: 'claude' | 'codex' | 'pi',
-        config: ModelConfig['claude'] | ModelConfig['codex'] | ModelConfig['pi'],
+        provider: 'claude' | 'codex' | 'pi' | 'dsh',
+        config: ModelConfig['claude'] | ModelConfig['codex'] | ModelConfig['pi'] | NonNullable<ModelConfig['dsh']>,
     ) => Promise<void>;
     /** 从配置文件读取可用模型列表 */
     fetchAvailableModels: () => Promise<void>;
@@ -734,6 +739,10 @@ export const useAppStore = create<AppState>((set) => {
                     streaming: true,
                     reasoningEffort: 'medium',
                 },
+                dsh: {
+                    model: 'deepseek-chat',
+                    streaming: true,
+                },
             },
         },
         projects: {list: [], active: null, loading: false},
@@ -875,6 +884,17 @@ export const useAppStore = create<AppState>((set) => {
                         },
                     };
                 }
+                if (provider === 'dsh') {
+                    return {
+                        cliProvider: {
+                            ...state.cliProvider,
+                            modelConfig: {
+                                ...state.cliProvider.modelConfig,
+                                dsh: {...(state.cliProvider.modelConfig.dsh ?? {model: 'deepseek-chat', streaming: true}), ...config},
+                            },
+                        },
+                    };
+                }
                 return state;
             }),
         fetchModelConfig: async () => {
@@ -890,6 +910,7 @@ export const useAppStore = create<AppState>((set) => {
                             claude: data.claude || state.cliProvider.modelConfig.claude,
                             codex: data.codex || state.cliProvider.modelConfig.codex,
                             pi: data.pi || state.cliProvider.modelConfig.pi,
+                            dsh: data.dsh || state.cliProvider.modelConfig.dsh,
                         },
                     },
                 }));
@@ -921,6 +942,11 @@ export const useAppStore = create<AppState>((set) => {
                             ? {
                                 ...state.cliProvider.modelConfig,
                                 codex: {...state.cliProvider.modelConfig.codex, ...config}
+                            }
+                            : provider === 'dsh'
+                            ? {
+                                ...state.cliProvider.modelConfig,
+                                dsh: {...(state.cliProvider.modelConfig.dsh ?? {model: 'deepseek-chat', streaming: true}), ...config}
                             }
                             : {
                                 ...state.cliProvider.modelConfig,

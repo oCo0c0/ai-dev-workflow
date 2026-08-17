@@ -10,6 +10,7 @@ import type {CLIProvider, CLIProviderStatus} from './types.js';
 import {ClaudeProvider} from './claude-provider.js';
 import {CodexProvider} from './codex-provider.js';
 import {PiProvider} from './pi-provider.js';
+import {DshProvider} from './dsh-provider.js';
 
 /** 已注册的 Provider 实例映射 */
 const providers = new Map<string, CLIProvider>();
@@ -18,6 +19,7 @@ const providers = new Map<string, CLIProvider>();
 registerProvider(new ClaudeProvider());
 registerProvider(new CodexProvider());
 registerProvider(new PiProvider());
+registerProvider(new DshProvider());
 
 /**
  * 注册一个 CLI Provider

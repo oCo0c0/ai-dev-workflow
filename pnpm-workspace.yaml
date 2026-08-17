@@ -1,3 +1,5 @@
+packages:
+  - runtime-dsh
 allowBuilds:
   '@google/genai': true
   esbuild: true
