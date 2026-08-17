@@ -110,6 +110,12 @@ export default function ModelProvidersPage() {
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState(emptyForm());
 
+    // 模型拉取状态（对齐 dsh Models 页：候选只供挑选，不自动写配置）
+    const [fetchingModels, setFetchingModels] = useState(false);
+    const [modelCandidates, setModelCandidates] = useState<string[]>([]);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [modelInput, setModelInput] = useState('');
+
     /** 拉取供应商列表 */
     const fetchProviders = useCallback(async () => {
         setLoading(true);
@@ -199,6 +205,9 @@ export default function ModelProvidersPage() {
         setCreating(false);
         setEditing(null);
         setForm(emptyForm());
+        setModelCandidates([]);
+        setFetchError(null);
+        setModelInput('');
     };
 
     /** 更新表单单个字段 */
@@ -217,6 +226,46 @@ export default function ModelProvidersPage() {
             if (idx > 0) env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
         });
         return env;
+    };
+
+    // --- 模型列表（chip 编辑 + 端点拉取） ---
+    const modelsList = form.models.split('\n').map((m) => m.trim()).filter(Boolean);
+    const setModels = (list: string[]) => setField('models', list.join('\n'));
+    const addModel = (id: string) => {
+        const v = id.trim();
+        if (v && !modelsList.includes(v)) setModels([...modelsList, v]);
+    };
+    const removeModel = (id: string) => setModels(modelsList.filter((m) => m !== id));
+
+    /** 切换类型时预填 id/label（仅新增且用户未自定义时） */
+    const handleKindChange = (kind: ModelProviderKind) => {
+        setField('kind', kind);
+        if (creating) {
+            const opt = KIND_OPTIONS.find((k) => k.value === kind);
+            if (!form.id.trim()) setField('id', kind === 'dsh' ? 'dsh' : kind);
+            if (!form.label.trim() && opt) setField('label', opt.label);
+        }
+    };
+
+    /** 用表单当前凭据（未保存也可）向端点拉取模型清单；失败就地展示，可手填 */
+    const fetchModels = async () => {
+        setFetchingModels(true);
+        setFetchError(null);
+        try {
+            const resp = await apiPost<{ models: string[] }>('/model-providers/models/fetch', {
+                apiKey: form.apiKey.trim() || undefined,
+                baseUrl: form.baseUrl.trim() || undefined,
+                kind: form.kind,
+                id: editing?.id,
+            });
+            setModelCandidates(resp.models ?? []);
+            if ((resp.models ?? []).length === 0) setFetchError(t('modelProviders.fetchEmpty'));
+        } catch (err) {
+            setFetchError(err instanceof Error ? err.message : 'Failed to fetch');
+            setModelCandidates([]);
+        } finally {
+            setFetchingModels(false);
+        }
     };
 
     /** 保存（新增/编辑） */
@@ -465,109 +514,249 @@ export default function ModelProvidersPage() {
                                     ? t('modelProviders.addTitle')
                                     : t('modelProviders.editTitle', {name: editing?.label ?? editing?.id})}
                             </h3>
-                            <div className="space-y-4">
-                                {/* 标识 ID */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.id')}
-                                    </label>
-                                    <Input
-                                        value={form.id}
-                                        onChange={(e) => setField('id', e.target.value)}
-                                        disabled={!!editing}
-                                        placeholder="my-provider"
-                                    />
-                                </div>
-                                {/* 供应商类型 */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.kind')}
-                                    </label>
-                                    <select
-                                        value={form.kind}
-                                        onChange={(e) => setField('kind', e.target.value as ModelProviderKind)}
-                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    >
-                                        {KIND_OPTIONS.map((k) => (
-                                            <option key={k.value} value={k.value}>{k.label}</option>
+                            <div className="space-y-5">
+                                {/* ── 分区：基础信息 ── */}
+                                <section className="space-y-3">
+                                    <div>
+                                        <h4 className="text-sm font-medium">
+                                            {t('modelProviders.sectionBasic')}
+                                        </h4>
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            {t('modelProviders.sectionBasicHint')}
+                                        </p>
+                                    </div>
+                                    {/* 类型：按钮组（视觉选择器） */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                        {KIND_OPTIONS.map((k) => {
+                                            const KindIcon = KIND_ICONS[k.value];
+                                            const active = form.kind === k.value;
+                                            return (
+                                                <button
+                                                    key={k.value}
+                                                    type="button"
+                                                    onClick={() => handleKindChange(k.value)}
+                                                    className={cn(
+                                                        'flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs transition-colors',
+                                                        active
+                                                            ? 'border-primary bg-primary/10 font-medium text-primary'
+                                                            : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                                                    )}
+                                                >
+                                                    <KindIcon className="h-4 w-4"/>
+                                                    {k.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                                {t('modelProviders.id')}
+                                            </label>
+                                            <Input
+                                                value={form.id}
+                                                onChange={(e) => setField('id', e.target.value)}
+                                                disabled={!!editing}
+                                                placeholder="my-provider"
+                                                className="font-mono"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                                {t('modelProviders.label')}
+                                            </label>
+                                            <Input
+                                                value={form.label}
+                                                onChange={(e) => setField('label', e.target.value)}
+                                                placeholder={t('modelProviders.labelPlaceholder')}
+                                            />
+                                        </div>
+                                    </div>
+                                </section>
+
+                                {/* ── 分区：连接 ── */}
+                                <section className="space-y-3">
+                                    <div>
+                                        <h4 className="text-sm font-medium">
+                                            {t('modelProviders.sectionConnection')}
+                                        </h4>
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            {t('modelProviders.sectionConnectionHint')}
+                                        </p>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                                {t('modelProviders.apiKey')}
+                                            </label>
+                                            <Input
+                                                type="password"
+                                                value={form.apiKey}
+                                                onChange={(e) => setField('apiKey', e.target.value)}
+                                                placeholder={editing
+                                                    ? t('modelProviders.apiKeyEditPlaceholder')
+                                                    : t('modelProviders.apiKeyPlaceholder')}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                                {t('modelProviders.baseUrl')}
+                                                <span className="ml-1 font-normal text-muted-foreground/60">
+                                                    ({t('modelProviders.optional')})
+                                                </span>
+                                            </label>
+                                            <Input
+                                                value={form.baseUrl}
+                                                onChange={(e) => setField('baseUrl', e.target.value)}
+                                                placeholder="https://api.deepseek.com"
+                                            />
+                                        </div>
+                                    </div>
+                                </section>
+
+                                {/* ── 分区：模型 ── */}
+                                <section className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <div className="mr-auto">
+                                            <h4 className="text-sm font-medium">
+                                                {t('modelProviders.sectionModels')}
+                                            </h4>
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                {t('modelProviders.sectionModelsHint')}
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={fetchModels}
+                                            disabled={fetchingModels}
+                                        >
+                                            {fetchingModels
+                                                ? <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
+                                                : <Sparkles className="h-4 w-4 mr-1"/>}
+                                            {fetchingModels
+                                                ? t('modelProviders.fetchingModels')
+                                                : t('modelProviders.fetchModels')}
+                                        </Button>
+                                    </div>
+                                    {fetchError && (
+                                        <p className="text-xs text-destructive">{fetchError}</p>
+                                    )}
+                                    {/* 候选模型（端点返回，点击切换选中） */}
+                                    {modelCandidates.length > 0 && (
+                                        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                                            <p className="text-[11px] text-muted-foreground mb-1.5">
+                                                {t('modelProviders.candidatesHint')}
+                                            </p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {modelCandidates.map((m) => {
+                                                    const picked = modelsList.includes(m);
+                                                    return (
+                                                        <button
+                                                            key={m}
+                                                            type="button"
+                                                            onClick={() => (picked ? removeModel(m) : addModel(m))}
+                                                            className={cn(
+                                                                'rounded-full border px-2.5 py-1 font-mono text-xs transition-colors',
+                                                                picked
+                                                                    ? 'border-primary bg-primary/10 text-primary'
+                                                                    : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                                                            )}
+                                                        >
+                                                            {m}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {/* 已选模型 chips */}
+                                    <div className="flex flex-wrap items-center gap-1.5 min-h-[2rem]">
+                                        {modelsList.length === 0 && (
+                                            <span className="text-xs text-muted-foreground/60">
+                                                {t('modelProviders.noModelsSelected')}
+                                            </span>
+                                        )}
+                                        {modelsList.map((m) => (
+                                            <span
+                                                key={m}
+                                                className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2.5 py-1 font-mono text-xs"
+                                            >
+                                                {m}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeModel(m)}
+                                                    className="text-muted-foreground hover:text-destructive"
+                                                    title={t('modelProviders.removeModel')}
+                                                >
+                                                    <X className="h-3 w-3"/>
+                                                </button>
+                                            </span>
                                         ))}
-                                    </select>
-                                </div>
-                                {/* 显示名称 */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.label')}
-                                    </label>
+                                    </div>
+                                    {/* 手动添加 */}
                                     <Input
-                                        value={form.label}
-                                        onChange={(e) => setField('label', e.target.value)}
-                                        placeholder={t('modelProviders.labelPlaceholder')}
+                                        value={modelInput}
+                                        onChange={(e) => setModelInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                addModel(modelInput);
+                                                setModelInput('');
+                                            }
+                                        }}
+                                        placeholder={t('modelProviders.addModelPlaceholder')}
+                                        className="font-mono"
                                     />
-                                </div>
-                                {/* API Key */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.apiKey')}
-                                    </label>
-                                    <Input
-                                        type="password"
-                                        value={form.apiKey}
-                                        onChange={(e) => setField('apiKey', e.target.value)}
-                                        placeholder={editing
-                                            ? t('modelProviders.apiKeyEditPlaceholder')
-                                            : t('modelProviders.apiKeyPlaceholder')}
-                                    />
-                                </div>
-                                {/* Base URL */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.baseUrl')}
-                                    </label>
-                                    <Input
-                                        value={form.baseUrl}
-                                        onChange={(e) => setField('baseUrl', e.target.value)}
-                                        placeholder={t('modelProviders.baseUrlPlaceholder')}
-                                    />
-                                </div>
-                                {/* 默认模型 */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.defaultModel')}
-                                    </label>
-                                    <Input
-                                        value={form.defaultModel}
-                                        onChange={(e) => setField('defaultModel', e.target.value)}
-                                        placeholder="gpt-4o / claude-sonnet-4 / …"
-                                    />
-                                </div>
-                                {/* 模型列表 */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.models')}
-                                    </label>
-                                    <textarea
-                                        value={form.models}
-                                        onChange={(e) => setField('models', e.target.value)}
-                                        placeholder={t('modelProviders.modelsPlaceholder')}
-                                        rows={4}
-                                        className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                                    />
-                                </div>
-                                {/* 环境变量 */}
-                                <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                                        {t('modelProviders.env')}
-                                    </label>
-                                    <textarea
-                                        value={form.env}
-                                        onChange={(e) => setField('env', e.target.value)}
-                                        placeholder={t('modelProviders.envPlaceholder')}
-                                        rows={3}
-                                        className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                                    />
-                                </div>
-                                {/* 启用开关 */}
-                                <div className="flex items-center gap-2">
+                                    {/* 默认模型 */}
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                            {t('modelProviders.defaultModel')}
+                                        </label>
+                                        {modelsList.length > 0 ? (
+                                            <select
+                                                value={form.defaultModel}
+                                                onChange={(e) => setField('defaultModel', e.target.value)}
+                                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                            >
+                                                <option value="">{t('modelProviders.defaultModelNone')}</option>
+                                                {modelsList.map((m) => (
+                                                    <option key={m} value={m}>{m}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <Input
+                                                value={form.defaultModel}
+                                                onChange={(e) => setField('defaultModel', e.target.value)}
+                                                placeholder="deepseek-chat / …"
+                                                className="font-mono"
+                                            />
+                                        )}
+                                    </div>
+                                </section>
+
+                                {/* ── 分区：高级（折叠） ── */}
+                                <details className="rounded-lg border border-border/60">
+                                    <summary
+                                        className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground">
+                                        {t('modelProviders.sectionAdvanced')}
+                                    </summary>
+                                    <div className="px-3 pb-3">
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                            {t('modelProviders.env')}
+                                        </label>
+                                        <textarea
+                                            value={form.env}
+                                            onChange={(e) => setField('env', e.target.value)}
+                                            placeholder={t('modelProviders.envPlaceholder')}
+                                            rows={3}
+                                            className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                                        />
+                                    </div>
+                                </details>
+
+                                {/* ── 底部操作 ── */}
+                                <div className="flex items-center gap-2 border-t border-border/60 pt-3">
                                     <input
                                         type="checkbox"
                                         checked={form.enabled}
@@ -578,19 +767,18 @@ export default function ModelProvidersPage() {
                                     <label htmlFor="provider-enabled-check" className="text-sm">
                                         {t('modelProviders.enabled')}
                                     </label>
-                                </div>
-                                {/* 表单操作 */}
-                                <div className="flex gap-2 pt-2">
-                                    <Button onClick={handleSave} size="sm" disabled={saving}>
-                                        {saving
-                                            ? <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
-                                            : <Save className="h-4 w-4 mr-1"/>}
-                                        {creating ? t('common.create') : t('common.save')}
-                                    </Button>
-                                    <Button variant="outline" size="sm" onClick={cancelForm}>
-                                        <X className="h-4 w-4 mr-1"/>
-                                        {t('common.cancel')}
-                                    </Button>
+                                    <div className="ml-auto flex gap-2">
+                                        <Button onClick={handleSave} size="sm" disabled={saving}>
+                                            {saving
+                                                ? <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
+                                                : <Save className="h-4 w-4 mr-1"/>}
+                                            {creating ? t('common.create') : t('common.save')}
+                                        </Button>
+                                        <Button variant="outline" size="sm" onClick={cancelForm}>
+                                            <X className="h-4 w-4 mr-1"/>
+                                            {t('common.cancel')}
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

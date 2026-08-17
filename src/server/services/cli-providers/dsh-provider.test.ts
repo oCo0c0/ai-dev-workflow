@@ -63,6 +63,31 @@ describe('DshProvider.run', () => {
         expect(second.sessionId).toBe(first.sessionId);
     });
 
+    it('子 agent 会话的 idle 噪声不得提前完成（回归：页面假完成）', async () => {
+        // mock 在根会话 idle 前注入子会话 running→idle 对与子会话正文；
+        // 完成判定只认根会话 → stdout 必须是根正文（旧代码会在子 idle 处提前
+        // 返回，此时根正文尚未推送 → stdout 为空，即"页面显示完成但任务
+        // 仍在执行、消息继续涌入"的根因）
+        process.env.ADW_DSH_MOCK_NOISE = '1';
+        try {
+            const provider = new DshProvider();
+            const events: Array<{data: string; meta?: Record<string, unknown>}> = [];
+            const result = await provider.run(
+                {prompt: 'dispatch subagent'},
+                {cwd: tmpHome, onOutput: (data, meta) => events.push({data, meta})},
+            );
+            await provider.dispose();
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toBe('mock reply');
+            // 正文投影只认根会话：子会话文本不得混入执行日志
+            const texts = events.filter((e) => e.meta?.type === 'assistant').map((e) => e.data);
+            expect(texts).toEqual(['mock reply']);
+        } finally {
+            delete process.env.ADW_DSH_MOCK_NOISE;
+        }
+    });
+
     it('cordis.yml 按配置生成且内容不变时复用', async () => {
         const provider = new DshProvider();
         await provider.run({prompt: 'a', cwd: tmpHome});

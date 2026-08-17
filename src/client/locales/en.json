@@ -562,6 +562,7 @@
     "baseUrl": "Base URL",
     "baseUrlPlaceholder": "https://api.example.com",
     "defaultModel": "Default Model",
+    "defaultModelNone": "(none)",
     "models": "Models",
     "modelsPlaceholder": "One model ID per line",
     "env": "Environment Variables",
@@ -576,6 +577,21 @@
     "noModels": "No models",
     "detectResult": "Detection complete, {{count}} source(s) available",
     "importSuccess": "Import complete, {{total}} provider(s) total",
-    "deleteConfirm": "Delete provider \"{{name}}\"?"
+    "deleteConfirm": "Delete provider \"{{name}}\"?",
+    "optional": "optional",
+    "sectionBasic": "Basics",
+    "sectionBasicHint": "Pick a provider type and name it; the id is the internal identifier",
+    "sectionConnection": "Connection",
+    "sectionConnectionHint": "API Key is stored encrypted locally; leave Base URL empty for the official endpoint",
+    "sectionModels": "Models",
+    "sectionModelsHint": "Click \"Fetch Models\" to query the endpoint, or type a model ID and press Enter",
+    "sectionAdvanced": "Advanced (environment variables)",
+    "fetchModels": "Fetch Models",
+    "fetchingModels": "Fetching…",
+    "fetchEmpty": "The endpoint returned no models; please fill them in manually",
+    "candidatesHint": "Candidates returned by the endpoint; click to toggle",
+    "noModelsSelected": "No models added yet",
+    "removeModel": "Remove this model",
+    "addModelPlaceholder": "Type a model ID (e.g. deepseek-chat) and press Enter"
   }
 }

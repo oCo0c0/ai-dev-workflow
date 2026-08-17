@@ -85,14 +85,58 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * 根会话活动区间追踪（导出供测试）。
+ *
+ * dsh 的 `session.status` 通知按会话各发各的：根 agent 调 subagent 工具时，
+ * 子 agent 拥有独立的 phase 机，会推送自己会话的 running/idle 对。完成判定
+ * 必须只认根会话——否则子会话的 idle 会提前点亮完成信号，页面显示完成而
+ * 根 agent 仍在执行、消息继续涌入（回归场景见 fixtures 的 ADW_DSH_MOCK_NOISE）。
+ */
+export class RootSessionTracker {
+    private sessionId?: string;
+    private _sawRunning = false;
+    private _idleSignaled = false;
+
+    /** 绑定本轮 run 的根会话并复位活动区间状态（实例跨 run 复用时必须调用） */
+    bind(sessionId: string): void {
+        this.sessionId = sessionId;
+        this._sawRunning = false;
+        this._idleSignaled = false;
+    }
+
+    /** 喂入一条 session.status；非根会话一律忽略 */
+    handleStatus(sessionId: string, status: string): void {
+        if (this.sessionId === undefined || sessionId !== this.sessionId) return;
+        if (status === 'running') {
+            this._sawRunning = true;
+        } else {
+            this._idleSignaled = true;
+        }
+    }
+
+    /** 根会话是否出现过 running（区分「未启动」与「已完成」） */
+    get sawRunning(): boolean {
+        return this._sawRunning;
+    }
+
+    /**
+     * 消费挂起的 idle 信号。
+     * @returns true 表示「根会话见过 running 后回到 idle」= 本轮完成
+     */
+    consumeIdle(): boolean {
+        if (!this._idleSignaled) return false;
+        this._idleSignaled = false;
+        return this._sawRunning;
+    }
+}
+
 /** 单个运行时实例的运行上下文（一个 dsh 子进程的全部状态） */
 interface RunContext {
     client: DshJsonRpcClient;
     projector: DshEventProjector;
-    /** 根会话是否出现过 running（区分“未启动”与“已完成”） */
-    sawRunning: boolean;
-    /** idle 信号（onNotification 置位，awaitIdle 轮询消费后复位） */
-    idleSignaled: boolean;
+    /** 根会话完成判定（见 RootSessionTracker） */
+    tracker: RootSessionTracker;
     /** 运行时报告的版本 */
     runtimeVersion?: string;
 }
@@ -376,8 +420,9 @@ export class DshProvider implements CLIProvider {
             throw new Error(`dsh 运行时启动器缺失（${binPath}）；请先在仓库根执行 pnpm install`);
         }
 
-        // 上下文先声明后填充：onNotification 闭包需要引用 projector / 状态标志
+        // 上下文先声明后填充：onNotification 闭包需要引用 projector / 追踪器
         const ctx = {} as RunContext;
+        const tracker = new RootSessionTracker();
 
         const client = new DshJsonRpcClient({
             command: process.execPath,
@@ -385,13 +430,10 @@ export class DshProvider implements CLIProvider {
             cwd: path.dirname(binPath),
             env: this.runtimeEnv(),
             onNotification: (n) => {
+                // 完成判定只认根会话（见 RootSessionTracker 文档）；
+                // 投影器仍接收全部会话事件（子 agent 活动对时间线有价值）
                 if (n.method === 'session.status') {
-                    if (n.params.status === 'running') {
-                        ctx.sawRunning = true;
-                    } else {
-                        ctx.idleSignaled = true;
-                    }
-                    // 其余会话过滤交给投影器（子 agent 事件也有展示价值）
+                    tracker.handleStatus(n.params.sessionId, n.params.status);
                 }
                 ctx.projector?.handle(n);
             },
@@ -400,8 +442,7 @@ export class DshProvider implements CLIProvider {
         const projector = new DshEventProjector({onOutput: options?.onOutput ?? (() => {})});
         ctx.client = client;
         ctx.projector = projector;
-        ctx.sawRunning = false;
-        ctx.idleSignaled = false;
+        ctx.tracker = tracker;
 
         // initialize 握手（进程级一次；失败抛出 -> 上层把失败带给调用方）
         const init = await client.initialize({
@@ -430,9 +471,8 @@ export class DshProvider implements CLIProvider {
         // （SDK 约定：未知 sessionId 惰性创建 agent+session 对）
         const sessionId = input.sessionId || crypto.randomUUID();
         projector.setRootSessionId(sessionId);
-        // 每轮 run 复位活动区间标志与错误（实例可能被续用）
-        instance.ctx.sawRunning = false;
-        instance.ctx.idleSignaled = false;
+        // 先锚定根会话（status 过滤依赖），再复位活动区间标志与错误
+        instance.ctx.tracker.bind(sessionId);
         projector.clearError();
 
         const maxTurns = input.maxTurns ?? 50;
@@ -522,15 +562,12 @@ export class DshProvider implements CLIProvider {
                 throw new Error(`dsh 运行超出最大轮次限制（${maxTurns}），已中止`);
             }
 
-            // idle 信号（一次性消费）
-            if (instance.ctx.idleSignaled) {
-                instance.ctx.idleSignaled = false;
-                if (instance.ctx.sawRunning) return;
-                // sawRunning=false 的 idle：可能是其他会话的状态翻转，继续等
-            }
+            // idle 信号（一次性消费）：只有「见过 running 后的根会话 idle」才算完成；
+            // 未经 running 的 idle（罕见竞态）不退出，由下方超时兜底
+            if (instance.ctx.tracker.consumeIdle()) return;
 
             const elapsed = Date.now() - startedAt;
-            if (!instance.ctx.sawRunning && elapsed > NO_ACTIVITY_TIMEOUT_MS) {
+            if (!instance.ctx.tracker.sawRunning && elapsed > NO_ACTIVITY_TIMEOUT_MS) {
                 throw new DshTransportClosedError(
                     `dsh agent 在 ${NO_ACTIVITY_TIMEOUT_MS / 1000}s 内未开始活动（运行时可能未正常启动）`,
                 );

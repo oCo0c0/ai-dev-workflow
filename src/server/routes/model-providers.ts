@@ -102,6 +102,51 @@ export function createModelProviderRoutes(store: ModelProviderStore): Router {
         }
     });
 
+    // POST /models/fetch - 用表单当前凭据向端点拉取可用模型清单
+    // （对齐 dsh Models 页哲学：用“正在填写、尚未保存”的 key 询问端点，
+    //   只返回候选清单，绝不背后写配置；拉取失败由前端就地展示并可手填。）
+    router.post('/models/fetch', async (req, res) => {
+        const body = (req.body ?? {}) as {apiKey?: unknown; baseUrl?: unknown; id?: unknown; kind?: unknown};
+        const kind = typeof body.kind === 'string' ? body.kind : '';
+        let apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+        const baseUrlRaw = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
+        // 编辑已有记录时未重填 key：退回已存凭据
+        if (!apiKey && typeof body.id === 'string' && body.id) {
+            try {
+                apiKey = store.get(body.id)?.apiKey ?? '';
+            } catch { /* 记录不存在时按无 key 处理 */ }
+        }
+        if (!apiKey) {
+            res.status(400).json({code: 'API_KEY_REQUIRED', message: '请先填写 API Key（或选择已配置 Key 的记录）'});
+            return;
+        }
+        const base = (baseUrlRaw
+            || (kind === 'claude' ? 'https://api.anthropic.com' : 'https://api.deepseek.com')
+        ).replace(/\/+$/, '');
+        // Anthropic 风格：/v1/models + x-api-key；OpenAI 兼容风格：/models + Bearer
+        const modelsPath = kind === 'claude' ? '/v1/models' : '/models';
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15_000);
+            const resp = await fetch(`${base}${modelsPath}`, {
+                headers: {Authorization: `Bearer ${apiKey}`, 'x-api-key': apiKey},
+                signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (!resp.ok) {
+                const detail = resp.status === 401 ? 'API Key 无效或已过期' : `端点返回 HTTP ${resp.status}`;
+                res.status(resp.status === 401 ? 401 : 502).json({code: 'MODELS_FETCH_FAILED', message: detail});
+                return;
+            }
+            const data = (await resp.json()) as {data?: Array<{id?: unknown}>, models?: Array<{id?: unknown}>};
+            const list = Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : []);
+            const models = list.map((m) => (typeof m?.id === 'string' ? m.id : '')).filter(Boolean);
+            res.json({models: [...new Set(models)].sort()});
+        } catch (err) {
+            res.status(502).json({code: 'MODELS_FETCH_FAILED', message: `无法访问 ${base}${modelsPath}：${getErrorMessage(err)}`});
+        }
+    });
+
     // POST / - 手动创建/更新供应商
     router.post('/', (req, res) => {
         const body = (req.body ?? {}) as Record<string, unknown>;
