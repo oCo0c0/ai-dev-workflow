@@ -18,7 +18,7 @@ describe('buildCordisYml', () => {
     it('包含协议头与核心插件条目（对齐官方组成）', () => {
         const yml = buildCordisYml(base);
         expect(yml).toContain('- id: sdk-jsonrpc-server');
-        expect(yml).toContain("'@deepseek-ai/dsh-sdk-jsonrpc-server'");
+        expect(yml).toContain(JSON.stringify('@deepseek-ai/dsh-sdk-jsonrpc-server'));
         expect(yml).toContain('- id: llm-deepseek');
         // spine 聚合条目（内部装载 timer/session/system-prompt/tools/agent/
         // invariants+伴随/agent-loop 等十余插件）
@@ -83,5 +83,16 @@ describe('buildCordisYml', () => {
     it('stdout 纯净性注释存在（部署铁律）', () => {
         const yml = buildCordisYml(base);
         expect(yml).toContain('stdout');
+    });
+
+    it('serverPluginPath 覆盖 SDK 服务器插件（resume 感知子类）；缺省用官方包', () => {
+        const custom = 'D:\\repo\\runtime-dsh\\sdk-server.mjs';
+        const yml = buildCordisYml({...base, serverPluginPath: custom});
+        expect(yml).toContain(`name: ${JSON.stringify(custom)}`);
+        // 官方包名不再作为服务器条目出现（其余条目不受影响）
+        expect(yml).not.toContain("'@deepseek-ai/dsh-sdk-jsonrpc-server'");
+
+        const fallback = buildCordisYml(base);
+        expect(fallback).toContain(`name: ${JSON.stringify('@deepseek-ai/dsh-sdk-jsonrpc-server')}`);
     });
 });

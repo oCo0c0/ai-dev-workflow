@@ -35,6 +35,12 @@ export interface DshCordisOptions {
     skillsDir?: string;
     /** MCP 服务器（stdio）；键为服务器名 */
     mcpServers?: Record<string, DshMcpServerConfig>;
+    /**
+     * SDK 服务器插件（绝对路径）。缺省用官方 @deepseek-ai/dsh-sdk-jsonrpc-server；
+     * adw 生产路径传 runtime-dsh/sdk-server.mjs（resume 感知版：create 撞上
+     * 磁盘持久化日志时自动降级 agents.resume，支持跨进程续接会话）。
+     */
+    serverPluginPath?: string;
 }
 
 /** 默认人格：对齐官方示例语气，强调 adw 的自动化定位 */
@@ -67,8 +73,10 @@ export function buildCordisYml(options: DshCordisOptions): string {
     lines.push('');
 
     // --- SDK 服务器：stdin/stdout JSON-RPC 2.0 ---
+    // （adw 用 resume 感知子类插件；loader 支持绝对路径解析为 file:// 导入）
+    const serverName = options.serverPluginPath || '@deepseek-ai/dsh-sdk-jsonrpc-server';
     lines.push('- id: sdk-jsonrpc-server');
-    lines.push(`  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'`);
+    lines.push(`  name: ${q(serverName)}`);
     lines.push('  config:');
     lines.push('    maxTokensAsSuccess: true');
     lines.push('');

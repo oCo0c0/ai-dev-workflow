@@ -317,6 +317,8 @@ export class DshProvider implements CLIProvider {
         const mcpKey = Object.keys(mcpEntries).sort().join(',') || 'none';
 
         const persona = process.env.ADW_DSH_PERSONA || DEFAULT_PERSONA;
+        // resume 感知 SDK 服务器插件（官方包只 create；跨进程续接需要撞日志时降级 resume）
+        const serverPluginPath = path.join(runtimeRoot(), 'sdk-server.mjs');
         const yml = buildCordisYml({
             cwd,
             sessionRoot: path.join(root, 'sessions'),
@@ -324,6 +326,7 @@ export class DshProvider implements CLIProvider {
             persona,
             skillsDir,
             mcpServers: Object.keys(mcpEntries).length > 0 ? mcpEntries : undefined,
+            serverPluginPath: fs.existsSync(serverPluginPath) ? serverPluginPath : undefined,
         });
 
         // 内容 hash 命名：配置不变则路径不变，运行时/排查可对号入座
