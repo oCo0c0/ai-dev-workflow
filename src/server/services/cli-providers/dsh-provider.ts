@@ -406,9 +406,10 @@ export class DshProvider implements CLIProvider {
         // （SDK 约定：未知 sessionId 惰性创建 agent+session 对）
         const sessionId = input.sessionId || crypto.randomUUID();
         projector.setRootSessionId(sessionId);
-        // 每轮 run 复位活动区间标志（实例可能被续用）
+        // 每轮 run 复位活动区间标志与错误（实例可能被续用）
         instance.ctx.sawRunning = false;
         instance.ctx.idleSignaled = false;
+        projector.clearError();
 
         const maxTurns = input.maxTurns ?? 50;
 
@@ -422,9 +423,23 @@ export class DshProvider implements CLIProvider {
             // 活动区间：等待 agent 从 running 回到 idle（含中止与软护栏）
             await this.awaitIdle(instance, options, maxTurns);
 
+            const finalResponse = projector.getFinalResponse();
+            // LLM 调用失败（缺 key/限流/网络）表现为 turn/end 的 error，而非进程崩溃；
+            // 无正文且携带错误时按失败返回，避免前端看到“成功但空白”。
+            const turnError = projector.getLastError();
+            if (turnError && !finalResponse) {
+                return {
+                    exitCode: 1,
+                    stdout: '',
+                    stderr: turnError,
+                    sessionId,
+                    aborted: false,
+                };
+            }
+
             return {
                 exitCode: 0,
-                stdout: projector.getFinalResponse(),
+                stdout: finalResponse,
                 stderr: '',
                 sessionId,
                 aborted: false,

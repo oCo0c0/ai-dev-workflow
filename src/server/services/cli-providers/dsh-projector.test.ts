@@ -161,11 +161,33 @@ describe('DshEventProjector', () => {
         const {handler, events} = collector();
         const p = new DshEventProjector({onOutput: handler});
         p.setRootSessionId(ROOT);
-        p.handle(ev(CHILD, {type: 'turn/end', data: {turn: 1, reason: 'end-turn'}}));
+        p.handle(ev(CHILD, {type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}}));
         expect(p.getTurnCount()).toBe(0);
-        p.handle(ev(ROOT, {type: 'turn/end', data: {turn: 1, reason: 'end-turn'}}));
-        p.handle(ev(ROOT, {type: 'turn/end', data: {turn: 2, reason: 'end-turn'}}));
+        p.handle(ev(ROOT, {type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}}));
+        p.handle(ev(ROOT, {type: 'turn/end', data: {turn: 2, reason: {kind: 'completed'}}}));
         expect(p.getTurnCount()).toBe(2);
+    });
+
+    it('turn/end 的 error reason 被提取为 lastError（LLM 失败可见）', () => {
+        const {handler} = collector();
+        const p = new DshEventProjector({onOutput: handler});
+        p.setRootSessionId(ROOT);
+        p.handle(ev(ROOT, {
+            type: 'turn/end',
+            data: {turn: 1, reason: {kind: 'error', error: {message: 'llm-deepseek: no API key', code: 'MISSING_CREDENTIAL'}}},
+        }));
+        expect(p.getLastError()).toContain('no API key');
+        expect(p.getTurnCount()).toBe(1);
+    });
+
+    it('clearError 复位错误；错误按轮隔离', () => {
+        const {handler} = collector();
+        const p = new DshEventProjector({onOutput: handler});
+        p.setRootSessionId(ROOT);
+        p.handle(ev(ROOT, {type: 'turn/end', data: {turn: 1, reason: {kind: 'error', error: {message: 'boom'}}}}));
+        expect(p.getLastError()).toBe('boom');
+        p.clearError();
+        expect(p.getLastError()).toBeUndefined();
     });
 
     it('subagent.started / finished 投影为 subagent 事件', () => {

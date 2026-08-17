@@ -133,6 +133,8 @@ export class DshEventProjector {
     private lastAssistantText = '';
     /** 轮次计数（maxTurns 软护栏用） */
     private turnCount = 0;
+    /** 根会话最近一次 turn/end 的 error 载荷（LLM 失败等非进程级错误） */
+    private lastError: string | undefined;
 
     constructor(options: DshProjectorOptions) {
         this.onOutput = options.onOutput;
@@ -152,6 +154,16 @@ export class DshEventProjector {
     /** 已完成的轮次数（turn/end 计数） */
     getTurnCount(): number {
         return this.turnCount;
+    }
+
+    /** 根会话最近一次 turn/end 的 error 消息（无错误时为 undefined） */
+    getLastError(): string | undefined {
+        return this.lastError;
+    }
+
+    /** 每轮 run 开始前复位错误（assistant 文本跨轮保留以支持续接，错误必须按轮隔离） */
+    clearError(): void {
+        this.lastError = undefined;
     }
 
     /** 消费一条 dsh 通知 */
@@ -233,9 +245,21 @@ export class DshEventProjector {
                 });
                 return;
             }
-            case 'turn/end':
-                if (isRoot) this.turnCount++;
+            case 'turn/end': {
+                if (!isRoot) return;
+                this.turnCount++;
+                // LLM 调用失败（缺 key、限流、网络等）表现为 turn/end 的 error reason，
+                // 而非进程崩溃；提取出来让 run() 能向调用方报告失败而非静默空回复。
+                const data = event.data as Record<string, unknown>;
+                const reason = data.reason as Record<string, unknown> | undefined;
+                if (reason && reason.kind === 'error') {
+                    const err = reason.error as Record<string, unknown> | undefined;
+                    this.lastError = typeof err?.message === 'string'
+                        ? err.message
+                        : 'dsh agent turn failed';
+                }
                 return;
+            }
             default:
                 // turn/start、step/*、todo/write、request/*、user/message、compaction/*
                 // 等事件不进 adw 展示契约，静默忽略（未知类型必须容忍）
