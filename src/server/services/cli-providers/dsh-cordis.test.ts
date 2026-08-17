@@ -88,7 +88,10 @@ describe('buildCordisYml', () => {
     it('serverPluginPath 覆盖 SDK 服务器插件（resume 感知子类）；缺省用官方包', () => {
         const custom = 'D:\\repo\\runtime-dsh\\sdk-server.mjs';
         const yml = buildCordisYml({...base, serverPluginPath: custom});
-        expect(yml).toContain(`name: ${JSON.stringify(custom)}`);
+        // 入口名必须是 file:// URL：Windows 盘符绝对路径会被裸动态 import
+        // 判为 'd:' 协议拒绝（ERR_UNSUPPORTED_ESM_URL_SCHEME）
+        expect(yml).toContain(`name: ${JSON.stringify('file:///D:/repo/runtime-dsh/sdk-server.mjs')}`);
+        expect(yml).not.toContain(JSON.stringify(custom));
         // 官方包名不再作为服务器条目出现（其余条目不受影响）
         expect(yml).not.toContain("'@deepseek-ai/dsh-sdk-jsonrpc-server'");
 

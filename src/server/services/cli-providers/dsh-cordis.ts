@@ -12,6 +12,8 @@
  * ⚠️ 部署铁律：stdout 保留给 JSON-RPC 协议，任何插件不得向 stdout 打日志。
  */
 
+import {pathToFileURL} from 'node:url';
+
 /** 单个 MCP 服务器（stdio 传输）配置 */
 export interface DshMcpServerConfig {
     command: string;
@@ -52,6 +54,16 @@ function q(s: string): string {
     return JSON.stringify(s);
 }
 
+/**
+ * 插件路径 -> ESM 可导入的 specifier。
+ * cordis loader 的入口名最终走裸动态 import：Windows 盘符绝对路径会被
+ * ESM 判为 'd:' 协议拒绝（ERR_UNSUPPORTED_ESM_URL_SCHEME），
+ * 必须 file:// URL 形式。
+ */
+function pluginSpecifier(p: string): string {
+    return pathToFileURL(p).href;
+}
+
 /** YAML 双引号数组 */
 function qa(items: string[]): string {
     return `[${items.map(q).join(', ')}]`;
@@ -73,8 +85,11 @@ export function buildCordisYml(options: DshCordisOptions): string {
     lines.push('');
 
     // --- SDK 服务器：stdin/stdout JSON-RPC 2.0 ---
-    // （adw 用 resume 感知子类插件；loader 支持绝对路径解析为 file:// 导入）
-    const serverName = options.serverPluginPath || '@deepseek-ai/dsh-sdk-jsonrpc-server';
+    // （adw 用 resume 感知子类插件；loader 入口名须为 file:// URL——
+    //   Windows 绝对路径会被裸动态 import 当作 'd:' 协议拒绝）
+    const serverName = options.serverPluginPath
+        ? pluginSpecifier(options.serverPluginPath)
+        : '@deepseek-ai/dsh-sdk-jsonrpc-server';
     lines.push('- id: sdk-jsonrpc-server');
     lines.push(`  name: ${q(serverName)}`);
     lines.push('  config:');
