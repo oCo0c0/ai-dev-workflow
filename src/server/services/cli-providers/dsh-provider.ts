@@ -29,6 +29,7 @@ import {getErrorMessage} from '../../utils/error-utils.js';
 import {DshJsonRpcClient, DshTransportClosedError, stableHash} from './dsh-protocol.js';
 import {DshEventProjector} from './dsh-projector.js';
 import {buildCordisYml, DEFAULT_PERSONA} from './dsh-cordis.js';
+import {ModelProviderStore} from '../model-provider-store.js';
 import type {McpStdioMap} from './types.js';
 import type {
     CLIProvider,
@@ -145,8 +146,8 @@ export class DshProvider implements CLIProvider {
         }
 
         // 3) 凭据提示（不阻塞 available；运行时错误会更明确）
-        if (process.env.DEEPSEEK_API_KEY === undefined) {
-            problems.push('未设置 DEEPSEEK_API_KEY（首次实际调用会失败）');
+        if (process.env.DEEPSEEK_API_KEY === undefined && !this.readApiKey()) {
+            problems.push('未配置 DeepSeek API Key：请在「模型供应商」页面添加 DeepSeek Harness 记录，或设置 DEEPSEEK_API_KEY 环境变量');
         }
 
         const ready = fs.existsSync(binPath) && fs.existsSync(path.join(root, 'node_modules'));
@@ -167,6 +168,29 @@ export class DshProvider implements CLIProvider {
         // 惰性：实例在首次 run() 时按需拉起；这里只确保目录结构存在
         fs.mkdirSync(path.join(generatedRoot(), 'configs'), {recursive: true});
         fs.mkdirSync(path.join(generatedRoot(), 'sessions'), {recursive: true});
+    }
+
+    /**
+     * 从模型供应商配置（models.json）读取 kind='dsh' 记录的明文 API Key。
+     * 对齐 pi-provider：页面配置的 key 优先，环境变量 DEEPSEEK_API_KEY 兜底。
+     */
+    private readApiKey(): string | undefined {
+        try {
+            const rec = new ModelProviderStore().list().find(
+                (r) => r.kind === 'dsh' && r.enabled !== false && r.apiKey,
+            );
+            return rec?.apiKey;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** 运行时子进程环境：继承父进程 + 注入页面配置的 DeepSeek API Key（环境变量兜底） */
+    private runtimeEnv(): Record<string, string> {
+        const env = {...process.env} as Record<string, string>;
+        const key = this.readApiKey() ?? process.env.DEEPSEEK_API_KEY;
+        if (key) env.DEEPSEEK_API_KEY = key;
+        return env;
     }
 
     async run(input: CLIProviderInput, options?: CLIProviderOptions): Promise<CLIProviderResult> {
@@ -359,7 +383,7 @@ export class DshProvider implements CLIProvider {
             command: process.execPath,
             args: [binPath, configPath],
             cwd: path.dirname(binPath),
-            env: {...process.env} as Record<string, string>,
+            env: this.runtimeEnv(),
             onNotification: (n) => {
                 if (n.method === 'session.status') {
                     if (n.params.status === 'running') {

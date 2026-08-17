@@ -35,6 +35,7 @@ import {
     Server,
     KeyRound,
     Globe,
+    Boxes,
 } from 'lucide-react';
 import type {
     SafeModelProviderRecord,
@@ -52,6 +53,7 @@ const KIND_ICONS: Record<ModelProviderKind, typeof Bot> = {
     claude: Bot,
     codex: Terminal,
     pi: Sparkles,
+    dsh: Boxes,
     custom: Cpu,
 };
 
@@ -67,6 +69,7 @@ const KIND_OPTIONS: { value: ModelProviderKind; label: string }[] = [
     {value: 'claude', label: 'Claude'},
     {value: 'codex', label: 'Codex'},
     {value: 'pi', label: 'Pi'},
+    {value: 'dsh', label: 'DeepSeek Harness'},
     {value: 'custom', label: 'Custom'},
 ];
 

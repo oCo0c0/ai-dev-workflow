@@ -19,7 +19,7 @@ import type {ModelProviderInput} from '../services/model-provider-types.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 
 /** 允许的 kind 值 */
-const VALID_KINDS = ['claude', 'codex', 'pi', 'custom'] as const;
+const VALID_KINDS = ['claude', 'codex', 'pi', 'dsh', 'custom'] as const;
 /** 允许的 source 值 */
 const VALID_SOURCES = ['external', 'manual', 'builtin'] as const;
 

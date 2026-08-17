@@ -65,7 +65,7 @@ export interface AppConfig {
     };
     /** CLI Provider 配置（Claude Code / OpenAI Codex / Pi / 自定义供应商） */
     cliProvider?: {
-        /** 当前激活的 CLI Provider ID：内置为 'claude' | 'codex' | 'pi'，自定义供应商为 models.json 中的记录 id */
+        /** 当前激活的 CLI Provider ID：内置为 'claude' | 'codex' | 'pi' | 'dsh'，自定义供应商为 models.json 中的记录 id */
         active?: string;
         /** 是否已完成首次引导选择 */
         setupCompleted?: boolean;
