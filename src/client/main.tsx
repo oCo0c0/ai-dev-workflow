@@ -34,6 +34,10 @@ interface ProviderStatusResponse {
     active: string;
     detected?: Array<{
         id: string;
+        label: string;
+        available: boolean;
+        capabilities?: Record<string, boolean>;
+        defaultModelSettings?: Record<string, unknown>;
         meta?: Record<string, unknown>;
     }>;
 }
@@ -42,13 +46,24 @@ interface ProviderStatusResponse {
  * 根组件 - 定义应用的路由结构 + CLI Provider 引导流程
  */
 function App() {
-    const {setCliProvider, setShowSetupModal, setPiMeta} = useAppStore();
+    const {setCliProvider, setShowSetupModal, setPiMeta, setProviderCatalog} = useAppStore();
 
     // 启动时检查 CLI Provider 配置状态
     useEffect(() => {
         apiGet<ProviderStatusResponse>('/system/cli-provider/status')
             .then((data) => {
                 setCliProvider(data.configured, data.active);
+                // 保存 Provider 目录（id/label/能力/默认配置），供顶栏与配置弹窗数据驱动渲染
+                if (data.detected) {
+                    setProviderCatalog(data.detected.map(d => ({
+                        id: d.id,
+                        label: d.label,
+                        available: d.available,
+                        capabilities: d.capabilities as never,
+                        defaultModelSettings: d.defaultModelSettings as never,
+                        meta: d.meta,
+                    })));
+                }
                 // 保存 pi 元数据（检测到的 LLM 提供商和模型）
                 const piDetected = data.detected?.find(d => d.id === 'pi');
                 if (piDetected?.meta) {
@@ -64,7 +79,7 @@ function App() {
             .catch(() => {
                 // 查询失败时使用默认配置，不阻塞应用启动
             });
-    }, [setCliProvider, setShowSetupModal, setPiMeta]);
+    }, [setCliProvider, setShowSetupModal, setPiMeta, setProviderCatalog]);
 
     return (
         <BrowserRouter>

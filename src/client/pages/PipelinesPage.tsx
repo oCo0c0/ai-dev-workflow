@@ -23,6 +23,7 @@ import {Button} from '../components/ui/button';
 import {Input} from '../components/ui/input';
 import {Card, CardContent} from '../components/ui/card';
 import {Badge} from '../components/ui/badge';
+import {RequirementSourceSelector} from '../components/RequirementSourceSelector';
 import {
     Plus,
     Trash2,
@@ -245,8 +246,6 @@ interface ExecutionWizardProps {
     onClose: () => void;
     /** 已保存的工作空间列表，用于下拉选择 */
     savedWorkspaces: { id: string; name: string; path: string }[];
-    /** 可用 MCP 服务器列表，用于需求拉取时选择 */
-    mcpServers: MCPServerConfig[];
 }
 
 /**
@@ -265,7 +264,7 @@ interface ExecutionWizardProps {
  * @param props.onClose - 关闭回调
  * @param props.savedWorkspaces - 可用工作空间列表
  */
-function ExecutionWizard({pipeline, onClose, savedWorkspaces, mcpServers}: ExecutionWizardProps) {
+function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardProps) {
     const {t} = useTranslation();
     const navigate = useNavigate();
     // 从全局状态获取更新方法，用于设置选中的需求和计划状态
@@ -276,12 +275,12 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces, mcpServers}: Execu
     // 工作空间绑定路径（绑定是流水线级配置，仍从配置读）
     const boundPath = pipeline.steps?.workspace?.boundPath;
 
-    // 初始化向导状态：默认 MCP 获取模式，预选第一个可用 MCP 服务器
+    // 初始化向导状态：默认 MCP 获取模式，需求源由 RequirementSourceSelector 自行恢复/引导安装
     const [state, setState] = useState<WizardState>({
         pipeline,
         step: 1,
         reqMode: 'fetch',
-        selectedMcpServer: mcpServers[0]?.name ?? '',
+        selectedMcpServer: '',
         selectedRequirement: null,
         manualRequirementText: '',
         fetchId: '',
@@ -532,21 +531,16 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces, mcpServers}: Execu
                             {/* 通过 MCP 获取：选 server + 输入 ID 拉取（调 MCP） */}
                             {state.reqMode === 'fetch' ? (
                                 <>
-                                    {/* MCP 服务器选择（拉取需求用） */}
+                                    {/* 需求源选择（适配器目录驱动，未配置可一键安装） */}
                                     <div>
                                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                                             {t('pipelines.mcpServer')}
                                         </label>
-                                        <select
+                                        <RequirementSourceSelector
                                             value={state.selectedMcpServer}
-                                            onChange={(e) => update({selectedMcpServer: e.target.value})}
+                                            onChange={(name) => update({selectedMcpServer: name})}
                                             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                        >
-                                            <option value="">{t('pipelines.selectPlaceholder')}</option>
-                                            {mcpServers.map((s) => (
-                                                <option key={s.name} value={s.name}>{s.name}</option>
-                                            ))}
-                                        </select>
+                                        />
                                     </div>
                                     {/* 通过ID/编号从需求管理系统获取需求 */}
                                     <div>
@@ -1964,7 +1958,6 @@ export default function PipelinesPage() {
                     pipeline={wizardPipeline}
                     onClose={() => setWizardPipeline(null)}
                     savedWorkspaces={savedWorkspaces}
-                    mcpServers={mcpServers}
                 />
             )}
             <Joyride

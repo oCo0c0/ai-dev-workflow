@@ -84,6 +84,19 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `analytics-service.ts` | `AnalyticsService` | 数据分析服务 |
 | `skill-derivation-service.ts` | `SkillDerivationService` | （已废弃）技能自动派生 — 不再实例化 |
 
+**需求源适配器**（热插拔，与 cli-providers 同构）：
+
+| 文件 | 说明 |
+|------|------|
+| `requirement-sources/types.ts` | `RequirementSourceAdapter` 接口：目录元数据 + installTemplate（一键配置模板）+ 输入方言/工具命名/响应解析/附件认证 |
+| `requirement-sources/index.ts` | 适配器注册表：registerRequirementSource 工厂注册 + resolveAdapter 自动路由 + listCatalogAdapters 目录视图（排除 generic） |
+| `requirement-sources/ones-adapter.ts` | ONES 适配器（链接/issue key 方言、get_work_item 工具族、ONES 章节表、PKCE 图片服务） |
+| `requirement-sources/github-adapter.ts` | GitHub Issues 适配器（owner/repo#N 方言、get_issue 工具族、REST JSON 解析） |
+| `requirement-sources/generic-adapter.ts` | 通用兜底适配器（宽松工具命名 + JSON 优先解析，永不认领） |
+| `requirement-sources/parsers.ts` | 共享解析器（MCP content 提取、JSON 映射、参数化 Markdown 解析） |
+
+`mcp-bridge-service.ts` 已重构为纯传输层：连接池（按 serverName 缓存）、listTools 动态发现、按能力调用工具；输入规整/参数构建/响应解析/附件认证全部委托命中的适配器。新增需求源 = 实现适配器 + 注册一行，无需改动桥接/路由/前端。
+
 **测试 Provider**：
 
 | 文件 | 说明 |

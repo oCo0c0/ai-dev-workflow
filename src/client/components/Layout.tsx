@@ -176,7 +176,8 @@ export default function Layout() {
     const setShowModelConfigModal = useAppStore((s) => s.setShowModelConfigModal);
     const fetchModelConfig = useAppStore((s) => s.fetchModelConfig);
     const fetchAvailableModels = useAppStore((s) => s.fetchAvailableModels);
-    const claudeModelTiers = useAppStore((s) => s.claudeModelTiers);
+    const providerCatalog = useAppStore((s) => s.providerCatalog);
+    const availableModels = useAppStore((s) => s.availableModels);
 
     const location = useLocation();
 
@@ -324,7 +325,7 @@ export default function Layout() {
                                 : <Bot className="h-4 w-4"/>
                             }
                             <span className="hidden sm:inline">
-                                {cliProvider.active === 'codex' ? 'Codex' : cliProvider.active === 'pi' ? 'Pi' : 'Claude'}
+                                {providerCatalog.find(p => p.id === cliProvider.active)?.label ?? cliProvider.active}
                             </span>
                         </button>
                         {/* 模型配置 */}
@@ -335,17 +336,14 @@ export default function Layout() {
                         >
                             <Cpu className="h-4 w-4"/>
                             <span className="hidden md:inline">
-                                {cliProvider.active === 'codex'
-                                    ? (cliProvider.modelConfig.codex.model || '未配置')
-                                    : cliProvider.active === 'pi'
-                                    ? (cliProvider.modelConfig.pi.model || '未配置')
-                                    : (() => {
-                                        const tier = claudeModelTiers.find(
-                                            t => t.tier === cliProvider.modelConfig.claude.model
-                                        );
-                                        return tier ? tier.model : cliProvider.modelConfig.claude.model;
-                                    })()
-                                }
+                                {(() => {
+                                    const rawModel = cliProvider.modelConfig[cliProvider.active]?.model || '未配置';
+                                    // 档位别名解析为实际模型名（有 tiers 的 Provider 才有别名）
+                                    const tier = availableModels[cliProvider.active]?.tiers?.find(
+                                        t => t.value === rawModel
+                                    );
+                                    return tier ? tier.model : rawModel;
+                                })()}
                             </span>
                         </button>
                         {/* 语言切换 */}

@@ -274,29 +274,44 @@ interface SchedulerStatus {
 // === 应用状态接口 ===
 
 /**
- * 模型配置类型（Claude / Codex 各自的模型参数）
- * 供 AppState.cliProvider.modelConfig 和相关 action 共用
+ * 单个 Provider 的模型运行配置（与后端 cliProvider.models[id] 镜像）
+ * 哪些字段生效由该 Provider 的 capabilities 决定
  */
-interface ModelConfig {
-    claude: {
-        model: string;
-        extendedThinking: boolean;
-        reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-        streaming: boolean;
-        maxTokens?: number;
-    };
-    codex: {
-        model: string;
-        streaming: boolean;
-        maxTokens?: number;
-    };
-    pi: {
-        provider: string;
-        model: string;
-        streaming: boolean;
-        reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-        maxTokens?: number;
-    };
+interface ProviderModelSettings {
+    model?: string;
+    streaming?: boolean;
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    extendedThinking?: boolean;
+    maxTokens?: number;
+    /** 底层 LLM 提供商（如 pi 的 'anthropic' | 'openai' 等） */
+    modelProvider?: string;
+}
+
+/** Provider 能力声明（与后端 CLIProviderCapabilities 镜像，控制配置 UI 字段可见性） */
+interface ProviderCapabilities {
+    supportsPermission: boolean;
+    supportsRuntimeSkills: boolean;
+    supportsRuntimeMcp: boolean;
+    supportsMaxTurns: boolean;
+    supportsReasoningEffort: boolean;
+    supportsExtendedThinking: boolean;
+    supportsCustomEndpoint: boolean;
+}
+
+/** Provider 目录条目（来自后端 /system/cli-provider/status 的 detected 列表） */
+interface ProviderCatalogEntry {
+    id: string;
+    label: string;
+    available: boolean;
+    capabilities?: ProviderCapabilities;
+    defaultModelSettings?: ProviderModelSettings;
+    meta?: Record<string, unknown>;
+}
+
+/** 各 Provider 本地可提供的模型选项（来自后端 /system/available-models） */
+interface AvailableModelsEntry {
+    tiers?: Array<{ value: string; label: string; model: string }>;
+    current?: string | null;
 }
 
 /**
@@ -392,10 +407,10 @@ interface AppState {
     };
 
     // --- CLI Provider ---
-    /** Claude 模型档位映射（从配置文件读取） */
-    claudeModelTiers: Array<{ tier: string; label: string; model: string }>;
-    /** Codex 当前模型（从配置文件读取） */
-    codexModel: string | null;
+    /** Provider 目录（后端检测到的所有 Provider：id/label/能力/默认配置） */
+    providerCatalog: ProviderCatalogEntry[];
+    /** 各 Provider 本地可提供的模型选项（id → tiers/current） */
+    availableModels: Record<string, AvailableModelsEntry>;
     /** Pi 检测到的元数据（可用 LLM 提供商和模型列表） */
     piMeta: {
         availableProviders: string[];
@@ -411,8 +426,8 @@ interface AppState {
         showSetupModal: boolean;
         /** 显示模型配置弹窗 */
         showModelConfigModal: boolean;
-        /** 模型配置 */
-        modelConfig: ModelConfig;
+        /** 各 Provider 的模型配置（开放 map，key 为 Provider id） */
+        modelConfig: Record<string, ProviderModelSettings>;
     };
 
     // --- 项目空间 & 多任务 ---
@@ -524,23 +539,19 @@ interface AppState {
     // CLI Provider actions
     /** 设置 CLI Provider 配置状态 */
     setCliProvider: (configured: boolean, active: string) => void;
+    /** 设置 Provider 目录（后端检测结果） */
+    setProviderCatalog: (catalog: ProviderCatalogEntry[]) => void;
     /** 显示/隐藏引导弹窗 */
     setShowSetupModal: (show: boolean) => void;
     /** 显示/隐藏模型配置弹窗 */
     setShowModelConfigModal: (show: boolean) => void;
-    /** 更新指定 Provider 的模型配置（局部合并） */
-    setModelConfig: (
-        provider: 'claude' | 'codex' | 'pi',
-        config: Partial<ModelConfig['claude']> | Partial<ModelConfig['codex']> | Partial<ModelConfig['pi']>,
-    ) => void;
+    /** 更新指定 Provider 的模型配置（局部合并，provider 为任意已注册 id） */
+    setModelConfig: (provider: string, config: Partial<ProviderModelSettings>) => void;
     /** 从后端加载模型配置 */
     fetchModelConfig: () => Promise<void>;
     /** 保存模型配置到后端 */
-    saveModelConfig: (
-        provider: 'claude' | 'codex' | 'pi',
-        config: ModelConfig['claude'] | ModelConfig['codex'] | ModelConfig['pi'],
-    ) => Promise<void>;
-    /** 从配置文件读取可用模型列表 */
+    saveModelConfig: (provider: string, config: ProviderModelSettings) => Promise<void>;
+    /** 从后端读取各 Provider 可用的模型选项 */
     fetchAvailableModels: () => Promise<void>;
     /** 保存 pi 检测到的元数据 */
     setPiMeta: (meta: AppState['piMeta']) => void;
@@ -709,32 +720,16 @@ export const useAppStore = create<AppState>((set) => {
             locale: (localStorage.getItem('locale') as 'zh' | 'en') || 'zh',
             bgImage: initialBgImage,
         },
-        claudeModelTiers: [],
-        codexModel: null,
+        providerCatalog: [],
+        availableModels: {},
         piMeta: null,
         cliProvider: {
             configured: false,
             active: 'claude',
             showSetupModal: false,
             showModelConfigModal: false,
-            modelConfig: {
-                claude: {
-                    model: 'sonnet',
-                    extendedThinking: true,
-                    reasoningEffort: 'high',
-                    streaming: true,
-                },
-                codex: {
-                    model: 'codex-mini-latest',
-                    streaming: true,
-                },
-                pi: {
-                    provider: 'anthropic',
-                    model: 'claude-sonnet-4-20250514',
-                    streaming: true,
-                    reasoningEffort: 'medium',
-                },
-            },
+            // 各 Provider 的默认值由后端 Provider 自带（defaultModelSettings），fetchModelConfig 时填充
+            modelConfig: {},
         },
         projects: {list: [], active: null, loading: false},
         tasks: {list: [], activeTaskId: null, logsByTask: {}, scheduler: null},
@@ -836,61 +831,34 @@ export const useAppStore = create<AppState>((set) => {
         // === CLI Provider Actions ===
         setCliProvider: (configured, active) =>
             set((state) => ({cliProvider: {...state.cliProvider, configured, active}})),
+        setProviderCatalog: (catalog) => set({providerCatalog: catalog}),
         setShowSetupModal: (show) =>
             set((state) => ({cliProvider: {...state.cliProvider, showSetupModal: show}})),
         setShowModelConfigModal: (show) =>
             set((state) => ({cliProvider: {...state.cliProvider, showModelConfigModal: show}})),
         setModelConfig: (provider, config) =>
-            set((state) => {
-                if (provider === 'claude') {
-                    return {
-                        cliProvider: {
-                            ...state.cliProvider,
-                            modelConfig: {
-                                ...state.cliProvider.modelConfig,
-                                claude: {...state.cliProvider.modelConfig.claude, ...config},
-                            },
-                        },
-                    };
-                }
-                if (provider === 'codex') {
-                    return {
-                        cliProvider: {
-                            ...state.cliProvider,
-                            modelConfig: {
-                                ...state.cliProvider.modelConfig,
-                                codex: {...state.cliProvider.modelConfig.codex, ...config},
-                            },
-                        },
-                    };
-                }
-                if (provider === 'pi') {
-                    return {
-                        cliProvider: {
-                            ...state.cliProvider,
-                            modelConfig: {
-                                ...state.cliProvider.modelConfig,
-                                pi: {...state.cliProvider.modelConfig.pi, ...config},
-                            },
-                        },
-                    };
-                }
-                return state;
-            }),
+            set((state) => ({
+                cliProvider: {
+                    ...state.cliProvider,
+                    modelConfig: {
+                        ...state.cliProvider.modelConfig,
+                        [provider]: {...state.cliProvider.modelConfig[provider], ...config},
+                    },
+                },
+            })),
         fetchModelConfig: async () => {
             set((state) => ({cliProvider: {...state.cliProvider, loading: true}}));
             try {
                 const response = await fetch('/api/system/model-config');
                 if (!response.ok) throw new Error('Failed to fetch model config');
-                const data = await response.json();
+                const data = await response.json() as {
+                    activeProvider?: string;
+                    models?: Record<string, ProviderModelSettings>;
+                };
                 set((state) => ({
                     cliProvider: {
                         ...state.cliProvider,
-                        modelConfig: {
-                            claude: data.claude || state.cliProvider.modelConfig.claude,
-                            codex: data.codex || state.cliProvider.modelConfig.codex,
-                            pi: data.pi || state.cliProvider.modelConfig.pi,
-                        },
+                        modelConfig: {...state.cliProvider.modelConfig, ...data.models},
                     },
                 }));
             } catch (err) {
@@ -905,27 +873,17 @@ export const useAppStore = create<AppState>((set) => {
                 const response = await fetch('/api/system/model-config', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({provider, [provider]: config}),
+                    body: JSON.stringify({models: {[provider]: config}}),
                 });
                 if (!response.ok) throw new Error('Failed to save model config');
                 // 保存成功后直接更新本地状态，避免循环依赖
                 set((state) => ({
                     cliProvider: {
                         ...state.cliProvider,
-                        modelConfig: provider === 'claude'
-                            ? {
-                                ...state.cliProvider.modelConfig,
-                                claude: {...state.cliProvider.modelConfig.claude, ...config}
-                            }
-                            : provider === 'codex'
-                            ? {
-                                ...state.cliProvider.modelConfig,
-                                codex: {...state.cliProvider.modelConfig.codex, ...config}
-                            }
-                            : {
-                                ...state.cliProvider.modelConfig,
-                                pi: {...state.cliProvider.modelConfig.pi, ...config}
-                            },
+                        modelConfig: {
+                            ...state.cliProvider.modelConfig,
+                            [provider]: {...state.cliProvider.modelConfig[provider], ...config},
+                        },
                     },
                 }));
             } catch (err) {
@@ -942,44 +900,35 @@ export const useAppStore = create<AppState>((set) => {
                 const response = await fetch('/api/system/available-models');
                 if (!response.ok) throw new Error('Failed to fetch available models');
                 const data = await response.json() as {
-                    claude: Array<{ tier: string; label: string; model: string }>;
-                    codex: string | null;
+                    providers?: Record<string, AvailableModelsEntry>;
                 };
-                const tiers = data.claude ?? [];
+                const providers = data.providers ?? {};
 
-                // 校正 Claude 当前 model：若不在 tier 列表，回落到 sonnet 或第一个 tier
                 set((state) => {
-                    const currentModel = state.cliProvider.modelConfig.claude.model;
-                    const tierNames = tiers.map(t => t.tier);
-                    const isValid = tierNames.includes(currentModel);
-                    const fallback = tierNames.includes('sonnet') ? 'sonnet' : tierNames[0];
+                    // 通用校正：对提供 tiers 的 Provider，若当前 model 不在档位列表则回落
+                    //（档位别名由 SDK 解析，非法值会导致运行时模型解析失败）
+                    const corrections: Record<string, ProviderModelSettings> = {};
+                    for (const [id, entry] of Object.entries(providers)) {
+                        const tiers = entry.tiers ?? [];
+                        if (tiers.length === 0) continue;
+                        const current = state.cliProvider.modelConfig[id];
+                        const values = tiers.map(t => t.value);
+                        const isValid = current?.model !== undefined && values.includes(current.model);
+                        const fallback = values.includes('sonnet') ? 'sonnet' : values[0];
+                        if (!isValid && fallback && current) {
+                            corrections[id] = {...current, model: fallback};
+                        }
+                    }
                     return {
-                        claudeModelTiers: tiers,
-                        codexModel: data.codex ?? null,
-                        ...(isValid || !fallback ? {} : {
+                        availableModels: providers,
+                        ...(Object.keys(corrections).length > 0 ? {
                             cliProvider: {
                                 ...state.cliProvider,
-                                modelConfig: {
-                                    ...state.cliProvider.modelConfig,
-                                    claude: {...state.cliProvider.modelConfig.claude, model: fallback},
-                                },
+                                modelConfig: {...state.cliProvider.modelConfig, ...corrections},
                             },
-                        }),
+                        } : {}),
                     };
                 });
-
-                // 校正 Codex：若 config.toml 有值且本地为默认占位，同步过来
-                if (data.codex) {
-                    set((state) => ({
-                        cliProvider: state.cliProvider.modelConfig.codex.model === 'codex-mini-latest' ? {
-                            ...state.cliProvider,
-                            modelConfig: {
-                                ...state.cliProvider.modelConfig,
-                                codex: {...state.cliProvider.modelConfig.codex, model: data.codex as string},
-                            },
-                        } : state.cliProvider,
-                    }));
-                }
             } catch (err) {
                 console.error('Failed to load available models:', err);
             }

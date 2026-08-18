@@ -53,6 +53,71 @@ describe('ConfigService', () => {
         });
 
         /**
+         * 测试：v1 的 cliProvider.claude/codex/pi 分字段配置应迁移为 v2 的 models map
+         * @description 旧格式加载后：旧字段并入 models 并被删除，pi 的 provider
+         *              重命名为 modelProvider，迁移结果写回磁盘，二次 load 幂等。
+         */
+        it('migrates v1 cliProvider fields into v2 models map and persists', () => {
+            fs.writeFileSync(service.getConfigFile(), JSON.stringify({
+                cliProvider: {
+                    active: 'pi',
+                    setupCompleted: true,
+                    claude: {model: 'opus', extendedThinking: false, reasoningEffort: 'medium', streaming: false},
+                    codex: {model: 'gpt-5-codex', streaming: true},
+                    pi: {provider: 'deepseek', model: 'deepseek-chat', streaming: true, reasoningEffort: 'low'},
+                },
+            }), 'utf-8');
+
+            const config = service.load();
+
+            // 旧字段从内存中消失
+            expect(config.cliProvider?.claude).toBeUndefined();
+            expect(config.cliProvider?.codex).toBeUndefined();
+            expect(config.cliProvider?.pi).toBeUndefined();
+            // 内容并入 models，pi 的 provider → modelProvider
+            expect(config.cliProvider?.models).toEqual({
+                claude: {model: 'opus', extendedThinking: false, reasoningEffort: 'medium', streaming: false},
+                codex: {model: 'gpt-5-codex', streaming: true},
+                pi: {model: 'deepseek-chat', streaming: true, reasoningEffort: 'low', modelProvider: 'deepseek'},
+            });
+            // 迁移结果写回磁盘
+            const onDisk = JSON.parse(fs.readFileSync(service.getConfigFile(), 'utf-8'));
+            expect(onDisk.cliProvider.models).toEqual(config.cliProvider?.models);
+            expect(onDisk.cliProvider.claude).toBeUndefined();
+            // 二次 load 幂等（不再变化）
+            expect(service.load().cliProvider).toEqual(config.cliProvider);
+        });
+
+        /**
+         * 测试：models 中已有的 key 优先于旧字段（用户已在新格式下修改过）
+         */
+        it('prefers v2 models entries over legacy fields during migration', () => {
+            fs.writeFileSync(service.getConfigFile(), JSON.stringify({
+                cliProvider: {
+                    active: 'claude',
+                    models: {claude: {model: 'sonnet-v2-from-models'}},
+                    claude: {model: 'opus-from-legacy'},
+                },
+            }), 'utf-8');
+
+            const config = service.load();
+
+            expect(config.cliProvider?.models?.claude).toEqual({model: 'sonnet-v2-from-models'});
+            expect(config.cliProvider?.claude).toBeUndefined();
+        });
+
+        /**
+         * 测试：非法的 models 条目应被验证器拒绝
+         */
+        it('rejects invalid models entries via validation', () => {
+            const errors = validateConfig({
+                cliProvider: {models: {claude: {model: 123, streaming: 'yes'}}},
+            });
+            expect(errors.some(e => e.field === 'cliProvider.models.claude.model')).toBe(true);
+            expect(errors.some(e => e.field === 'cliProvider.models.claude.streaming')).toBe(true);
+        });
+
+        /**
          * 测试：应正确读取已存在的有效配置
          * @description 验证 load 方法能够正确解析和返回预先写入的配置文件内容。
          */

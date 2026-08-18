@@ -17,8 +17,10 @@ import type {
     CLIProvider,
     CLIProviderStatus,
     CLIProviderInput,
+    CLIProviderModelOptions,
     CLIProviderOptions,
     CLIProviderResult,
+    ProviderModelSettings,
     SkillInfo,
     McpServerInfo,
 } from './types.js';
@@ -179,7 +181,14 @@ export class CodexProvider implements CLIProvider {
         supportsMaxTurns: false,
         supportsReasoningEffort: false,
         supportsExtendedThinking: false,
+        supportsCustomEndpoint: false,
     } as const;
+
+    /** 默认模型配置（cliProvider.models.codex 无存储值时使用） */
+    readonly defaultModelSettings: ProviderModelSettings = {
+        model: 'codex-mini-latest',
+        streaming: true,
+    };
 
     /** Codex SDK 客户端实例 */
     private client: InstanceType<typeof import('@openai/codex-sdk').Codex> | null = null;
@@ -187,6 +196,23 @@ export class CodexProvider implements CLIProvider {
     private sessionIdToThreadId = new Map<string, string>();
     /** Thread ID → 会话 ID 映射 */
     private threadIdToSessionId = new Map<string, string>();
+
+    /**
+     * 读取本地可提供的模型选项：从 ~/.codex/config.toml 解析当前配置的模型
+     * （顶层 model = "xxx" 字段）
+     */
+    async loadModelOptions(): Promise<CLIProviderModelOptions> {
+        try {
+            if (!fs.existsSync(CODEX_CONFIG_FILE)) return {current: null};
+            const raw = fs.readFileSync(CODEX_CONFIG_FILE, 'utf-8');
+            // 简单解析顶层 model = "xxx"（在第一个 [section] 之前）
+            const sectionIdx = raw.indexOf('\n[');
+            const head = sectionIdx >= 0 ? raw.slice(0, sectionIdx) : raw;
+            const match = head.match(/^model\s*=\s*"([^"]+)"/m);
+            return {current: match ? match[1] : null};
+        } catch { /* ignore */ }
+        return {current: null};
+    }
 
     async detect(): Promise<CLIProviderStatus> {
         try {

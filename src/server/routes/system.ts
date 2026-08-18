@@ -16,62 +16,14 @@
  */
 
 import {Router} from 'express';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import {CLIRunnerService} from '../services/cli-runner-service.js';
+import {CLIRunnerService, CUSTOM_MODEL_ENGINE_ID} from '../services/cli-runner-service.js';
 import {MCPRegistryService} from '../services/mcp-registry-service.js';
 import type {SandboxService} from '../services/sandbox-service.js';
-import {ConfigService, type AppConfig} from '../services/config-service.js';
-import {detectInstalledProviders, getProvider} from '../services/cli-providers';
+import {ConfigService, validateConfig, type AppConfig} from '../services/config-service.js';
+import {detectInstalledProviders, getProvider, isBuiltinProviderId, getBuiltinProviderIds, getAllProviders, DEFAULT_PROVIDER_ID} from '../services/cli-providers';
+import type {ProviderModelSettings} from '../services/cli-providers';
 import {ModelProviderStore} from '../services/model-provider-store.js';
 import {getErrorMessage} from '../utils/error-utils.js';
-
-/** Claude Code settings.json 路径 */
-const CLAUDE_SETTINGS_FILE = path.join(os.homedir(), '.claude', 'settings.json');
-/** Codex config.toml 路径 */
-const CODEX_CONFIG_FILE = path.join(os.homedir(), '.codex', 'config.toml');
-
-/**
- * 从 Claude Code settings.json 的 env 解析模型档位映射
- * 返回 [{tier, label, model}] —— tier 为 SDK 可识别的别名
- */
-function readClaudeModelTiers(): Array<{tier: string; label: string; model: string}> {
-    const result: Array<{tier: string; label: string; model: string}> = [];
-    try {
-        if (!fs.existsSync(CLAUDE_SETTINGS_FILE)) return result;
-        const raw = fs.readFileSync(CLAUDE_SETTINGS_FILE, 'utf-8');
-        const settings = JSON.parse(raw) as {env?: Record<string, string>};
-        const env = settings.env ?? {};
-        const tiers: Array<[string, string, string]> = [
-            ['haiku', 'Haiku', 'ANTHROPIC_DEFAULT_HAIKU_MODEL'],
-            ['sonnet', 'Sonnet', 'ANTHROPIC_DEFAULT_SONNET_MODEL'],
-            ['opus', 'Opus', 'ANTHROPIC_DEFAULT_OPUS_MODEL'],
-        ];
-        for (const [tier, label, envKey] of tiers) {
-            const model = env[envKey];
-            if (model) result.push({tier, label, model});
-        }
-    } catch { /* ignore */ }
-    return result;
-}
-
-/**
- * 从 Codex config.toml 解析当前配置的模型
- * 读取顶层 model = "xxx" 字段
- */
-function readCodexModel(): string | null {
-    try {
-        if (!fs.existsSync(CODEX_CONFIG_FILE)) return null;
-        const raw = fs.readFileSync(CODEX_CONFIG_FILE, 'utf-8');
-        // 简单解析顶层 model = "xxx"（在第一个 [section] 之前）
-        const sectionIdx = raw.indexOf('\n[');
-        const head = sectionIdx >= 0 ? raw.slice(0, sectionIdx) : raw;
-        const match = head.match(/^model\s*=\s*"([^"]+)"/m);
-        return match ? match[1] : null;
-    } catch { /* ignore */ }
-    return null;
-}
 
 /**
  * 创建系统状态路由实例
@@ -165,7 +117,7 @@ export function createSystemRoutes(
 
             res.json({
                 configured: config.cliProvider?.setupCompleted ?? false,
-                active: config.cliProvider?.active ?? 'claude',
+                active: config.cliProvider?.active ?? DEFAULT_PROVIDER_ID,
                 detected,
             });
         } catch (err) {
@@ -184,7 +136,7 @@ export function createSystemRoutes(
                 return;
             }
 
-            const isBuiltin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi';
+            const isBuiltin = isBuiltinProviderId(providerId);
 
             // 自定义供应商记录：校验 models.json 中存在且 kind='custom'
             let customLabel = '';
@@ -194,7 +146,7 @@ export function createSystemRoutes(
                     rec = new ModelProviderStore().get(providerId);
                 } catch { /* fallthrough */ }
                 if (!rec || rec.kind !== 'custom') {
-                    res.status(400).json({code: 'INVALID_PROVIDER', message: `providerId must be "claude", "codex", "pi", or a custom provider record id`});
+                    res.status(400).json({code: 'INVALID_PROVIDER', message: `providerId must be one of ${getBuiltinProviderIds().map(id => `"${id}"`).join(', ')}, or a custom provider record id`});
                     return;
                 }
                 if (rec.enabled === false || !rec.apiKey || !rec.baseUrl) {
@@ -244,8 +196,8 @@ export function createSystemRoutes(
             // 切换运行时 Provider（custom 记录经 claude 引擎调用）
             await cliRunnerService.switchProvider(providerId);
 
-            // 读取对应 Provider 的 skills 和 MCP 配置（custom 复用 claude 引擎的能力）
-            const engineProvider = isBuiltin ? getProvider(providerId) : getProvider('claude');
+            // 读取对应 Provider 的 skills 和 MCP 配置（custom 复用引擎 Provider 的能力）
+            const engineProvider = isBuiltin ? getProvider(providerId) : getProvider(CUSTOM_MODEL_ENGINE_ID);
             let skills: Awaited<ReturnType<NonNullable<typeof engineProvider>['loadSkills']>> = [];
             let mcpServers: Awaited<ReturnType<NonNullable<typeof engineProvider>['loadMcpServers']>> = [];
             if (engineProvider) {
@@ -264,80 +216,62 @@ export function createSystemRoutes(
         }
     });
 
-    // GET /api/system/available-models - 读取配置文件中的可用模型列表
-    // Claude: settings.json 的 3 个模型档位映射
-    // Codex: config.toml 的当前 model
-    router.get('/available-models', (_req, res) => {
+    // GET /api/system/available-models - 读取各 Provider 本地可提供的模型选项
+    // 由 Provider 可选方法 loadModelOptions 提供（如 Claude 档位映射、Codex 当前模型）
+    router.get('/available-models', async (_req, res) => {
         try {
-            res.json({
-                claude: readClaudeModelTiers(),
-                codex: readCodexModel(),
-            });
+            const providers: Record<string, {tiers?: Array<{value: string; label: string; model: string}>; current?: string | null}> = {};
+            for (const provider of getAllProviders()) {
+                if (!provider.loadModelOptions) continue;
+                try {
+                    providers[provider.id] = await provider.loadModelOptions();
+                } catch { /* 单个 Provider 读取失败不影响其他 */ }
+            }
+            res.json({providers});
         } catch (err) {
             res.status(500).json({code: 'MODEL_LIST_ERROR', message: getErrorMessage(err)});
         }
     });
 
     // GET /api/system/model-config - 获取当前模型配置
+    // models 为开放 map：内置 Provider 条目缺失时回退 Provider 自带的默认配置
     router.get('/model-config', (_req, res) => {
         try {
-            const configService = new ConfigService();
-            const config = configService.load();
-            const activeProvider = config.cliProvider?.active || 'claude';
+            const config = new ConfigService().load();
+            const activeProvider = config.cliProvider?.active || DEFAULT_PROVIDER_ID;
+            const stored = config.cliProvider?.models ?? {};
 
-            res.json({
-                activeProvider,
-                claude: config.cliProvider?.claude || {
-                    model: 'claude-sonnet-4-20250514',
-                    extendedThinking: true,
-                    reasoningEffort: 'high',
-                    streaming: true,
-                },
-                codex: config.cliProvider?.codex || {
-                    model: 'codex-mini-latest',
-                    streaming: true,
-                },
-                pi: config.cliProvider?.pi || {
-                    provider: 'anthropic',
-                    model: 'claude-sonnet-4-20250514',
-                    streaming: true,
-                    reasoningEffort: 'medium',
-                },
-            });
+            const models: Record<string, ProviderModelSettings> = {};
+            for (const provider of getAllProviders()) {
+                models[provider.id] = stored[provider.id] ?? provider.defaultModelSettings ?? {};
+            }
+            // 保留存储中的非内置 key（如自定义供应商记录 id 的覆盖配置）
+            for (const [id, settings] of Object.entries(stored)) {
+                if (models[id] === undefined) models[id] = settings;
+            }
+
+            res.json({activeProvider, models});
         } catch (err) {
             res.status(500).json({code: 'CONFIG_ERROR', message: getErrorMessage(err)});
         }
     });
 
     // PUT /api/system/model-config - 更新模型配置
+    // body: { provider?, models?: Record<providerId, ProviderModelSettings> }
+    // 兼容旧 body { provider?, claude?, codex?, pi? }（自动迁移进 models）
     router.put('/model-config', async (req, res) => {
         try {
-            const {provider, claude, codex, pi} = req.body as {
+            const body = req.body as {
                 provider?: string;
-                claude?: {
-                    model?: string;
-                    extendedThinking?: boolean;
-                    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-                    streaming?: boolean;
-                    maxTokens?: number;
-                };
-                codex?: {
-                    model?: string;
-                    streaming?: boolean;
-                    maxTokens?: number;
-                };
-                pi?: {
-                    provider?: string;
-                    model?: string;
-                    streaming?: boolean;
-                    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-                    maxTokens?: number;
-                };
+                models?: Record<string, ProviderModelSettings>;
+                claude?: ProviderModelSettings & {provider?: string};
+                codex?: ProviderModelSettings;
+                pi?: ProviderModelSettings & {provider?: string};
             };
 
             // 内置 provider 或有效的 custom 记录 id 才算合法
             const isKnownProvider = (id: string): boolean => {
-                if (id === 'claude' || id === 'codex' || id === 'pi') return true;
+                if (isBuiltinProviderId(id)) return true;
                 try {
                     const rec = new ModelProviderStore().get(id);
                     return !!rec && rec.kind === 'custom' && rec.enabled !== false;
@@ -346,43 +280,40 @@ export function createSystemRoutes(
                 }
             };
 
+            // 归一化入参：models map + 旧版 claude/codex/pi 字段 → 统一 map（pi 的 provider → modelProvider）
+            const incoming: Record<string, ProviderModelSettings> = {};
+            if (body.models && typeof body.models === 'object') Object.assign(incoming, body.models);
+            for (const legacyId of ['claude', 'codex', 'pi'] as const) {
+                const legacy = body[legacyId] as (ProviderModelSettings & {provider?: string}) | undefined;
+                if (!legacy || typeof legacy !== 'object') continue;
+                const {provider: legacyProvider, ...rest} = legacy;
+                incoming[legacyId] = legacyProvider !== undefined ? {...rest, modelProvider: legacyProvider} : rest;
+            }
+
+            // 入参校验：复用配置校验器的 ProviderModelSettings 规则
+            const validationErrors = validateConfig({cliProvider: {models: incoming}});
+            if (validationErrors.length > 0) {
+                res.status(400).json({
+                    code: 'INVALID_MODEL_CONFIG',
+                    message: validationErrors.map(e => `${e.field}: ${e.message}`).join('; '),
+                });
+                return;
+            }
+
             const configService = new ConfigService();
             const config = configService.load();
+            const prevActive = config.cliProvider?.active;
 
-            // 更新 Provider（如果指定且合法）
-            if (provider && isKnownProvider(provider)) {
-                config.cliProvider = {...config.cliProvider, active: provider};
-            }
-
-            // 更新 Claude 配置
-            if (claude) {
-                config.cliProvider = {
-                    ...config.cliProvider,
-                    claude: {...config.cliProvider?.claude, ...claude},
-                };
-            }
-
-            // 更新 Codex 配置
-            if (codex) {
-                config.cliProvider = {
-                    ...config.cliProvider,
-                    codex: {...config.cliProvider?.codex, ...codex},
-                };
-            }
-
-            // 更新 Pi 配置
-            if (pi) {
-                config.cliProvider = {
-                    ...config.cliProvider,
-                    pi: {...config.cliProvider?.pi, ...pi},
-                };
-            }
-
+            config.cliProvider = {
+                ...config.cliProvider,
+                ...(body.provider && isKnownProvider(body.provider) ? {active: body.provider} : {}),
+                models: {...config.cliProvider?.models, ...incoming},
+            };
             configService.save(config);
 
-            // 如果切换了 Provider，通知 CLI Runner
-            if (provider && provider !== config.cliProvider?.active) {
-                await cliRunnerService.switchProvider(provider);
+            // 如果切换了 Provider，通知 CLI Runner（对比切换前的值）
+            if (body.provider && body.provider !== prevActive) {
+                await cliRunnerService.switchProvider(body.provider);
             }
 
             res.json({success: true, config: config.cliProvider});

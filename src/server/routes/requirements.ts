@@ -4,43 +4,16 @@
  * @description 提供需求相关的 RESTful API 路由，包括本地需求存储管理、
  *              通过 MCP（Model Context Protocol）桥接服务获取需求详情与搜索功能。
  *              支持从 MCP 服务器拉取需求并自动保存到本地存储，也支持纯查询模式。
+ *              需求源语义（输入方言/响应解析/附件认证）由 requirement-sources 适配器提供，
+ *              本路由只做传输编排，新增需求源无需修改。
  */
 
 import {Router} from 'express';
 import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
-import {OnesImageService} from '../services/ones-image-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import {broadcast} from '../websocket.js';
-
-/**
- * 把用户输入（需求号 / issue key / ONES 链接）规整为 ones-api get_work_item / get_requirement 可用的标识。
- *
- * ONES 链接直接透传给 get_work_item：需求号可能跨项目重复，链接含 team 标识可唯一定位，
- * 故不再从中截取需求号。实测 wiki page 链接（https://1s.oristand.com/wiki#/team/.../page/xxx）
- * 可直接拉取；issue 链接（.../issue/CWXT-xxx）ones-api 返回 403，需改用 wiki 链接或 number/uuid。
- *
- * 非链接输入：#number 去前缀；issue key（CWXT-129686）取数字部分（key 直拉会 404）。
- *
- * 支持的输入形态：
- *  - ONES 链接（wiki / issue / task）：原样透传
- *  - 纯数字 / #number：`302`、`#302`
- *  - issue key：`CWXT-129686` → `129686`
- *  - uuid / 其它：原样返回
- */
-function normalizeRequirementInput(raw: string): string {
-    const s = raw.trim();
-    // ONES 链接（http(s):// 开头，或含 hash 路由 #/）：直接透传，不截取需求号
-    if (/^https?:\/\//i.test(s) || s.includes('#/')) {
-        return s;
-    }
-    // 非链接：#number 去前缀；issue key（PROJECTKEY-NUMBER）取数字部分
-    let v = s.replace(/^#/, '');
-    const keyNum = v.match(/^[A-Za-z][A-Za-z0-9]*-(\d+)$/);
-    if (keyNum) return keyNum[1];
-    return v;
-}
 
 /**
  * 创建需求管理路由
@@ -191,12 +164,44 @@ export function createRequirementsRoutes(
     // ─── MCP 拉取 + 自动保存 ───────────────────────────────────────────────────
 
     /**
+     * GET /api/requirements/sources
+     * @description 需求源目录（适配器视角）：每个源系统一个条目，含已配置的
+     *   MCP server 列表与一键安装模板。未配置的源前端展示安装引导；
+     *   工具型 MCP（memory 等）不属于需求源，不会出现。新增适配器注册后自动出现。
+     */
+    router.get('/sources', (_req, res) => {
+        try {
+            res.json(mcpBridgeService.listSources());
+        } catch (err) {
+            res.status(500).json({code: 'SOURCES_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * POST /api/requirements/sources/:adapterId/install
+     * @description 按适配器模板一键安装需求源：创建对应 MCP server 并做连接测试。
+     * @param {Record<string,string>} env.body - 凭据键值对（key 见模板 envSpecs）
+     * @returns {{serverName: string, connectionTest?: {ok: boolean, message: string}}}
+     */
+    router.post('/sources/:adapterId/install', async (req, res) => {
+        try {
+            const env = (req.body.env as Record<string, string>) ?? {};
+            const result = await mcpBridgeService.installSource(req.params.adapterId, env);
+            res.json(result);
+        } catch (err) {
+            const message = getErrorMessage(err);
+            const status = /already exists|Missing required/.test(message) ? 409 : 404;
+            res.status(status).json({code: 'INSTALL_ERROR', message});
+        }
+    });
+
+    /**
      * POST /api/requirements/fetch
      * @description 通过 MCP 从外部需求管理系统拉取需求详情，并自动保存到本地存储。
-     *              支持按需求ID直接拉取，也支持按需求编号（如 "302" 或 "#302"）搜索后拉取。
-     *              如果指定了 mcpServerName，会临时切换 MCP 服务器，完成后恢复原始设置。
-     * @param {string} id.body - 需求ID或编号（必填）
-     * @param {string} [mcpServerName.body] - 可选的 MCP 服务器名称，用于切换到指定服务器拉取需求
+     *              输入方言由适配器处理（需求号/issue key/链接/owner-repo#N）；
+     *              纯编号会先搜索解析真实 ID。
+     * @param {string} id.body - 用户原始输入（必填）
+     * @param {string} [mcpServerName.body] - 可选的需求源（MCP server 名称）
      * @returns {Object} 保存后的需求数据
      */
     router.post('/fetch', async (req, res) => {
@@ -207,90 +212,54 @@ export function createRequirementsRoutes(
                 return;
             }
 
-            // 如果请求了特定的 MCP 服务器，临时切换过去
-            const originalServer = mcpBridgeService.getServerName();
-            if (mcpServerName) mcpBridgeService.setServerName(mcpServerName);
+            const opts = mcpServerName ? {serverName: mcpServerName} : undefined;
 
-            try {
-                // 规整用户输入：支持需求号 / issue key / ONES 链接（详见 normalizeRequirementInput）
-                let resolvedId = normalizeRequirementInput(id);
-                // 输入中的纯数字编号（用于回填 detail.number）
-                const inputNumber = resolvedId.match(/^(\d+)$/)?.[1];
+            // 完整拉取链路（适配器规整输入 → 编号搜索解析 → 详情 → 回填编号）
+            const {detail, serverName} = await mcpBridgeService.fetchRequirementByInput(id, opts);
 
-                // 纯数字编号：先通过搜索获取实际的 ID，搜索失败时回退到直接用编号调用 get_work_item / get_requirement
-                if (inputNumber) {
-                    const results = await mcpBridgeService.searchRequirements(inputNumber);
-                    if (results.length > 0) {
-                        // 取第一个匹配结果的 ID 作为实际查询 ID
-                        resolvedId = results[0].id;
-                    }
-                    // 搜索无结果时不中断，继续用编号直接调用 get_work_item / get_requirement
-                }
+            // 适配器按源认证策略构建附件图片服务（无则跳过认证下载）
+            const imageService = mcpBridgeService.getAttachmentImageService(opts);
 
-                // 通过 MCP 获取需求详情，并自动保存到本地存储
-                const detail = await mcpBridgeService.fetchRequirementDetail(resolvedId);
-
-                // 如果输入是数字编号，且 MCP 未返回编号，直接回填（不依赖 MCP 返回格式提取）
-                if (inputNumber && !detail.number) {
-                    detail.number = `#${inputNumber}`;
-                }
-
-                // 构建 ONES 图片服务（从 MCP 配置读取认证信息）
-                let onesImageService: OnesImageService | undefined;
-                const mcpConfig = mcpBridgeService.getServerConfig();
-                if (mcpConfig?.env?.ONES_API_BASE && mcpConfig?.env?.ONES_ACCOUNT && mcpConfig?.env?.ONES_PASSWORD) {
-                    onesImageService = new OnesImageService(
-                        mcpConfig.env.ONES_API_BASE,
-                        mcpConfig.env.ONES_ACCOUNT,
-                        mcpConfig.env.ONES_PASSWORD,
+            // 解析文档附件（PDF/DOCX/PPTX/XLSX）为 Markdown（需前端显式请求）
+            if (parseDocuments && mineruService?.isEnabled()) {
+                try {
+                    const parsedMd = await requirementStore.downloadAndParseDocuments(
+                        detail, mineruService, imageService,
                     );
+                    if (parsedMd) {
+                        detail.description += '\n\n---\n\n## 附件文档内容\n\n' + parsedMd;
+                    }
+                } catch (err) {
+                    // 文档解析失败不阻塞需求保存
+                    console.warn(`[requirements] Document parsing failed: ${getErrorMessage(err)}`);
                 }
+            }
 
-                // 解析文档附件（PDF/DOCX/PPTX/XLSX）为 Markdown（需前端显式请求）
-                if (parseDocuments && mineruService?.isEnabled()) {
+            // 先保存并返回文档，然后异步下载图片
+            const saved = requirementStore.upsert({
+                ...detail,
+                source: serverName,
+            });
+            res.json(saved);
+
+            // 后台异步下载图片（不阻塞HTTP响应）
+            if (imageService) {
+                // 使用 process.nextTick 确保HTTP响应已发送
+                process.nextTick(async () => {
                     try {
-                        const parsedMd = await requirementStore.downloadAndParseDocuments(
-                            detail, mineruService, onesImageService,
-                        );
-                        if (parsedMd) {
-                            detail.description += '\n\n---\n\n## 附件文档内容\n\n' + parsedMd;
+                        await requirementStore.downloadImages(detail, imageService);
+                        // 下载完成后，通过WebSocket通知前端刷新
+                        const updated = requirementStore.get(detail.id);
+                        if (updated) {
+                            broadcast({
+                                type: 'requirement:updated',
+                                data: updated,
+                            });
                         }
                     } catch (err) {
-                        // 文档解析失败不阻塞需求保存
-                        console.warn(`[requirements] Document parsing failed: ${getErrorMessage(err)}`);
+                        console.warn(`[requirements] Background image download failed: ${err instanceof Error ? err.message : err}`);
                     }
-                }
-
-                // 下载图片到本地并替换 description 中的引用（后台异步进行）
-                // 先保存并返回文档，然后异步下载图片
-                const saved = requirementStore.upsert({
-                    ...detail,
-                    source: mcpBridgeService.getServerName(),
                 });
-                res.json(saved);
-
-                // 后台异步下载图片（不阻塞HTTP响应）
-                if (onesImageService) {
-                    // 使用 process.nextTick 确保HTTP响应已发送
-                    process.nextTick(async () => {
-                        try {
-                            await requirementStore.downloadImages(detail, onesImageService);
-                            // 下载完成后，通过WebSocket通知前端刷新
-                            const updated = requirementStore.get(detail.id);
-                            if (updated) {
-                                broadcast({
-                                    type: 'requirement:updated',
-                                    data: updated,
-                                });
-                            }
-                        } catch (err) {
-                            console.warn(`[requirements] Background image download failed: ${err instanceof Error ? err.message : err}`);
-                        }
-                    });
-                }
-            } finally {
-                // 无论成功与否，恢复原始 MCP 服务器设置
-                if (mcpServerName) mcpBridgeService.setServerName(originalServer);
             }
         } catch (err) {
             res.status(500).json({code: 'MCP_ERROR', message: getErrorMessage(err)});
@@ -298,9 +267,10 @@ export function createRequirementsRoutes(
     });
 
     /**
-     * GET /api/requirements/search?q=
+     * GET /api/requirements/search?q=&server=
      * @description 通过 MCP 搜索需求（纯查询模式，不会自动保存到本地存储）
      * @param {string} q.query - 搜索关键词（必填）
+     * @param {string} [server.query] - 可选的需求源（MCP server 名称）
      * @returns {Object[]} 匹配的需求结果列表
      */
     router.get('/search', async (req, res) => {
@@ -310,7 +280,8 @@ export function createRequirementsRoutes(
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'Query parameter "q" is required'});
                 return;
             }
-            const results = await mcpBridgeService.searchRequirements(query);
+            const server = req.query.server as string | undefined;
+            const results = await mcpBridgeService.searchRequirements(query, server ? {serverName: server} : undefined);
             res.json(results);
         } catch (err) {
             res.status(500).json({code: 'MCP_ERROR', message: getErrorMessage(err)});

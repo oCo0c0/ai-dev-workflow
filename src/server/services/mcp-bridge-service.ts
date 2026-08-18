@@ -1,9 +1,13 @@
 /**
- * @file MCP 桥接服务
+ * @file MCP 桥接服务（纯传输层）
  * @description 提供与 MCP (Model Context Protocol) 服务器之间的通信桥接能力。
- *   通过标准化的 MCP 客户端协议，支持从外部需求管理工具（如 ONES、Jira、GitLab 等）
- *   获取需求详情、搜索需求列表等操作。该服务采用懒连接策略，仅在首次调用时建立连接，
- *   并支持动态切换目标 MCP 服务器。
+ *
+ * 职责分工（热插拔架构）：
+ * - 本服务：连接生命周期、listTools 动态发现、按能力调用工具 —— 协议通用
+ * - requirement-sources/：输入方言、工具命名约定、响应解析、附件认证 —— 源特定
+ *
+ * 适配器路由：按 serverName 解析适配器（显式绑定 > matchServer 自动认领 > generic 兜底），
+ * 新增需求源只需实现适配器并注册，无需修改本文件。
  */
 
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
@@ -11,225 +15,281 @@ import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {McpError, ErrorCode} from '@modelcontextprotocol/sdk/types.js';
 import type {MCPServerConfig} from './mcp-config-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
-import {extractJsonValue} from '../utils/structured-json.js';
+import {resolveAdapter, getAdapter, listCatalogAdapters} from './requirement-sources/index.js';
+import type {
+    AttachmentImageService,
+    Requirement,
+    RequirementDetail,
+    RequirementSourceAdapter,
+    SourceInstallTemplate,
+    ToolCapability,
+} from './requirement-sources/index.js';
 
-// === 数据模型定义 ===
+// 数据模型从 requirement-sources 重导出（保持既有导入路径兼容）
+export type {Requirement, RequirementDetail} from './requirement-sources/index.js';
+
+/** 兼容历史默认服务器名（未配置时用于报错提示） */
+const DEFAULT_SERVER_NAME = 'ones-api';
 
 /**
- * 需求基本信息接口
- * @description 表示从 MCP 服务器获取的需求摘要信息，用于列表展示和搜索结果
+ * MCP 配置源契约
+ * @description get/list 支撑源目录与路由解析；add/testConnection（可选）
+ *   支撑一键安装（MCPRegistryService 全量实现）。
+ *   testConnection 兼容两种返回形态：{ok} 或 {status:'connected'|'error'}。
  */
-export interface Requirement {
-    /** 需求唯一标识符 */
-    id: string;
-    /** 需求编号（如 #91086），用户可识别的编号 */
-    number?: string;
-    /** 需求标题 */
-    title: string;
-    /** 需求状态（如 open、in_progress、closed 等） */
-    status: string;
-    /** 需求优先级（如 high、medium、low） */
-    priority: string;
-    /** 需求负责人 */
-    assignee: string;
-    /** 最后更新时间（ISO 8601 格式） */
-    updatedAt: string;
+export interface MCPConfigSource {
+    get(name: string): MCPServerConfig | undefined;
+    list?(): MCPServerConfig[];
+    /** 新增 server（一键安装用） */
+    add?(config: MCPServerConfig): unknown;
+    /** 连接测试（一键安装后验证凭据） */
+    testConnection?(name: string, timeoutMs?: number): Promise<{ok?: boolean; status?: string; message: string}>;
 }
 
-/**
- * 需求详细信息接口
- * @description 继承 Requirement，包含需求的完整详情，用于详情页面展示
- */
-export interface RequirementDetail extends Requirement {
-    /** 需求详细描述内容 */
+/** 已连接服务器的上下文（连接 + 动态解析结果 + 命中的适配器） */
+interface ServerContext {
+    client: Client;
+    serverName: string;
+    adapter: RequirementSourceAdapter;
+    availableTools: Set<string> | null;
+    toolByCapability: Partial<Record<ToolCapability, string>>;
+}
+
+/** 方法级选项：临时指定目标服务器（不修改服务默认值） */
+export interface BridgeCallOptions {
+    serverName?: string;
+}
+
+/** 需求源目录条目（GET /api/requirements/sources）：适配器视角 */
+export interface RequirementSourceEntry {
+    /** 适配器 id（ones / github / ...） */
+    adapterId: string;
+    /** 源显示名 */
+    label: string;
+    /** 目录描述 */
     description: string;
-    /** 验收标准列表 */
-    acceptanceCriteria: string[];
-    /** 附件列表 */
-    attachments: Attachment[];
-    /** 关联问题列表 */
-    relatedIssues: RelatedIssue[];
+    /** 已配置的 MCP server 名（可为空 = 未配置，前端引导安装） */
+    servers: string[];
+    /** 一键安装模板（含凭据清单）；无则该源需手动配置 */
+    installTemplate?: SourceInstallTemplate;
 }
-
-/**
- * 附件信息接口
- * @description 表示需求关联的附件文件
- */
-interface Attachment {
-    /** 附件文件名 */
-    name: string;
-    /** 附件访问 URL */
-    url: string;
-    /** 附件 MIME 类型 */
-    type: string;
-}
-
-/**
- * 关联问题接口
- * @description 表示与当前需求关联的其他问题/缺陷
- */
-export interface RelatedIssue {
-    /** 关联问题的唯一标识符 */
-    id: string;
-    /** 关联问题的标题 */
-    title: string;
-    /** 关联问题的状态 */
-    status: string;
-}
-
-// === MCP 桥接服务 ===
-
-/**
- * 需求桥接所需的能力标识
- * @description 业务侧只声明“要做什么”（能力），具体工具名由 listTools 动态解析，
- *   避免将上游 MCP 服务器的工具名硬编码在业务代码中。
- */
-type ToolCapability = 'fetchDetail' | 'search';
 
 /**
  * MCP 桥接服务类
- * @description 封装了与 MCP 服务器的通信逻辑，提供需求获取和搜索的统一接口。
- *   核心特性包括：
- *   - 懒连接：仅在首次调用时建立与 MCP 服务器的连接
- *   - 连接复用：已建立的连接会被缓存，后续调用直接复用
- *   - 并发保护：通过 connecting 标志位防止重复连接
- *   - 动态切换：支持运行时切换目标 MCP 服务器
- *   - 能力化工具解析：连接后通过 listTools 动态发现工具，按能力（fetchDetail/search）
- *     解析工具名并缓存，业务侧不硬编码上游工具名，兼容上游工具改名
- *   - 多格式解析：支持 JSON 和 Markdown 两种 MCP 响应格式的解析
+ * @description 封装与 MCP 服务器的通信逻辑：
+ *   - 按服务器维持连接池（切换源不销毁其它源的连接）
+ *   - 连接后 listTools 动态发现工具，按适配器的命名约定解析能力 → 工具名
+ *   - 输入规整、参数构建、响应解析全部委托给命中的需求源适配器
  */
 export class MCPBridgeService {
-    /** MCP 配置源（注册中心或兼容 get(name) 的服务），用于获取服务器连接配置 */
-    private mcpConfigSource: {get(name: string): MCPServerConfig | undefined};
-    /** 当前使用的 MCP 服务器名称，默认为 'ones-api' */
+    /** MCP 配置源（注册中心或兼容 get/list 的服务） */
+    private mcpConfigSource: MCPConfigSource;
+    /** 默认使用的 MCP 服务器名称 */
     private serverName: string;
-    /** MCP 客户端实例，为 null 表示尚未连接 */
-    private client: Client | null = null;
-    /** 连接中标志位，防止并发连接请求导致的竞争条件 */
-    private connecting: boolean = false;
-    /** 已连接 MCP 服务器的工具名清单缓存（null 表示未知） */
-    private availableTools: Set<string> | null = null;
-    /** 能力 → 已解析工具名映射（连接后通过 listTools 发现并缓存） */
-    private toolByCapability: Partial<Record<ToolCapability, string>> = {};
-
-    /**
-     * 能力 → 工具名匹配模式（按优先级排列）
-     * @description 遵循 MCP 动态发现（listTools）设计：不硬编码具体工具名，
-     *   而是在连接后按命名约定从服务端实际提供的工具清单中解析出对应工具。
-     *   上游改名后只要仍符合命名约定即可自动适配，无需改动调用方；
-     *   已知版本的工具名保留在前，作为精确命中项。
-     */
-    private static readonly CAPABILITY_PATTERNS: Record<ToolCapability, RegExp[]> = {
-        // 需求/工作项详情：ones-api 0.1.x 为 get_requirement，0.2.0 起为 get_work_item
-        fetchDetail: [
-            /^get_work_item$/,   // ones-api >= 0.2.0（需求/任务）
-            /^get_requirement$/, // ones-api <= 0.1.x
-            /^(get|fetch|read)_(?:work_item|workitem|requirement)(?:_detail)?$/, // 未来重命名兜底
-        ],
-        // 需求搜索：ones-api 全版本均为 search_requirements
-        search: [
-            /^search_requirements$/,
-            /^search_(?:requirement|issues|work_items)$/, // 未来重命名兜底
-        ],
-    };
+    /** 连接池：serverName → 上下文 */
+    private pool = new Map<string, ServerContext>();
+    /** 连接中标志（按 serverName 隔离，防止并发连接竞争） */
+    private connecting = new Set<string>();
 
     /**
      * 构造函数
-     * @param mcpConfigSource - MCP 配置源（MCPRegistryService / MCPConfigService，均实现 get(name)）
-     * @param serverName - 可选的 MCP 服务器名称，默认为 'ones-api'
+     * @param mcpConfigSource - MCP 配置源（MCPRegistryService / MCPConfigService）
+     * @param serverName - 可选的默认 MCP 服务器名称（缺省 'ones-api'，未配置时自动解析）
      */
-    constructor(mcpConfigSource: {get(name: string): MCPServerConfig | undefined}, serverName?: string) {
+    constructor(mcpConfigSource: MCPConfigSource, serverName?: string) {
         this.mcpConfigSource = mcpConfigSource;
-        this.serverName = serverName ?? 'ones-api';
+        this.serverName = serverName ?? DEFAULT_SERVER_NAME;
+    }
+
+    // === 服务器解析 ===
+
+    /**
+     * 解析实际使用的服务器名
+     * @description 显式指定时原样使用（未配置由连接层抛出明确错误，绝不静默
+     *   切换到其它服务器）；未指定时用默认名，默认名未配置且配置源支持枚举时，
+     *   自动选择第一个被专用适配器认领的服务器（否则第一个已配置的）。
+     * @returns 实际使用的服务器名
+     */
+    private resolveServerName(explicit?: string): string {
+        if (explicit) return explicit;
+        if (this.mcpConfigSource.get(this.serverName)) return this.serverName;
+        // 默认名未配置：枚举配置源自动选择
+        const all = this.mcpConfigSource.list?.() ?? [];
+        if (all.length > 0) {
+            // 优先被专用适配器认领的服务器
+            const claimed = all.find(s => resolveAdapter(s.name, s).id !== 'generic');
+            return (claimed ?? all[0]).name;
+        }
+        return this.serverName;
     }
 
     /**
-     * 确保 MCP 客户端连接可用
-     * @description 采用懒连接策略，仅在首次调用时建立连接。如果已有活跃连接则直接返回。
-     *   当检测到有其他调用正在进行连接时，等待 1 秒后再次检查连接状态。
-     * @returns 已连接的 MCP 客户端实例
-     * @throws 当服务器未配置或连接失败时抛出错误
+     * 获取当前生效的服务器名（含自动解析，不建立连接）
+     * @param opts - 可选的目标服务器
      */
-    private async ensureConnected(): Promise<Client> {
-        // 已有连接，直接复用
-        if (this.client) return this.client;
+    getResolvedServerName(opts?: BridgeCallOptions): string {
+        return this.resolveServerName(opts?.serverName);
+    }
 
-        // 有其他调用正在连接，等待后检查
-        if (this.connecting) {
+    /**
+     * 获取默认配置的 MCP 服务器名称
+     */
+    getServerName(): string {
+        return this.serverName;
+    }
+
+    /**
+     * 设置默认使用的 MCP 服务器名称
+     * @description 连接池按名缓存，切换默认服务器不影响已有连接的复用
+     * @param name - 新的服务器名称
+     */
+    setServerName(name: string): void {
+        this.serverName = name;
+    }
+
+    /**
+     * 获取指定服务器的配置信息
+     * @param opts - 可选的目标服务器（缺省用解析后的默认名）
+     */
+    getServerConfig(opts?: BridgeCallOptions): MCPServerConfig | undefined {
+        return this.mcpConfigSource.get(this.resolveServerName(opts?.serverName));
+    }
+
+    // === 连接管理 ===
+
+    /**
+     * 确保指定服务器的 MCP 连接可用
+     * @description 懒连接 + 按服务器缓存。连接后 listTools 动态发现工具，
+     *   按适配器的命名约定解析能力 → 工具名（失败不阻塞连接）。
+     */
+    private async ensureConnected(serverName: string): Promise<ServerContext> {
+        const existing = this.pool.get(serverName);
+        if (existing) return existing;
+
+        // 有同名的连接正在进行，等待后复查
+        if (this.connecting.has(serverName)) {
             await new Promise(resolve => setTimeout(resolve, 1000));
-            if (this.client) return this.client;
+            const raced = this.pool.get(serverName);
+            if (raced) return raced;
             throw new Error('Connection already in progress');
         }
 
-        this.connecting = true;
+        this.connecting.add(serverName);
         try {
-            const config = this.getServerConfig();
+            const config = this.mcpConfigSource.get(serverName);
             if (!config) {
                 throw new Error(
-                    `MCP Server "${this.serverName}" is not configured. Please add it in MCP Management.`
+                    `MCP Server "${serverName}" is not configured. Please add it in MCP Management.`
                 );
             }
 
-            // 创建基于标准输入输出的传输层，合并当前进程环境变量与服务器自定义环境变量
+            // 基于标准输入输出的传输层，合并当前进程环境变量与服务器自定义环境变量
             const transport = new StdioClientTransport({
                 command: config.command,
                 args: config.args,
                 env: {...process.env, ...config.env} as Record<string, string>,
             });
 
-            // 创建 MCP 客户端，标识为 ai-dev-workbench
             const client = new Client(
                 {name: 'ai-dev-workbench', version: '0.1.0'},
                 {capabilities: {}}
             );
 
             await client.connect(transport);
-            // 动态发现工具（MCP 核心设计）：按能力解析并缓存工具名，失败不阻塞连接
+
+            // 适配器路由：显式绑定 > 自动认领 > generic
+            const adapter = resolveAdapter(serverName, config);
+
+            // 动态发现工具（MCP 核心设计）：按适配器命名约定解析能力，失败不阻塞
+            let availableTools: Set<string> | null = null;
+            const toolByCapability: Partial<Record<ToolCapability, string>> = {};
             try {
                 const tools = await client.listTools();
-                this.availableTools = new Set(tools.tools.map(t => t.name));
-                for (const capability of Object.keys(MCPBridgeService.CAPABILITY_PATTERNS) as ToolCapability[]) {
-                    const resolved = this.resolveTool(capability, tools.tools);
-                    if (resolved) this.toolByCapability[capability] = resolved;
+                availableTools = new Set(tools.tools.map(t => t.name));
+                for (const capability of Object.keys(adapter.capabilityPatterns) as ToolCapability[]) {
+                    const resolved = this.resolveTool(adapter, capability, tools.tools);
+                    if (resolved) toolByCapability[capability] = resolved;
                 }
             } catch {
-                this.availableTools = null;
+                availableTools = null;
             }
-            this.client = client;
-            return client;
+
+            const ctx: ServerContext = {client, serverName, adapter, availableTools, toolByCapability};
+            this.pool.set(serverName, ctx);
+            return ctx;
         } finally {
-            // 无论连接成功与否，都重置连接中标志位
-            this.connecting = false;
+            this.connecting.delete(serverName);
         }
     }
 
     /**
-     * 断开与 MCP 服务器的连接并释放资源
+     * 断开全部 MCP 连接并释放资源
      */
     async disconnect(): Promise<void> {
-        if (this.client) {
-            await this.client.close();
-            this.client = null;
+        const contexts = [...this.pool.values()];
+        this.pool.clear();
+        for (const ctx of contexts) {
+            try {
+                await ctx.client.close();
+            } catch { /* 关闭失败忽略 */ }
         }
-        this.availableTools = null;
-        this.toolByCapability = {};
+    }
+
+    // === 业务接口 ===
+
+    /**
+     * 按用户输入获取需求详情（推荐入口）
+     * @description 完整链路：适配器规整输入 → 纯编号先搜索解析真实 ID →
+     *   拉取详情 → 回填编号。兼容各源输入方言。
+     * @param input - 用户原始输入（链接 / 编号 / issue key / owner/repo#N）
+     * @param opts - 可选的目标服务器
+     * @returns 需求详情与实际使用的服务器名
+     */
+    async fetchRequirementByInput(
+        input: string,
+        opts?: BridgeCallOptions,
+    ): Promise<{detail: RequirementDetail; serverName: string}> {
+        const serverName = this.resolveServerName(opts?.serverName);
+        const config = this.mcpConfigSource.get(serverName);
+        const adapter = resolveAdapter(serverName, config);
+
+        const normalized = adapter.normalizeInput(input);
+        const plainNumber = adapter.extractPlainNumber(normalized);
+
+        let resolvedId = normalized;
+        if (plainNumber) {
+            // 纯编号：先搜索解析真实 ID（编号可能跨项目重复）
+            const results = await this.searchRequirements(plainNumber, {serverName});
+            if (results.length > 0) {
+                resolvedId = results[0].id;
+            }
+            // 搜索无结果时不中断，继续用编号直接调用详情工具
+        }
+
+        const detail = await this.fetchRequirementDetail(resolvedId, {serverName});
+
+        // 输入为编号且源未返回编号时回填（不依赖源返回格式）
+        if (plainNumber && !detail.number) {
+            detail.number = `#${plainNumber}`;
+        }
+        return {detail, serverName};
     }
 
     /**
      * 获取指定需求的详细信息
-     * @param id - 需求的唯一标识符
-     * @returns 需求详细信息对象
-     * @throws 当获取失败时抛出包含需求 ID 和原始错误信息的错误
+     * @param id - 需求标识（适配器方言内的可定位 id：uuid / owner-repo#N 等）
+     * @param opts - 可选的目标服务器
+     * @throws 获取失败时抛出包含需求 ID 和原始错误信息的错误
      */
-    async fetchRequirementDetail(id: string): Promise<RequirementDetail> {
+    async fetchRequirementDetail(id: string, opts?: BridgeCallOptions): Promise<RequirementDetail> {
+        const serverName = this.resolveServerName(opts?.serverName);
         try {
-            // 通过能力解析工具：ones-api 0.2.0 起 get_requirement 被拆分为 get_work_item（需求/任务），
-            // 0.1.x 仅提供 get_requirement，由 resolveTool 按工具清单自动适配
-            const result = await this.callToolByCapability(
-                'fetchDetail',
-                {id},
-            );
-            return this.parseRequirementDetail(result.content);
+            const ctx = await this.ensureConnected(serverName);
+            // 适配器规整 + 构建参数（兼容传入原始输入形态）
+            const normalized = ctx.adapter.normalizeInput(id);
+            const args = ctx.adapter.buildDetailArgs(normalized, this.mcpConfigSource.get(serverName)!);
+            const result = await this.callToolByCapability(ctx, 'fetchDetail', args);
+            return ctx.adapter.parseDetail(result.content);
         } catch (err) {
             throw new Error(
                 `Failed to fetch requirement detail for "${id}": ${getErrorMessage(err)}`
@@ -240,16 +300,16 @@ export class MCPBridgeService {
     /**
      * 按关键字搜索需求列表
      * @param query - 搜索关键字
-     * @returns 匹配的需求列表
-     * @throws 当搜索失败时抛出包含原始错误信息的错误
+     * @param opts - 可选的目标服务器
+     * @throws 搜索失败时抛出包含原始错误信息的错误
      */
-    async searchRequirements(query: string): Promise<Requirement[]> {
+    async searchRequirements(query: string, opts?: BridgeCallOptions): Promise<Requirement[]> {
+        const serverName = this.resolveServerName(opts?.serverName);
         try {
-            const result = await this.callToolByCapability(
-                'search',
-                {query},
-            );
-            return this.parseRequirementList(result.content);
+            const ctx = await this.ensureConnected(serverName);
+            const args = ctx.adapter.buildSearchArgs(query, this.mcpConfigSource.get(serverName)!);
+            const result = await this.callToolByCapability(ctx, 'search', args);
+            return ctx.adapter.parseList(result.content);
         } catch (err) {
             throw new Error(
                 `Failed to search requirements: ${getErrorMessage(err)}`
@@ -257,32 +317,117 @@ export class MCPBridgeService {
         }
     }
 
+    // === 源目录与安装 ===
+
     /**
-     * 获取当前配置的 MCP 服务器名称
-     * @returns 当前 MCP 服务器名称
+     * 列出需求源目录（适配器视角，非 MCP server 视角）
+     * @description 平台能力目录：每个已注册适配器一个条目，携带其已配置的
+     *   MCP server 列表与一键安装模板。前端据此渲染"选择源系统 → 未配置则
+     *   引导安装"，工具型 MCP（memory 等）不会出现。generic 兜底不外显。
      */
-    getServerName(): string {
-        return this.serverName;
+    listSources(): RequirementSourceEntry[] {
+        const all = this.mcpConfigSource.list?.() ?? [];
+        return listCatalogAdapters().map(adapter => ({
+            adapterId: adapter.id,
+            label: adapter.label,
+            description: adapter.description,
+            servers: all
+                .filter(server => resolveAdapter(server.name, server).id === adapter.id)
+                .map(server => server.name),
+            installTemplate: adapter.installTemplate,
+        }));
     }
 
     /**
-     * 设置要使用的 MCP 服务器名称
-     * @description 设置新名称后会自动断开当前连接，确保下次调用时重新连接到新服务器
-     * @param name - 新的 MCP 服务器名称
+     * 按适配器模板一键安装需求源
+     * @description 从适配器的 installTemplate 创建 MCP server（Windows 下自动
+     *   经 cmd /c 包装），写入配置源后做一次连接测试。
+     * @param adapterId - 目标适配器 id
+     * @param env - 用户填写的凭据（key 来自模板 envSpecs）
+     * @returns 创建的 server 名与连接测试结果
+     * @throws 适配器不存在 / 不支持安装 / 必填凭据缺失 / 同名 server 已存在
      */
-    setServerName(name: string): void {
-        this.serverName = name;
-        // 断开当前连接，以便下次调用时重新连接到新服务器
-        this.disconnect().catch(() => {
+    async installSource(
+        adapterId: string,
+        env: Record<string, string>,
+    ): Promise<{serverName: string; connectionTest?: {ok: boolean; message: string}}> {
+        const adapter = getAdapter(adapterId);
+        if (!adapter || adapter.id === 'generic') {
+            throw new Error(`Unknown requirement source: ${adapterId}`);
+        }
+        const template = adapter.installTemplate;
+        if (!template) {
+            throw new Error(`Requirement source "${adapter.label}" does not support one-click install`);
+        }
+        if (!this.mcpConfigSource.add) {
+            throw new Error('MCP config source does not support adding servers');
+        }
+
+        // 校验必填凭据
+        const missing = template.envSpecs
+            .filter(spec => spec.required && !(env[spec.key] ?? '').trim())
+            .map(spec => spec.label);
+        if (missing.length > 0) {
+            throw new Error(`Missing required credentials: ${missing.join(', ')}`);
+        }
+
+        // 同名冲突：模板 server 名已被占用（可能已配置过该源）
+        if (this.mcpConfigSource.get(template.serverName)) {
+            throw new Error(`MCP server "${template.serverName}" already exists — source may already be configured`);
+        }
+
+        // Windows 下 npx 需经 cmd /c 启动（与现有注册条目一致）
+        const isWindows = process.platform === 'win32';
+        const command = isWindows ? 'cmd' : template.command;
+        const args = isWindows ? ['/c', template.command, ...template.args] : template.args;
+
+        // 只写入用户实际填写的凭据（空值不落盘）
+        const cleanEnv: Record<string, string> = {};
+        for (const spec of template.envSpecs) {
+            const value = (env[spec.key] ?? '').trim();
+            if (value) cleanEnv[spec.key] = value;
+        }
+
+        this.mcpConfigSource.add({
+            name: template.serverName,
+            type: 'custom',
+            command,
+            args,
+            env: cleanEnv,
+            enabled: true,
         });
+
+        // 安装后连接测试（失败不回滚：配置已落盘，用户可修凭据后重试）
+        let connectionTest: {ok: boolean; message: string} | undefined;
+        if (this.mcpConfigSource.testConnection) {
+            try {
+                const result = await this.mcpConfigSource.testConnection(template.serverName, 10000);
+                // 兼容 {ok} 与 {status:'connected'|'error'} 两种返回形态
+                const ok = result.ok ?? result.status === 'connected';
+                connectionTest = {ok, message: result.message};
+            } catch (err) {
+                connectionTest = {ok: false, message: getErrorMessage(err)};
+            }
+        }
+
+        return {serverName: template.serverName, connectionTest};
+    }
+
+    /**
+     * 获取指定服务器的附件图片下载服务
+     * @description 由适配器从 MCP server 配置构建（认证策略源特定）；不支持时返回 undefined
+     */
+    getAttachmentImageService(opts?: BridgeCallOptions): AttachmentImageService | undefined {
+        const serverName = this.resolveServerName(opts?.serverName);
+        const config = this.mcpConfigSource.get(serverName);
+        if (!config) return undefined;
+        return resolveAdapter(serverName, config).createImageService(config);
     }
 
     // === 私有方法 ===
 
     /**
      * 判断错误是否为 JSON-RPC "工具不存在"（-32602 Invalid params: Tool xxx not found）
-     * @param err - 原始错误对象
-     * @returns 是否为工具不存在错误
      */
     private isToolNotFoundError(err: unknown): boolean {
         if (err instanceof McpError) {
@@ -293,16 +438,14 @@ export class MCPBridgeService {
     }
 
     /**
-     * 从服务端工具清单中按能力解析出应调用的工具名
-     * @param capability - 能力标识
-     * @param tools - listTools 返回的工具清单
-     * @returns 解析出的工具名，未命中返回 undefined
+     * 从服务端工具清单中按适配器命名约定解析出应调用的工具名
      */
     private resolveTool(
+        adapter: RequirementSourceAdapter,
         capability: ToolCapability,
         tools: {name: string; description?: string}[],
     ): string | undefined {
-        const patterns = MCPBridgeService.CAPABILITY_PATTERNS[capability];
+        const patterns = adapter.capabilityPatterns[capability] ?? [];
         for (const pattern of patterns) {
             const hit = tools.find(t => pattern.test(t.name));
             if (hit) return hit.name;
@@ -312,32 +455,27 @@ export class MCPBridgeService {
 
     /**
      * 按能力调用工具（能力 → 工具动态映射）
-     * @description 优先使用 listTools 发现并解析出的工具名；
-     *   若解析失败（工具清单未知 / 命名约定未命中），回退逐个尝试已知候选名并跳过
-     *   "工具不存在" 错误；全部失败时抛出包含服务端实际工具清单的可操作错误。
-     * @param capability - 能力标识
-     * @param args - 工具参数
-     * @returns MCP 工具调用结果
-     * @throws 无可用工具时抛出错误（含服务端工具清单便于排查）
+     * @description 优先使用 listTools 按适配器命名约定解析出的工具名；
+     *   解析失败时回退逐个尝试适配器的候选名并跳过 "工具不存在" 错误；
+     *   全部失败时抛出包含服务端实际工具清单的可操作错误。
      */
     private async callToolByCapability(
+        ctx: ServerContext,
         capability: ToolCapability,
         args: Record<string, unknown>,
     ): Promise<{content: unknown}> {
-        const client = await this.ensureConnected();
-
-        // 1. 已通过 listTools 按能力解析到工具名
-        const resolved = this.toolByCapability[capability];
+        // 1. 已通过 listTools 按命名约定解析到工具名
+        const resolved = ctx.toolByCapability[capability];
         if (resolved) {
-            return (await client.callTool({name: resolved, arguments: args})) as unknown as {content: unknown};
+            return (await ctx.client.callTool({name: resolved, arguments: args})) as unknown as {content: unknown};
         }
 
-        // 2. 解析失败（工具清单不可用 / 命名约定未命中）：回退尝试已知候选名
-        const legacyCandidates = this.knownCandidateNames(capability);
+        // 2. 解析失败（工具清单不可用 / 命名约定未命中）：回退尝试适配器候选名
+        const candidates = ctx.adapter.fallbackToolNames[capability] ?? [];
         let lastErr: unknown;
-        for (const name of legacyCandidates) {
+        for (const name of candidates) {
             try {
-                return (await client.callTool({name, arguments: args})) as unknown as {content: unknown};
+                return (await ctx.client.callTool({name, arguments: args})) as unknown as {content: unknown};
             } catch (err) {
                 if (this.isToolNotFoundError(err)) {
                     lastErr = err;
@@ -347,415 +485,13 @@ export class MCPBridgeService {
             }
         }
 
-        // 3. 全部失败：抛出可操作错误，列出服务端实际提供的工具
-        const available = this.availableTools && this.availableTools.size > 0
-            ? ` Available tools: [${[...this.availableTools].join(', ')}]`
+        // 3. 全部失败：抛出可操作错误，列出服务端实际提供的工具与适配器信息
+        const available = ctx.availableTools && ctx.availableTools.size > 0
+            ? ` Available tools: [${[...ctx.availableTools].join(', ')}]`
             : '';
         throw lastErr ?? new Error(
-            `No tool found on MCP server "${this.serverName}" for capability "${capability}".${available}`
+            `No tool found on MCP server "${ctx.serverName}" for capability "${capability}" ` +
+            `(adapter: ${ctx.adapter.id}).${available}`
         );
-    }
-
-    /**
-     * 已知版本的候选工具名（兜底用，仅当 listTools 不可用或解析失败时尝试）
-     * @param capability - 能力标识
-     * @returns 已知候选工具名数组
-     */
-    private knownCandidateNames(capability: ToolCapability): string[] {
-        switch (capability) {
-            case 'fetchDetail':
-                return ['get_work_item', 'get_requirement'];
-            case 'search':
-                return ['search_requirements'];
-            default:
-                return [];
-        }
-    }
-
-    /**
-     * 获取当前 MCP 服务器的配置信息（公开方法，供路由层读取认证参数等）
-     * @returns 服务器配置对象，如果未配置则返回 undefined
-     */
-    getServerConfig(): MCPServerConfig | undefined {
-        return this.mcpConfigSource.get(this.serverName);
-    }
-
-    /**
-     * 从 MCP 工具调用结果中提取纯文本内容
-     * @description MCP 工具返回的内容格式为数组，每个元素为 { type: 'text', text: '...' } 结构。
-     *   该方法遍历数组找到第一个文本类型的元素并返回其文本值。
-     * @param content - MCP 工具调用的原始返回内容
-     * @returns 提取到的文本字符串，如果没有找到则返回 null
-     */
-    private extractContentText(content: unknown): string | null {
-        if (!content || !Array.isArray(content) || content.length === 0) {
-            return null;
-        }
-        const textItem = content.find(
-            (item: Record<string, unknown>) => item.type === 'text' && typeof item.text === 'string'
-        );
-        return textItem ? (textItem as { text: string }).text : null;
-    }
-
-    /**
-     * 从 MCP 工具调用结果中提取 JSON 数据
-     * @description 先提取纯文本，然后尝试解析为 JSON。如果解析失败则返回原始文本。
-     * @param content - MCP 工具调用的原始返回内容
-     * @returns 解析后的 JSON 对象、原始文本字符串或 null
-     */
-    private extractContentJson(content: unknown): unknown {
-        const text = this.extractContentText(content);
-        if (!text) return null;
-        // 优先提取内嵌 JSON（prose + fenced / 平衡括号混合输出鲁棒）；
-        // 未命中则维持原文本，交由调用方走 markdown 解析
-        const json = extractJsonValue(text);
-        if (json !== undefined) return json;
-        return text;
-    }
-
-    /**
-     * 将 MCP 原始响应内容解析为需求列表
-     * @description 支持两种响应格式：
-     *   1. JSON 数组格式：直接映射每个对象的字段
-     *   2. Markdown 文本格式：通过正则表达式逐行解析 Markdown 结构
-     * @param content - MCP 工具调用的原始返回内容
-     * @returns 解析后的需求列表，无法解析时返回空数组
-     */
-    private parseRequirementList(content: unknown): Requirement[] {
-        const raw = this.extractContentJson(content);
-
-        // JSON 数组格式：直接映射字段，对缺失字段使用默认值
-        if (Array.isArray(raw)) {
-            return raw.map((item: Record<string, unknown>) => ({
-                id: String(item.id ?? ''),
-                title: String(item.title ?? ''),
-                status: String(item.status ?? 'unknown'),
-                priority: String(item.priority ?? 'medium'),
-                assignee: String(item.assignee ?? ''),
-                updatedAt: String(item.updatedAt ?? item.updated_at ?? new Date().toISOString()),
-            }));
-        }
-
-        // Markdown 文本格式：解析每个 ### 开头的段落
-        if (typeof raw === 'string') {
-            return this.parseMarkdownRequirementList(raw);
-        }
-
-        return [];
-    }
-
-    /**
-     * 解析 Markdown 格式的需求列表
-     * @description 逐行扫描 Markdown 文本，匹配格式为 "### [STATUS] ID: #NUMBER Title" 的行，
-     *   并从后续行中提取优先级和负责人等元数据信息。
-     * @param text - Markdown 格式的需求列表文本
-     * @returns 解析后的需求列表
-     */
-    private parseMarkdownRequirementList(text: string): Requirement[] {
-        const results: Requirement[] = [];
-        const lines = text.split('\n');
-
-        for (const line of lines) {
-            // 匹配格式：### [STATUS] ID: #NUMBER Title
-            const match = line.match(/^###\s+\[([^\]]+)\]\s+(\S+):\s+(.+)$/);
-            if (match) {
-                const [, status, id, titlePart] = match;
-                // titlePart 格式可能为 "#130770 Title text"，需要提取编号和纯标题文本
-                const numberMatch = titlePart.match(/^#(\d+)/);
-                const titleMatch = titlePart.match(/^#\d+\s+(.+)$/) ?? titlePart.match(/^(.+)$/);
-                const title = titleMatch ? titleMatch[1].trim() : titlePart.trim();
-
-                // 从当前行之后最多 6 行中提取优先级和负责人元数据
-                let priority = 'medium';
-                let assignee = '';
-                const lineIdx = lines.indexOf(line);
-                for (let i = lineIdx + 1; i < Math.min(lineIdx + 6, lines.length); i++) {
-                    const meta = lines[i];
-                    if (meta.includes('Priority:')) {
-                        const m = meta.match(/Priority:\s*(\w+)/i);
-                        if (m) priority = m[1].toLowerCase();
-                    }
-                    if (meta.includes('Assignee:')) {
-                        const m = meta.match(/Assignee:\s*(.+)/i);
-                        if (m) assignee = m[1].trim();
-                    }
-                    // 遇到下一个需求标题时停止扫描元数据
-                    if (lines[i].startsWith('###')) break;
-                }
-
-                results.push({
-                    id,
-                    number: numberMatch ? `#${numberMatch[1]}` : undefined,
-                    title,
-                    status: status.toLowerCase(),
-                    priority,
-                    assignee,
-                    updatedAt: new Date().toISOString(),
-                });
-            }
-        }
-
-        return results;
-    }
-
-    /**
-     * 将 MCP 原始响应内容解析为需求详情
-     * @description 支持两种响应格式：
-     *   1. JSON 对象格式：直接映射所有字段，包括嵌套的验收标准、附件和关联问题
-     *   2. Markdown 文本格式：通过正则表达式解析 Markdown 结构化的需求详情
-     * @param content - MCP 工具调用的原始返回内容
-     * @returns 解析后的需求详情对象
-     * @throws 当响应内容无法解析为有效格式时抛出错误
-     */
-    private parseRequirementDetail(content: unknown): RequirementDetail {
-        const raw = this.extractContentJson(content);
-
-        // JSON 对象格式：支持驼峰和下划线两种字段命名风格
-        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-            const data = raw as Record<string, unknown>;
-            return {
-                id: String(data.id ?? ''),
-                number: data.number ? String(data.number) : undefined,
-                title: String(data.title ?? ''),
-                status: String(data.status ?? 'unknown'),
-                priority: String(data.priority ?? 'medium'),
-                assignee: String(data.assignee ?? ''),
-                updatedAt: String(data.updatedAt ?? data.updated_at ?? new Date().toISOString()),
-                description: String(data.description ?? ''),
-                // 兼容驼峰命名（acceptanceCriteria）和下划线命名（acceptance_criteria）
-                acceptanceCriteria: this.parseStringArray(data.acceptanceCriteria ?? data.acceptance_criteria),
-                attachments: this.parseAttachments(data.attachments),
-                relatedIssues: this.parseRelatedIssues(data.relatedIssues ?? data.related_issues),
-            };
-        }
-
-        // Markdown 文本格式
-        if (typeof raw === 'string') {
-            return this.parseMarkdownRequirementDetail(raw);
-        }
-
-        throw new Error('Invalid requirement detail response');
-    }
-
-    /**
-     * 解析 Markdown 格式的需求详情
-     * @description ones-api MCP 返回的 Markdown 格式示例如下：
-     *   ```
-     *   # #130770 Title
-     *   - **ID**: RbSvp3zzkJyHJ47Y
-     *   - **Status**: open
-     *   ...
-     *   ---
-     *   ## Requirement Detail
-     *   actual description content here
-     *   ```
-     *   该方法按优先级依次尝试多个章节名称来提取描述内容，
-     *   并支持中英文的验收标准章节名称。
-     * @param text - Markdown 格式的需求详情文本
-     * @returns 解析后的需求详情对象
-     */
-    private parseMarkdownRequirementDetail(text: string): RequirementDetail {
-        const lines = text.split('\n');
-
-        let id = '';
-        let title = '';
-        let number: string | undefined;
-        let status = 'unknown';
-        let priority = 'medium';
-        let assignee = '';
-        const acceptanceCriteria: string[] = [];
-
-        // 从第一个一级标题中解析需求标题和编号
-        const titleLine = lines.find(l => l.startsWith('# '));
-        if (titleLine) {
-            // 提取 #NUMBER 编号（如 #91086）
-            const numberMatch = titleLine.match(/^#\s+#(\d+)/);
-            if (numberMatch) number = `#${numberMatch[1]}`;
-            // 移除前导 "# " 和可选的 "#NUMBER " 前缀
-            const cleaned = titleLine.replace(/^#\s+/, '').replace(/^#\d+\s+/, '').trim();
-            title = cleaned;
-        }
-
-        // 从无序列表项 (- **Key**: Value) 中解析元数据字段
-        for (const line of lines) {
-            const idMatch = line.match(/\*\*(?:ID|UUID)\*\*:\s*(\S+)/);
-            if (idMatch) id = idMatch[1];
-
-            const statusMatch = line.match(/\*\*Status\*\*:\s*(.+)/i);
-            if (statusMatch) status = statusMatch[1].trim();
-
-            const priorityMatch = line.match(/\*\*Priority\*\*:\s*(.+)/i);
-            if (priorityMatch) priority = priorityMatch[1].trim().toLowerCase();
-
-            const assigneeMatch = line.match(/\*\*Assignee\*\*:\s*(.+)/i);
-            if (assigneeMatch) assignee = assigneeMatch[1].trim();
-        }
-
-        // 按优先级顺序尝试查找需求描述章节
-        // 优先使用 "Requirement Documents"（ONES 标准文档章节）和 "Requirement Detail"，
-        // "Description" 章节可能包含嵌套的元数据内容故优先级较低
-        const sectionOrder = [
-            // 0.2.0 起描述章节更名为 Untrusted ONES Description（含安全提示行）
-            'Requirement Documents', 'Untrusted ONES Description', 'Requirement Detail',
-            'Description', '需求详情', '需求文档', '详情', 'Content',
-        ];
-
-        let description = '';
-        for (const sectionName of sectionOrder) {
-            const pattern = new RegExp(`^##\\s+${sectionName}`, 'i');
-            const idx = lines.findIndex(l => pattern.test(l));
-            if (idx >= 0) {
-                // 收集章节内容
-                const descLines: string[] = [];
-                // 文档类章节（如 Requirement Documents）：内容中含二级标题，只在 ## Attachments 时停止
-                // 元数据类章节（如 Description）：遇到下一个 ## 即停止
-                // 注意：wiki URL 直拉时正文位于 ## Description 下，且正文自带 ## 子标题，
-                // 故 Description / 需求详情 也按文档类处理，否则会在第一个 ## 处截断丢内容
-                const isDocSection = /Requirement Documents|Requirement Detail|Description|需求文档|需求详情/i.test(sectionName);
-                for (let i = idx + 1; i < lines.length; i++) {
-                    if (isDocSection) {
-                        // 文档章节：仅在遇到 ## Attachments（MCP 尾部结构）时停止
-                        if (/^##\s+Attachments/i.test(lines[i])) break;
-                    } else {
-                        // 元数据章节：遇到同级 ## 标题时停止
-                        if (lines[i].startsWith('## ')) break;
-                    }
-                    descLines.push(lines[i]);
-                }
-                const candidate = descLines.join('\n').trim();
-                // 空内容跳过，继续下一个 section
-                if (!candidate) continue;
-                // 如果内容看起来像元数据（包含 **Type**: 或 **UUID**: 模式），
-                // 且不是最后一个备选章节，则继续查找更好的章节
-                const looksLikeMetadata = candidate.includes('**Type**:') || candidate.includes('**UUID**:');
-                if (!looksLikeMetadata || sectionName === sectionOrder[sectionOrder.length - 1]) {
-                    description = candidate;
-                    break;
-                }
-            }
-        }
-
-        // 兜底策略：取最后一个 --- 分隔符之后的所有内容作为描述
-        if (!description) {
-            const lastSepIdx = lines.lastIndexOf('---');
-            if (lastSepIdx >= 0) {
-                description = lines.slice(lastSepIdx + 1).join('\n').trim();
-            }
-        }
-
-        // 移除 0.2.0 版本在描述开头注入的安全提示行（Security boundary: ...）
-        description = description.replace(/^>\s*Security boundary:[^\n]*\n?/i, '').trim();
-
-        // 解析验收标准章节（支持中英文标题）
-        const acIdx = lines.findIndex(l => /^##\s+(Acceptance Criteria|验收标准)/i.test(l));
-        if (acIdx >= 0) {
-            for (let i = acIdx + 1; i < lines.length; i++) {
-                if (lines[i].startsWith('## ')) break;
-                const acMatch = lines[i].match(/^[-*]\s+(.+)/);
-                if (acMatch) acceptanceCriteria.push(acMatch[1].trim());
-            }
-        }
-
-        // 解析附件章节：- [filename](url) (type, size)
-        const parsedAttachments: Attachment[] = [];
-        const attIdx = lines.findIndex(l => /^##\s+Attachments/i.test(l));
-        if (attIdx >= 0) {
-            for (let i = attIdx + 1; i < lines.length; i++) {
-                if (lines[i].startsWith('## ')) break;
-                const attMatch = lines[i].match(/^[-*]\s+\[([^\]]+)\]\(([^)]+)\)\s*(?:\(([^)]+)\))?/);
-                if (attMatch) {
-                    parsedAttachments.push({
-                        name: attMatch[1],
-                        url: attMatch[2],
-                        type: attMatch[3]?.split(',')[0]?.trim() || 'file',
-                    });
-                    continue;
-                }
-                // 兼容 0.2.0：附件 URL 被省略（- name (mimeType, size bytes; URL omitted)）
-                const attNoUrlMatch = lines[i].match(/^[-*]\s+([^(]+?)\s*\(([^)]+)\)\s*$/);
-                if (attNoUrlMatch) {
-                    parsedAttachments.push({
-                        name: attNoUrlMatch[1].trim(),
-                        url: '', // 0.2.0 出于安全考虑省略附件 URL，图片以 content 内嵌 base64 返回
-                        type: attNoUrlMatch[2].split(',')[0]?.trim() || 'file',
-                    });
-                }
-            }
-        }
-
-        // 解析关联任务章节：- #id title [type] (status) — assignee
-        const parsedRelated: RelatedIssue[] = [];
-        const relIdx = lines.findIndex(l => /^##\s+Related Tasks/i.test(l));
-        if (relIdx >= 0) {
-            for (let i = relIdx + 1; i < lines.length; i++) {
-                if (lines[i].startsWith('## ')) break;
-                const relMatch = lines[i].match(/^[-*]\s+#?(\d+)\s+(.+?)\s+\[([^\]]+)\]\s+\(([^)]+)\)/);
-                if (relMatch) {
-                    parsedRelated.push({
-                        id: relMatch[1],
-                        title: relMatch[2].trim(),
-                        status: relMatch[4].trim(),
-                    });
-                }
-            }
-        }
-
-        return {
-            id,
-            number,
-            title,
-            status,
-            priority,
-            assignee,
-            updatedAt: new Date().toISOString(),
-            description,
-            acceptanceCriteria,
-            attachments: parsedAttachments,
-            relatedIssues: parsedRelated,
-        };
-    }
-
-    /**
-     * 将未知类型的安全转换为字符串数组
-     * @param raw - 待转换的原始值
-     * @returns 字符串数组，如果输入无效则返回空数组
-     */
-    private parseStringArray(raw: unknown): string[] {
-        if (!raw || !Array.isArray(raw)) {
-            return [];
-        }
-        return raw.map((item) => String(item));
-    }
-
-    /**
-     * 将未知类型的安全转换为附件数组
-     * @param raw - 待转换的原始值
-     * @returns 附件对象数组，如果输入无效则返回空数组
-     */
-    private parseAttachments(raw: unknown): Attachment[] {
-        if (!raw || !Array.isArray(raw)) {
-            return [];
-        }
-        return raw.map((item: Record<string, unknown>) => ({
-            name: String(item.name ?? ''),
-            url: String(item.url ?? ''),
-            type: String(item.type ?? 'file'),
-        }));
-    }
-
-    /**
-     * 将未知类型的安全转换为关联问题数组
-     * @param raw - 待转换的原始值
-     * @returns 关联问题对象数组，如果输入无效则返回空数组
-     */
-    private parseRelatedIssues(raw: unknown): RelatedIssue[] {
-        if (!raw || !Array.isArray(raw)) {
-            return [];
-        }
-        return raw.map((item: Record<string, unknown>) => ({
-            id: String(item.id ?? ''),
-            title: String(item.title ?? ''),
-            status: String(item.status ?? 'unknown'),
-        }));
     }
 }

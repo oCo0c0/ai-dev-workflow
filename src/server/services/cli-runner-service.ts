@@ -9,12 +9,65 @@
  */
 
 import {getErrorMessage} from '../utils/error-utils.js';
-import {getProvider} from './cli-providers';
+import {createProvider, getProvider, isBuiltinProviderId, DEFAULT_PROVIDER_ID} from './cli-providers';
 import type {CLIProvider, McpStdioMap} from './cli-providers/types.js';
-import {ClaudeProvider} from './cli-providers/claude-provider.js';
 import {ConfigService} from './config-service.js';
 import {ModelProviderStore} from './model-provider-store.js';
 import type {ModelProviderRecord} from './model-provider-types.js';
+
+// === 常量 ===
+
+/**
+ * 自定义模型供应商的执行引擎 id。
+ * 语义：models.json 中 kind='custom' 的记录指向 Anthropic 兼容端点，
+ * 统一经 claude 引擎（supportsCustomEndpoint）调用。
+ */
+export const CUSTOM_MODEL_ENGINE_ID = DEFAULT_PROVIDER_ID;
+
+/**
+ * 读取 models.json 中的自定义供应商记录（kind='custom'）。
+ * 模块级工具函数：CLIRunnerService 实例逻辑与任务级工厂 createConfiguredProvider 共用。
+ */
+function readCustomRecord(id: string): ModelProviderRecord | undefined {
+    try {
+        const rec = new ModelProviderStore().get(id);
+        return rec && rec.kind === 'custom' ? rec : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * 按当前配置创建一个独立的 Provider 实例（多任务并行 / 任务级隔离用）。
+ *
+ * 与 CLIRunnerService 管理的共享单例不同，每次调用返回全新实例（独立子进程/会话），
+ * 调用方自行负责 initialize()/dispose() 生命周期。
+ * 路由规则与 CLIRunnerService 一致：
+ * - 内置 id → 对应 Provider 全新实例
+ * - 自定义供应商记录 → CUSTOM_MODEL_ENGINE_ID 引擎实例，并注入端点配置
+ */
+export function createConfiguredProvider(): CLIProvider {
+    let activeId = DEFAULT_PROVIDER_ID;
+    try {
+        activeId = new ConfigService().load().cliProvider?.active || DEFAULT_PROVIDER_ID;
+    } catch { /* 配置读取失败使用默认 Provider */ }
+
+    if (isBuiltinProviderId(activeId)) {
+        return createProvider(activeId) ?? createProvider(DEFAULT_PROVIDER_ID)!;
+    }
+
+    // 自定义供应商记录：经引擎 Provider 执行并注入端点配置
+    const engine = createProvider(CUSTOM_MODEL_ENGINE_ID) ?? getProvider(CUSTOM_MODEL_ENGINE_ID)!;
+    const rec = readCustomRecord(activeId);
+    if (rec) {
+        engine.setModelRecord?.({
+            baseUrl: rec.baseUrl,
+            apiKey: rec.apiKey,
+            defaultModel: rec.defaultModel,
+        });
+    }
+    return engine;
+}
 
 // === 数据模型（保持原有接口不变，向后兼容） ===
 
@@ -92,25 +145,25 @@ export class CLIRunnerService {
 
     /**
      * 构造 CLI 运行器服务
-     * @param activeProviderId - 初始 Provider ID，默认 'claude'（内置或自定义供应商记录 id）
+     * @param activeProviderId - 初始 Provider ID，默认 DEFAULT_PROVIDER_ID（内置或自定义供应商记录 id）
      */
-    constructor(activeProviderId: string = 'claude') {
-        const builtin = activeProviderId === 'claude' || activeProviderId === 'codex' || activeProviderId === 'pi';
+    constructor(activeProviderId: string = DEFAULT_PROVIDER_ID) {
+        const builtin = isBuiltinProviderId(activeProviderId);
         if (!builtin) {
             // 自定义供应商记录：经 Claude 引擎调用 Anthropic 兼容端点（如智谱）
-            const rec = this.readCustomRecord(activeProviderId);
+            const rec = readCustomRecord(activeProviderId);
             if (rec) {
                 this.modelRecordId = activeProviderId;
-                this.provider = getProvider('claude')!;
+                this.provider = getProvider(CUSTOM_MODEL_ENGINE_ID)!;
                 this.activeProviderId = activeProviderId;
                 this.applyModelRecord(rec);
                 this.provider.initialize().catch(() => {
                 });
                 return;
             }
-            // 记录不存在 → fallback 到 claude
-            this.provider = getProvider('claude')!;
-            this.activeProviderId = 'claude';
+            // 记录不存在 → fallback 到默认 Provider
+            this.provider = getProvider(DEFAULT_PROVIDER_ID)!;
+            this.activeProviderId = DEFAULT_PROVIDER_ID;
             this.provider.initialize().catch(() => {
             });
             return;
@@ -118,9 +171,9 @@ export class CLIRunnerService {
 
         const provider = getProvider(activeProviderId);
         if (!provider) {
-            // fallback 到 claude
-            this.provider = getProvider('claude')!;
-            this.activeProviderId = 'claude';
+            // fallback 到默认 Provider
+            this.provider = getProvider(DEFAULT_PROVIDER_ID)!;
+            this.activeProviderId = DEFAULT_PROVIDER_ID;
         } else {
             this.provider = provider;
             this.activeProviderId = activeProviderId;
@@ -151,35 +204,29 @@ export class CLIRunnerService {
      * 不存在/非法时返回 undefined。
      */
     private readCustomRecord(id: string): ModelProviderRecord | undefined {
-        try {
-            const rec = new ModelProviderStore().get(id);
-            return rec && rec.kind === 'custom' ? rec : undefined;
-        } catch {
-            return undefined;
-        }
+        return readCustomRecord(id);
     }
 
     /**
-     * 将自定义供应商记录注入到 Claude 引擎（baseUrl/apiKey/defaultModel）。
+     * 将自定义供应商记录注入到当前引擎 Provider（baseUrl/apiKey/defaultModel）。
+     * 通过接口可选方法 setModelRecord 注入，不下行转型到具体实现；
+     * 不支持该能力的 Provider 静默跳过（调用前已确保走 supportsCustomEndpoint 引擎）。
      * bridge 会在下一次 initialize 重启时加载新 env。
      */
     private applyModelRecord(rec: ModelProviderRecord): void {
-        const claude = getProvider('claude') as ClaudeProvider | undefined;
-        if (claude) {
-            claude.setModelRecord({
-                baseUrl: rec.baseUrl,
-                apiKey: rec.apiKey,
-                defaultModel: rec.defaultModel,
-            });
-        }
+        this.provider.setModelRecord?.({
+            baseUrl: rec.baseUrl,
+            apiKey: rec.apiKey,
+            defaultModel: rec.defaultModel,
+        });
     }
 
     /**
      * 切换到指定的 Provider
-     * @param providerId - 目标 Provider ID（内置 'claude' | 'codex' | 'pi'，或自定义供应商记录 id）
+     * @param providerId - 目标 Provider ID（内置 id，或自定义供应商记录 id）
      */
     async switchProvider(providerId: string): Promise<void> {
-        const builtin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi';
+        const builtin = isBuiltinProviderId(providerId);
 
         // 释放当前 Provider 资源
         try {
@@ -189,18 +236,18 @@ export class CLIRunnerService {
 
         if (!builtin) {
             // 自定义供应商记录：读取 models.json 中的 kind='custom' 记录，经 Claude 引擎调用 Anthropic 兼容端点
-            const rec = this.readCustomRecord(providerId);
+            const rec = readCustomRecord(providerId);
             if (!rec) {
                 throw new Error(`Unknown custom provider: ${providerId}`);
             }
             this.modelRecordId = providerId;
-            const claude = getProvider('claude') as ClaudeProvider | undefined;
-            if (!claude) {
-                throw new Error('Claude provider unavailable for custom model routing');
+            const engine = getProvider(CUSTOM_MODEL_ENGINE_ID);
+            if (!engine || typeof engine.setModelRecord !== 'function') {
+                throw new Error(`Provider "${CUSTOM_MODEL_ENGINE_ID}" does not support custom model routing`);
             }
-            this.provider = claude;
+            this.provider = engine;
             this.activeProviderId = providerId;
-            // 注入 baseUrl/apiKey/defaultModel 到 Claude 引擎，bridge 重启时加载新 env
+            // 注入 baseUrl/apiKey/defaultModel 到引擎，bridge 重启时加载新 env
             this.applyModelRecord(rec);
             await this.provider.initialize();
             return;
@@ -210,10 +257,10 @@ export class CLIRunnerService {
         if (!newProvider) {
             throw new Error(`Unknown CLI provider: ${providerId}`);
         }
-        // 切回内置：清除自定义记录，恢复默认环境
+        // 切回内置：清除自定义端点记录，恢复引擎默认环境
         this.modelRecordId = null;
-        const claude = getProvider('claude') as ClaudeProvider | undefined;
-        if (claude) claude.setModelRecord(null);
+        const engine = getProvider(CUSTOM_MODEL_ENGINE_ID);
+        engine?.setModelRecord?.(null);
 
         this.provider = newProvider;
         this.activeProviderId = providerId;
@@ -260,45 +307,44 @@ export class CLIRunnerService {
         },
         options?: CLIRunnerOptions
     ): Promise<CLIExecutionResult> {
-        // 从配置文件读取当前 Provider 的模型配置并注入到 options
+        // 从配置文件读取当前 Provider 的模型配置并注入到 options（数据驱动，无 per-provider 分支）
         let modelOptions: {
             model?: string;
+            modelProvider?: string;
             reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
             extendedThinking?: boolean;
             streaming?: boolean;
         } = {};
         try {
-            const configService = new ConfigService();
-            const config = configService.load();
+            const config = new ConfigService().load();
+            // 配置读取的引擎 id：custom 记录经引擎 Provider 执行，streaming 等偏好沿用引擎配置
+            const engineId = this.modelRecordId ?? this.activeProviderId;
+            const settings = config.cliProvider?.models?.[engineId] ?? {};
+            const caps = this.provider.capabilities;
+
             if (this.modelRecordId) {
                 // 自定义供应商记录激活：用记录自身的默认模型，不传 reasoningEffort/extendedThinking
-                //（第三方 Anthropic 兼容端点未必支持这些参数），streaming 沿用 claude 偏好
-                const rec = this.readCustomRecord(this.modelRecordId);
+                //（第三方 Anthropic 兼容端点未必支持这些参数），streaming 沿用引擎偏好
+                const rec = readCustomRecord(this.modelRecordId);
                 if (rec) {
                     modelOptions = {
-                        model: rec.defaultModel || rec.models?.[0] || config.cliProvider?.claude?.model,
-                        streaming: config.cliProvider?.claude?.streaming,
+                        model: rec.defaultModel || rec.models?.[0] || settings.model,
+                        streaming: settings.streaming,
                     };
                 }
-            } else if (this.activeProviderId === 'claude' && config.cliProvider?.claude) {
+            } else {
+                // 内置 Provider：按能力声明门控字段，不支持的参数不下发
                 modelOptions = {
-                    model: config.cliProvider.claude.model,
-                    reasoningEffort: config.cliProvider.claude.reasoningEffort,
-                    extendedThinking: config.cliProvider.claude.extendedThinking,
-                    streaming: config.cliProvider.claude.streaming,
+                    model: settings.model,
+                    streaming: settings.streaming,
+                    ...(caps.supportsReasoningEffort && settings.reasoningEffort !== undefined
+                        ? {reasoningEffort: settings.reasoningEffort}
+                        : {}),
+                    ...(caps.supportsExtendedThinking && settings.extendedThinking !== undefined
+                        ? {extendedThinking: settings.extendedThinking}
+                        : {}),
+                    ...(settings.modelProvider !== undefined ? {modelProvider: settings.modelProvider} : {}),
                 };
-            } else if (this.activeProviderId === 'codex' && config.cliProvider?.codex) {
-                modelOptions = {
-                    model: config.cliProvider.codex.model,
-                    streaming: config.cliProvider.codex.streaming,
-                };
-            } else if (this.activeProviderId === 'pi' && config.cliProvider?.pi) {
-                modelOptions = {
-                    model: config.cliProvider.pi.model,
-                    streaming: config.cliProvider.pi.streaming,
-                    reasoningEffort: config.cliProvider.pi.reasoningEffort,
-                    piProvider: config.cliProvider.pi.provider,
-                } as any;
             }
         } catch {
             // 配置读取失败时使用 Provider 默认行为

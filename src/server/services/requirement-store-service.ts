@@ -10,7 +10,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import {OnesImageService} from './ones-image-service.js';
+import type {AttachmentImageService} from './requirement-sources/index.js';
 import type {MinerUService} from './mineru-service.js';
 import {APP_DATA_DIR, REQUIREMENTS_DIR, LEGACY_IMAGE_DIR} from '../utils/constants.js';
 import {downloadFile as httpDownloadFile, urlToImageFilename} from '../utils/http-utils.js';
@@ -173,7 +173,7 @@ export class RequirementStoreService {
     /** 下载需求中的远程图片到本地，替换 URL 为本地路径 */
     async downloadImages(
         req: { id: string; description: string; attachments: { name: string; url: string; type: string }[] },
-        onesImageService?: OnesImageService,
+        imageService?: AttachmentImageService,
     ): Promise<void> {
         const reqId = req.id;
         const imgDir = this.getImageDir(reqId);
@@ -203,13 +203,13 @@ export class RequirementStoreService {
             if (att.url) urlMap.set(att.name, att.url);
         }
 
-        // 策略1（优先）: OnesImageService 通过 wiki content token 批量下载
-        if (onesImageService && imageResources.size > 0) {
+        // 策略1（优先）: 适配器图片服务批量下载（wiki content token 等，源特定策略）
+        if (imageService && imageResources.size > 0) {
             try {
                 const resources = Array.from(imageResources.entries()).map(([name]) => ({name, url: urlMap.get(name)}));
                 // 设置 30 秒总体超时，避免卡住
                 const count = await Promise.race([
-                    onesImageService.downloadWikiImages(reqId, resources, imgDir),
+                    imageService.downloadWikiImages(reqId, resources, imgDir),
                     new Promise<number>((_, reject) =>
                         setTimeout(() => reject(new Error('Image download timeout')), 30000)
                     ),
@@ -223,10 +223,10 @@ export class RequirementStoreService {
         // 策略1.5: MCP 输出无图片资源时（ai-dev-requirements 0.2.0 将图片降级为 [image] 占位符），
         // 直接从 ONES 任务富文本提取 <img> 附件下载，不依赖 MCP 输出格式
         let richTextImages: Array<{uuid: string; filename: string; localPath: string}> = [];
-        if (onesImageService && imageResources.size === 0) {
+        if (imageService && imageResources.size === 0) {
             try {
                 richTextImages = await Promise.race([
-                    onesImageService.downloadTaskImages(reqId, imgDir),
+                    imageService.downloadTaskImages(reqId, imgDir),
                     new Promise<Array<{uuid: string; filename: string; localPath: string}>>((_, reject) =>
                         setTimeout(() => reject(new Error('Rich text image download timeout')), 30000)
                     ),
@@ -255,11 +255,11 @@ export class RequirementStoreService {
                 }
             }
 
-            // 回退B: OnesImageService 旧方法
-            if (onesImageService) {
+            // 回退B: 适配器图片服务旧方法
+            if (imageService) {
                 try {
                     const resourceHash = filename.replace(/\.[^.]+$/, '');
-                    await onesImageService.downloadImage(resourceHash, localPath);
+                    await imageService.downloadImage(resourceHash, localPath);
                 } catch { /* 下载失败不阻塞流程 */
                 }
             }
@@ -348,13 +348,13 @@ export class RequirementStoreService {
      *
      * @param req - 需求数据（需含 id、attachments）
      * @param mineruService - MinerU 解析服务实例
-     * @param onesImageService - 可选的 ONES 图片服务（用于认证下载）
+     * @param imageService - 可选的附件图片下载服务（由需求源适配器构建，用于认证下载）
      * @returns 合并后的 Markdown 字符串，无文档附件时返回空字符串
      */
     async downloadAndParseDocuments(
         req: { id: string; attachments: { name: string; url: string; type: string }[] },
         mineruService: MinerUService,
-        onesImageService?: OnesImageService,
+        imageService?: AttachmentImageService,
     ): Promise<string> {
         // 过滤文档类型附件
         const docAttachments = req.attachments.filter(
@@ -385,12 +385,12 @@ export class RequirementStoreService {
                     }
 
                     // 策略2: 如果有 ONES 服务且 URL 在 ONES 域名下，尝试认证下载
-                    if (!downloaded && onesImageService) {
+                    if (!downloaded && imageService) {
                         try {
                             const fileUrl = new URL(att.url);
                             // 构造 wiki 资源下载 URL（与图片类似的认证方式）
                             const resourceHash = att.name.replace(/\.[^.]+$/, '');
-                            downloaded = await onesImageService.downloadImage(resourceHash, localPath);
+                            downloaded = await imageService.downloadImage(resourceHash, localPath);
                         } catch { /* 回退 */
                         }
                     }

@@ -2,8 +2,9 @@
  * @module cli-providers/types
  * @description CLI Provider 统一接口定义
  *
- * 定义了 CLI Provider 的抽象接口，支持 Claude Code 和 OpenAI Codex 两种 CLI 后端。
- * 所有 Provider 必须实现此接口，由 CLIRunnerService 作为 facade 代理调用。
+ * 定义了 CLI Provider 的抽象接口（开放扩展：新增 Provider 无需修改本文件）。
+ * 所有 Provider 必须实现此接口，由 CLIRunnerService 作为 facade 代理调用，
+ * 并通过 cli-providers/index.ts 的注册表登记工厂函数。
  */
 
 /**
@@ -24,6 +25,53 @@ export interface CLIProviderCapabilities {
     supportsReasoningEffort: boolean;
     /** 是否支持扩展思考（options.extendedThinking） */
     supportsExtendedThinking: boolean;
+    /**
+     * 是否支持注入自定义模型端点（setModelRecord：Anthropic 兼容 baseUrl/apiKey）。
+     * 调用方据此决定是否允许将自定义供应商记录路由到此 Provider。
+     */
+    supportsCustomEndpoint: boolean;
+}
+
+/**
+ * 自定义模型端点连接信息
+ * @description 激活自定义供应商记录（models.json 中 kind='custom'）时注入，
+ *              仅 capabilities.supportsCustomEndpoint = true 的 Provider 需要实现 setModelRecord。
+ */
+export interface CLIProviderModelConnection {
+    baseUrl?: string;
+    apiKey?: string;
+    defaultModel?: string;
+}
+
+/**
+ * 单个 Provider 的模型运行配置（持久化于 config.json 的 cliProvider.models[id]）
+ * @description 字段松散联合：哪些字段生效由各 Provider 的 capabilities 决定，
+ *              新增 Provider 无需扩展本结构即可复用全部通用字段。
+ */
+export interface ProviderModelSettings {
+    /** 模型名称（或 SDK 可解析的档位别名，如 'sonnet'） */
+    model?: string;
+    /** 是否启用流式输出 */
+    streaming?: boolean;
+    /** 推理强度（capabilities.supportsReasoningEffort 的 Provider 生效） */
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    /** 扩展思考（capabilities.supportsExtendedThinking 的 Provider 生效） */
+    extendedThinking?: boolean;
+    /** 最大 token 数 */
+    maxTokens?: number;
+    /** 底层 LLM 提供商（如 pi 的 'anthropic' | 'openai' | 'deepseek' 等） */
+    modelProvider?: string;
+}
+
+/**
+ * Provider 可提供的模型选项（供前端渲染模型选择 UI）
+ * @description loadModelOptions 的返回值，按 Provider 能力部分提供。
+ */
+export interface CLIProviderModelOptions {
+    /** 档位别名列表（如 Claude 的 haiku/sonnet/opus，value 为 SDK 可识别别名） */
+    tiers?: Array<{ value: string; label: string; model: string }>;
+    /** 从 Provider 本地配置读取的当前模型名（如 Codex 的 config.toml model） */
+    current?: string | null;
 }
 
 /**
@@ -33,10 +81,15 @@ export interface CLIProviderCapabilities {
 export interface CLIProvider {
     /** Provider 能力声明 */
     readonly capabilities: CLIProviderCapabilities;
-    /** Provider 唯一标识 */
-    readonly id: 'claude' | 'codex' | 'pi';
+    /** Provider 唯一标识（开放字符串：由各 Provider 自行声明，新增后端不要求修改本接口） */
+    readonly id: string;
     /** 显示名称 */
     readonly label: string;
+    /**
+     * 默认模型运行配置（cliProvider.models[id] 无存储值时使用）
+     * @description 由 Provider 自带默认，新增 Provider 无需修改 ConfigService 或路由层
+     */
+    readonly defaultModelSettings?: ProviderModelSettings;
 
     /**
      * 检测本地是否安装了此 CLI
@@ -69,6 +122,18 @@ export interface CLIProvider {
      * @returns MCP 服务器配置列表
      */
     loadMcpServers(): Promise<McpServerInfo[]>;
+
+    /**
+     * 注入自定义模型端点配置（可选能力，见 capabilities.supportsCustomEndpoint）。
+     * 传入 null 清除。实现方需在下次 initialize 重启时加载新 env。
+     */
+    setModelRecord?(rec: CLIProviderModelConnection | null): void;
+
+    /**
+     * 读取本地可提供的模型选项（可选：用于前端渲染模型选择 UI）。
+     * 未实现的 Provider 返回 undefined，前端回退为手动输入模型名。
+     */
+    loadModelOptions?(): Promise<CLIProviderModelOptions>;
 
     /**
      * 释放资源（杀子进程、关闭连接等）
@@ -146,9 +211,11 @@ export interface CLIProviderOptions {
     onPermissionRequest?: (meta: Record<string, unknown>) => void;
     /** 模型名称（覆盖配置文件中的默认模型） */
     model?: string;
-    /** 推理强度（Claude 专用） */
+    /** 底层 LLM 提供商（多后端聚合型 Provider 使用，如 pi 的 'anthropic'/'openai'/'deepseek'） */
+    modelProvider?: string;
+    /** 推理强度（capabilities.supportsReasoningEffort 的 Provider 生效） */
     reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-    /** 是否启用扩展思考（Claude 专用） */
+    /** 是否启用扩展思考（capabilities.supportsExtendedThinking 的 Provider 生效） */
     extendedThinking?: boolean;
     /** 是否启用流式输出 */
     streaming?: boolean;

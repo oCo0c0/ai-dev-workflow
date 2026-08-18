@@ -22,6 +22,7 @@
 import fs from 'fs';
 import path from 'path';
 import {APP_DATA_DIR} from '../utils/constants.js';
+import type {ProviderModelSettings} from './cli-providers/types.js';
 
 /**
  * 应用配置接口
@@ -63,47 +64,23 @@ export interface AppConfig {
         /** 预创建的沙箱 ID（指定后不再自动创建，所有工作空间共用此沙箱） */
         sandboxId?: string;
     };
-    /** CLI Provider 配置（Claude Code / OpenAI Codex / Pi / 自定义供应商） */
+    /** CLI Provider 配置（各 CLI 后端 + 自定义供应商） */
     cliProvider?: {
-        /** 当前激活的 CLI Provider ID：内置为 'claude' | 'codex' | 'pi'，自定义供应商为 models.json 中的记录 id */
+        /** 当前激活的 CLI Provider ID：内置 id（见 cli-providers 注册表），自定义供应商为 models.json 中的记录 id */
         active?: string;
         /** 是否已完成首次引导选择 */
         setupCompleted?: boolean;
-        /** Claude 特定配置 */
-        claude?: {
-            /** 使用的模型名称（默认 'claude-sonnet-4-20250514'） */
-            model?: string;
-            /** 是否启用扩展思考（默认 true） */
-            extendedThinking?: boolean;
-            /** 推理强度（默认 'high'） */
-            reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-            /** 是否启用流式输出（默认 true） */
-            streaming?: boolean;
-            /** 最大 token 数（可选） */
-            maxTokens?: number;
-        };
-        /** Codex 特定配置 */
-        codex?: {
-            /** 使用的模型名称（默认 'codex-mini-latest'） */
-            model?: string;
-            /** 是否启用流式输出（默认 true） */
-            streaming?: boolean;
-            /** 最大 token 数（可选） */
-            maxTokens?: number;
-        };
-        /** Pi Coding Agent 特定配置 */
-        pi?: {
-            /** LLM 提供商（如 'anthropic', 'openai', 'deepseek' 等，默认 'anthropic'） */
-            provider?: string;
-            /** 使用的模型名称（默认 'claude-sonnet-4-20250514'） */
-            model?: string;
-            /** 是否启用流式输出（默认 true） */
-            streaming?: boolean;
-            /** 推理强度（默认 'medium'） */
-            reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-            /** 最大 token 数（可选） */
-            maxTokens?: number;
-        };
+        /**
+         * 各 Provider 的模型运行配置，key 为 Provider id（内置或自定义记录 id）
+         * @description 开放 map：新增 Provider 不需要扩展 schema，条目缺失时回退 Provider 自带的 defaultModelSettings
+         */
+        models?: Record<string, ProviderModelSettings>;
+        /** @deprecated 旧版按 Provider 分字段的配置（v1 schema），加载时自动迁移进 models，请勿再读写 */
+        claude?: ProviderModelSettings;
+        /** @deprecated 旧版 Codex 配置（v1 schema），加载时自动迁移进 models */
+        codex?: ProviderModelSettings;
+        /** @deprecated 旧版 Pi 配置（v1 schema），加载时自动迁移进 models */
+        pi?: ProviderModelSettings;
     };
     /** MinerU 文档解析服务配置 */
     mineru?: {
@@ -157,16 +134,8 @@ const DEFAULT_CONFIG: AppConfig = {
     cliProvider: {
         active: 'claude',
         setupCompleted: false,
-        claude: {
-            model: 'sonnet',
-            extendedThinking: true,
-            reasoningEffort: 'high',
-            streaming: true,
-        },
-        codex: {
-            model: 'codex-mini-latest',
-            streaming: true,
-        },
+        // 各 Provider 的默认模型配置由 Provider 自带（defaultModelSettings），此处不预置条目
+        models: {},
     },
     mineru: {
         enabled: true,
@@ -184,6 +153,84 @@ export interface ConfigValidationError {
     field: string;
     /** 错误描述信息 */
     message: string;
+}
+
+/**
+ * 验证单个 Provider 的模型设置对象（ProviderModelSettings 规则）
+ *
+ * @param value - 待验证的设置对象（unknown）
+ * @param fieldPrefix - 报错字段名前缀（如 'cliProvider.models.claude'）
+ * @returns ConfigValidationError[] 验证错误数组，空数组表示验证通过
+ */
+function validateModelSettings(value: unknown, fieldPrefix: string): ConfigValidationError[] {
+    const errors: ConfigValidationError[] = [];
+    if (typeof value !== 'object' || value === null) {
+        errors.push({field: fieldPrefix, message: `${fieldPrefix} must be an object`});
+        return errors;
+    }
+    const settings = value as Record<string, unknown>;
+    if (settings.model !== undefined && typeof settings.model !== 'string') {
+        errors.push({field: `${fieldPrefix}.model`, message: `${fieldPrefix}.model must be a string`});
+    }
+    if (settings.streaming !== undefined && typeof settings.streaming !== 'boolean') {
+        errors.push({field: `${fieldPrefix}.streaming`, message: `${fieldPrefix}.streaming must be a boolean`});
+    }
+    if (settings.reasoningEffort !== undefined &&
+        !['low', 'medium', 'high', 'xhigh', 'max'].includes(settings.reasoningEffort as string)) {
+        errors.push({
+            field: `${fieldPrefix}.reasoningEffort`,
+            message: `${fieldPrefix}.reasoningEffort must be one of: low, medium, high, xhigh, max`
+        });
+    }
+    if (settings.extendedThinking !== undefined && typeof settings.extendedThinking !== 'boolean') {
+        errors.push({field: `${fieldPrefix}.extendedThinking`, message: `${fieldPrefix}.extendedThinking must be a boolean`});
+    }
+    if (settings.maxTokens !== undefined && (typeof settings.maxTokens !== 'number' || settings.maxTokens < 1)) {
+        errors.push({field: `${fieldPrefix}.maxTokens`, message: `${fieldPrefix}.maxTokens must be a positive number`});
+    }
+    if (settings.modelProvider !== undefined && typeof settings.modelProvider !== 'string') {
+        errors.push({field: `${fieldPrefix}.modelProvider`, message: `${fieldPrefix}.modelProvider must be a string`});
+    }
+    return errors;
+}
+
+/**
+ * 将 v1 的 cliProvider.claude/codex/pi 分字段配置迁移为 v2 的 cliProvider.models map
+ *
+ * 迁移规则：
+ * - 旧字段内容并入 models[id]（models 中已有的 key 优先，视为用户已在新格式下修改过）
+ * - 旧 pi 配置的 provider 字段重命名为 modelProvider（统一字段语义）
+ * - 迁移完成后删除旧字段；发生实际变化时由调用方写回磁盘
+ *
+ * @param cliProvider - 已通过验证的 cliProvider 配置块（原地修改）
+ * @returns 是否发生了迁移变化（需要持久化）
+ */
+function migrateCliProviderConfig(cliProvider: Record<string, unknown>): boolean {
+    let changed = false;
+    if (typeof cliProvider.models !== 'object' || cliProvider.models === null || Array.isArray(cliProvider.models)) {
+        cliProvider.models = {};
+    }
+    const models = cliProvider.models as Record<string, unknown>;
+
+    for (const legacyId of ['claude', 'codex', 'pi'] as const) {
+        const legacy = cliProvider[legacyId];
+        if (legacy === undefined || legacy === null || typeof legacy !== 'object') continue;
+
+        // models 中已有该 key 时视为用户已在新格式下修改过，跳过合并（models 优先）
+        if (models[legacyId] === undefined) {
+            const migrated = {...legacy as Record<string, unknown>};
+            // 旧 pi 的 provider 字段 → 统一的 modelProvider
+            if (legacyId === 'pi' && migrated.provider !== undefined && migrated.modelProvider === undefined) {
+                migrated.modelProvider = migrated.provider;
+            }
+            delete migrated.provider;
+            models[legacyId] = migrated;
+        }
+        // 旧字段总是清除（schema 升级为 models）
+        delete cliProvider[legacyId];
+        changed = true;
+    }
+    return changed;
 }
 
 /**
@@ -292,7 +339,7 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
             errors.push({field: 'cliProvider', message: 'cliProvider must be an object'});
         } else {
             const cliProvider = obj.cliProvider as Record<string, unknown>;
-            // active 允许内置 id（claude/codex/pi）或自定义供应商记录 id（如智谱），只需是字符串
+            // active 允许内置 id 或自定义供应商记录 id（如智谱），只需是字符串
             if (cliProvider.active !== undefined && typeof cliProvider.active !== 'string') {
                 errors.push({field: 'cliProvider.active', message: 'cliProvider.active must be a string (builtin id or custom provider record id)'});
             }
@@ -302,68 +349,21 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
                     message: 'cliProvider.setupCompleted must be a boolean'
                 });
             }
-            if (cliProvider.codex !== undefined) {
-                if (typeof cliProvider.codex !== 'object' || cliProvider.codex === null) {
-                    errors.push({field: 'cliProvider.codex', message: 'cliProvider.codex must be an object'});
+            // models：开放 map，每个条目按统一的 ProviderModelSettings 规则验证
+            if (cliProvider.models !== undefined) {
+                if (typeof cliProvider.models !== 'object' || cliProvider.models === null || Array.isArray(cliProvider.models)) {
+                    errors.push({field: 'cliProvider.models', message: 'cliProvider.models must be an object keyed by provider id'});
                 } else {
-                    const codex = cliProvider.codex as Record<string, unknown>;
-                    if (codex.model !== undefined && typeof codex.model !== 'string') {
-                        errors.push({
-                            field: 'cliProvider.codex.model',
-                            message: 'cliProvider.codex.model must be a string'
-                        });
-                    }
-                    if (codex.streaming !== undefined && typeof codex.streaming !== 'boolean') {
-                        errors.push({
-                            field: 'cliProvider.codex.streaming',
-                            message: 'cliProvider.codex.streaming must be a boolean'
-                        });
-                    }
-                    if (codex.maxTokens !== undefined && (typeof codex.maxTokens !== 'number' || codex.maxTokens < 1)) {
-                        errors.push({
-                            field: 'cliProvider.codex.maxTokens',
-                            message: 'cliProvider.codex.maxTokens must be a positive number'
-                        });
+                    for (const [id, value] of Object.entries(cliProvider.models as Record<string, unknown>)) {
+                        errors.push(...validateModelSettings(value, `cliProvider.models.${id}`));
                     }
                 }
             }
-            // 验证 claude 配置
-            if (cliProvider.claude !== undefined) {
-                if (typeof cliProvider.claude !== 'object' || cliProvider.claude === null) {
-                    errors.push({field: 'cliProvider.claude', message: 'cliProvider.claude must be an object'});
-                } else {
-                    const claude = cliProvider.claude as Record<string, unknown>;
-                    if (claude.model !== undefined && typeof claude.model !== 'string') {
-                        errors.push({
-                            field: 'cliProvider.claude.model',
-                            message: 'cliProvider.claude.model must be a string'
-                        });
-                    }
-                    if (claude.extendedThinking !== undefined && typeof claude.extendedThinking !== 'boolean') {
-                        errors.push({
-                            field: 'cliProvider.claude.extendedThinking',
-                            message: 'cliProvider.claude.extendedThinking must be a boolean'
-                        });
-                    }
-                    if (claude.reasoningEffort !== undefined &&
-                        !['low', 'medium', 'high', 'xhigh', 'max'].includes(claude.reasoningEffort as string)) {
-                        errors.push({
-                            field: 'cliProvider.claude.reasoningEffort',
-                            message: 'cliProvider.claude.reasoningEffort must be one of: low, medium, high, xhigh, max'
-                        });
-                    }
-                    if (claude.streaming !== undefined && typeof claude.streaming !== 'boolean') {
-                        errors.push({
-                            field: 'cliProvider.claude.streaming',
-                            message: 'cliProvider.claude.streaming must be a boolean'
-                        });
-                    }
-                    if (claude.maxTokens !== undefined && (typeof claude.maxTokens !== 'number' || claude.maxTokens < 1)) {
-                        errors.push({
-                            field: 'cliProvider.claude.maxTokens',
-                            message: 'cliProvider.claude.maxTokens must be a positive number'
-                        });
-                    }
+            // v1 旧字段（claude/codex/pi）：仍按同一规则验证，迁移前保证数据合法
+            for (const legacyId of ['claude', 'codex', 'pi'] as const) {
+                const legacy = cliProvider[legacyId];
+                if (legacy !== undefined) {
+                    errors.push(...validateModelSettings(legacy, `cliProvider.${legacyId}`));
                 }
             }
         }
@@ -465,6 +465,19 @@ export class ConfigService {
         const errors = validateConfig(parsed);
         if (errors.length > 0) {
             throw new Error(`Config validation failed: ${errors.map(e => `${e.field}: ${e.message}`).join('; ')}`);
+        }
+
+        // v1 → v2 schema 迁移：cliProvider.claude/codex/pi 分字段 → cliProvider.models map。
+        // 迁移后写回磁盘，保证只发生一次；后续读写统一走 models。
+        const configObj = parsed as Record<string, unknown>;
+        if (typeof configObj.cliProvider === 'object' && configObj.cliProvider !== null) {
+            if (migrateCliProviderConfig(configObj.cliProvider as Record<string, unknown>)) {
+                try {
+                    this.save(configObj as AppConfig);
+                } catch {
+                    // 迁移写回失败不阻塞加载（内存中已是新格式，下次保存时会再尝试）
+                }
+            }
         }
 
         return parsed as AppConfig;

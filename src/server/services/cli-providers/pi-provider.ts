@@ -19,6 +19,7 @@ import type {
     CLIProviderResult,
     CLIProviderStatus,
     McpServerInfo,
+    ProviderModelSettings,
     SkillInfo,
 } from './types.js';
 
@@ -57,6 +58,16 @@ export class PiProvider implements CLIProvider {
         // pi 支持 reasoning/thinking 级别
         supportsReasoningEffort: true,
         supportsExtendedThinking: true,
+        // pi 不支持注入 Anthropic 兼容端点
+        supportsCustomEndpoint: false,
+    };
+
+    /** 默认模型配置（cliProvider.models.pi 无存储值时使用） */
+    readonly defaultModelSettings: ProviderModelSettings = {
+        modelProvider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        streaming: true,
+        reasoningEffort: 'medium',
     };
 
     /** 当前活跃的 pi session */
@@ -117,8 +128,8 @@ export class PiProvider implements CLIProvider {
         const pi = await this.importPiSdk();
 
         try {
-            // 获取模型配置：优先用调用方（页面配置）传入的 provider/model，未指定时自动检测，绝不硬编码默认供应商
-            let modelProvider = (options as any)?.piProvider as string | undefined;
+            // 获取模型配置：优先用调用方（页面配置）传入的 modelProvider/model，未指定时自动检测，绝不硬编码默认供应商
+            let modelProvider = options?.modelProvider;
             let modelId = options?.model as string | undefined;
 
             // 创建 AuthStorage（读取 pi 的认证配置）

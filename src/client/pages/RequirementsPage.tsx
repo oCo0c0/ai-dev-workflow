@@ -22,6 +22,7 @@ import {Badge} from '../components/ui/badge';
 import {Button} from '../components/ui/button';
 import {Input} from '../components/ui/input';
 import {MarkdownContent} from '../components/MarkdownContent';
+import {RequirementSourceSelector} from '../components/RequirementSourceSelector';
 import {Card, CardContent} from '../components/ui/card';
 import {
     Search,
@@ -47,8 +48,7 @@ import {
  * @interface Requirement
  * @description 需求基本信息接口
  * 用于列表展示和搜索结果，仅包含核心字段
- */
-interface Requirement {
+ */interface Requirement {
     /** 需求唯一标识符 */
     id: string;
     /** 需求编号（如 #91086） */
@@ -108,6 +108,9 @@ export default function RequirementsPage(): JSX.Element {
     const [fetching, setFetching] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [parseDocuments, setParseDocuments] = useState(false);
+
+    /** 选中的需求源（MCP server 名），空 = 后端默认源 */
+    const [selectedSource, setSelectedSource] = useState('');
 
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<Requirement[]>([]);
@@ -252,6 +255,22 @@ export default function RequirementsPage(): JSX.Element {
         loadSaved();
     }, [loadSaved]);
 
+    /** 恢复上次选择的需求源（目录加载由 RequirementSourceSelector 自管） */
+    useEffect(() => {
+        const stored = localStorage.getItem('requirement-source-server');
+        if (stored) setSelectedSource(stored);
+    }, []);
+
+    /** 切换需求源并持久化 */
+    const handleSourceChange = (name: string) => {
+        setSelectedSource(name);
+        if (name) {
+            localStorage.setItem('requirement-source-server', name);
+        } else {
+            localStorage.removeItem('requirement-source-server');
+        }
+    };
+
     // 监听后端图片下载完成事件，刷新需求描述（图片 URL 从远程变为本地路径）
     useEffect(() => {
         const handler = (e: Event) => {
@@ -276,7 +295,11 @@ export default function RequirementsPage(): JSX.Element {
         setFetching(true);
         setFetchError(null);
         try {
-            const req = await apiPost<StoredRequirement>('/requirements/fetch', {id: fetchId.trim(), parseDocuments});
+            const req = await apiPost<StoredRequirement>('/requirements/fetch', {
+                id: fetchId.trim(),
+                parseDocuments,
+                ...(selectedSource ? {mcpServerName: selectedSource} : {}),
+            });
             // 去重后插入到列表头部（最新的排在前面）
             setSaved(prev => {
                 const filtered = prev.filter(r => r.id !== req.id);
@@ -302,7 +325,8 @@ export default function RequirementsPage(): JSX.Element {
         setSearchError(null);
         try {
             const results = await apiGet<Requirement[]>(
-                `/requirements/search?q=${encodeURIComponent(searchQuery)}`
+                `/requirements/search?q=${encodeURIComponent(searchQuery)}` +
+                (selectedSource ? `&server=${encodeURIComponent(selectedSource)}` : '')
             );
             setSearchResults(results);
         } catch (err) {
@@ -318,7 +342,11 @@ export default function RequirementsPage(): JSX.Element {
      */
     const handleSaveFromSearch = async (req: Requirement) => {
         try {
-            const saved = await apiPost<StoredRequirement>('/requirements/fetch', {id: req.id, parseDocuments});
+            const saved = await apiPost<StoredRequirement>('/requirements/fetch', {
+                id: req.id,
+                parseDocuments,
+                ...(selectedSource ? {mcpServerName: selectedSource} : {}),
+            });
             setSaved(prev => {
                 const filtered = prev.filter(r => r.id !== saved.id);
                 return [saved, ...filtered];
@@ -471,8 +499,14 @@ export default function RequirementsPage(): JSX.Element {
                     </div>
                 </div>
 
-                {/* 通过 ID 获取需求的输入区域 */}
+                {/* 通过 ID 获取需求的输入区域（源选择 + 输入 + 按钮） */}
                 <div className="mt-4 flex gap-2" data-tour="req-fetch-input">
+                    {/* 需求源选择器：适配器目录驱动，未配置的源可直接一键安装 */}
+                    <RequirementSourceSelector
+                        value={selectedSource}
+                        onChange={handleSourceChange}
+                        className="rounded-md border border-input bg-background px-2.5 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring max-w-[240px]"
+                    />
                     <div className="relative flex-1">
                         <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
                         <Input

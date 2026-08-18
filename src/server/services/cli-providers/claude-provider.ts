@@ -23,10 +23,13 @@ import {ModelProviderStore} from '../model-provider-store.js';
 import type {
     CLIProvider,
     CLIProviderInput,
+    CLIProviderModelConnection,
+    CLIProviderModelOptions,
     CLIProviderOptions,
     CLIProviderResult,
     CLIProviderStatus,
     McpServerInfo,
+    ProviderModelSettings,
     SkillInfo,
 } from './types.js';
 
@@ -120,7 +123,16 @@ export class ClaudeProvider implements CLIProvider {
         supportsMaxTurns: true,
         supportsReasoningEffort: true,
         supportsExtendedThinking: true,
+        supportsCustomEndpoint: true,
     } as const;
+
+    /** 默认模型配置（cliProvider.models.claude 无存储值时使用） */
+    readonly defaultModelSettings: ProviderModelSettings = {
+        model: 'sonnet',
+        extendedThinking: true,
+        reasoningEffort: 'high',
+        streaming: true,
+    };
 
     private process: ChildProcess | null = null;
     private ready = false;
@@ -136,7 +148,7 @@ export class ClaudeProvider implements CLIProvider {
     /** 是否正在主动释放（避免 kill 触发的 exit 日志噪音） */
     private disposing = false;
     /** 当前激活的自定义供应商记录（Anthropic 兼容端点），由 CLIRunnerService 在切换时注入 */
-    private modelRecord: { baseUrl?: string; apiKey?: string; defaultModel?: string } | null = null;
+    private modelRecord: CLIProviderModelConnection | null = null;
 
     async detect(): Promise<CLIProviderStatus> {
         try {
@@ -167,13 +179,37 @@ export class ClaudeProvider implements CLIProvider {
      * 设置当前激活的自定义供应商记录（Anthropic 兼容端点）。
      * 传入 null 清除。调用方需在设置后重启 bridge（dispose + initialize）以加载新 env。
      */
-    setModelRecord(rec: { baseUrl?: string; apiKey?: string; defaultModel?: string } | null): void {
+    setModelRecord(rec: CLIProviderModelConnection | null): void {
         this.modelRecord = rec;
     }
 
     /** 当前激活的自定义供应商记录 */
-    getModelRecord(): { baseUrl?: string; apiKey?: string; defaultModel?: string } | null {
+    getModelRecord(): CLIProviderModelConnection | null {
         return this.modelRecord;
+    }
+
+    /**
+     * 读取本地可提供的模型选项：解析 ~/.claude/settings.json env 中的档位映射。
+     * tier 为 SDK 可识别的别名（haiku/sonnet/opus）。
+     */
+    async loadModelOptions(): Promise<CLIProviderModelOptions> {
+        const tiers: Array<{value: string; label: string; model: string}> = [];
+        try {
+            if (!fs.existsSync(SETTINGS_FILE)) return {tiers};
+            const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+            const settings = JSON.parse(raw) as {env?: Record<string, string>};
+            const env = settings.env ?? {};
+            const tierDefs: Array<[string, string, string]> = [
+                ['haiku', 'Haiku', 'ANTHROPIC_DEFAULT_HAIKU_MODEL'],
+                ['sonnet', 'Sonnet', 'ANTHROPIC_DEFAULT_SONNET_MODEL'],
+                ['opus', 'Opus', 'ANTHROPIC_DEFAULT_OPUS_MODEL'],
+            ];
+            for (const [value, label, envKey] of tierDefs) {
+                const model = env[envKey];
+                if (model) tiers.push({value, label, model});
+            }
+        } catch { /* ignore */ }
+        return {tiers};
     }
 
     async initialize(): Promise<void> {

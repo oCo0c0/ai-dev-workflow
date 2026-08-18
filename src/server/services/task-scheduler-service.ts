@@ -2,7 +2,7 @@
  * @module task-scheduler-service
  * @description 任务调度器 — Coordinator 模式实现
  *
- * 管理多个并行任务，每个任务拥有独立的 Claude Bridge 子进程。
+ * 管理多个并行任务，每个任务拥有独立的 Provider 子进程（按用户当前选择的 CLI Provider 实例化）。
  * 借鉴 Claude Code 的 Coordinator 模式：
  * - 每个 Task 对应一个独立的 CLIProvider 实例（独立子进程）
  * - 最大并行数控制，超出排队
@@ -10,8 +10,8 @@
  * - 内部编排完整流水线：Plan → Execution → Test
  */
 
-import {ClaudeProvider} from './cli-providers/claude-provider.js';
-import type {CLIProviderResult} from './cli-providers';
+import type {CLIProvider, CLIProviderResult} from './cli-providers';
+import {createConfiguredProvider} from './cli-runner-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {renderPrompt} from '../utils/prompt-renderer.js';
@@ -58,7 +58,7 @@ export interface TaskInfo {
 /** 运行中的任务上下文 */
 interface RunningTask {
     task: TaskInfo;
-    provider: ClaudeProvider;
+    provider: CLIProvider;
     abortController: AbortController;
 }
 
@@ -281,7 +281,9 @@ export class TaskScheduler {
             return;
         }
 
-        const provider = new ClaudeProvider();
+        // 按当前配置实例化独立 Provider（内置 id → 对应引擎；自定义记录 → 注入端点的引擎实例），
+        // 与用户在系统设置中选择的 Provider 保持一致
+        const provider = createConfiguredProvider();
         const abortController = new AbortController();
 
         task.status = 'running';
@@ -291,11 +293,11 @@ export class TaskScheduler {
 
         try {
             await provider.initialize();
-            this.addLog(taskId, 'idle', 'info', 'Bridge 进程启动成功');
+            this.addLog(taskId, 'idle', 'info', 'Provider 进程启动成功');
         } catch (err) {
             task.status = 'failed';
             task.updatedAt = new Date().toISOString();
-            this.addLog(taskId, task.phase, 'error', `Bridge 进程启动失败: ${getErrorMessage(err)}`);
+            this.addLog(taskId, task.phase, 'error', `Provider 进程启动失败: ${getErrorMessage(err)}`);
             this.running.delete(taskId);
             this.notifyUpdate(task);
             this.processQueue();
@@ -389,7 +391,7 @@ export class TaskScheduler {
      * 内部编排完整流水线：Plan → Execution → Test
      * 同一个 provider/session 贯穿全流程
      */
-    private async runPipeline(taskId: string, provider: ClaudeProvider, signal: AbortSignal): Promise<void> {
+    private async runPipeline(taskId: string, provider: CLIProvider, signal: AbortSignal): Promise<void> {
         const task = this.tasks.get(taskId);
         if (!task || !this.deps) return;
 
