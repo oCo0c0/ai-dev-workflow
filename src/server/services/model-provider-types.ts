@@ -8,7 +8,7 @@
  */
 
 /** 模型供应商种类 */
-export type ModelProviderKind = 'claude' | 'codex' | 'pi' | 'dsh' | 'custom';
+export type ModelProviderKind = 'claude' | 'codex' | 'pi' | 'custom';
 
 /** 记录来源：external=外部 CLI 导入 / manual=用户手动添加 / builtin=内置 */
 export type ModelProviderSource = 'external' | 'manual' | 'builtin';

@@ -1,5 +1,4 @@
-packages:
-  - runtime-dsh
+packages: []
 allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': true

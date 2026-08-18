@@ -184,7 +184,7 @@ export function createSystemRoutes(
                 return;
             }
 
-            const isBuiltin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi' || providerId === 'dsh';
+            const isBuiltin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi';
 
             // 自定义供应商记录：校验 models.json 中存在且 kind='custom'
             let customLabel = '';
@@ -303,10 +303,6 @@ export function createSystemRoutes(
                     streaming: true,
                     reasoningEffort: 'medium',
                 },
-                dsh: config.cliProvider?.dsh || {
-                    model: 'deepseek-chat',
-                    streaming: true,
-                },
             });
         } catch (err) {
             res.status(500).json({code: 'CONFIG_ERROR', message: getErrorMessage(err)});
@@ -316,7 +312,7 @@ export function createSystemRoutes(
     // PUT /api/system/model-config - 更新模型配置
     router.put('/model-config', async (req, res) => {
         try {
-            const {provider, claude, codex, pi, dsh} = req.body as {
+            const {provider, claude, codex, pi} = req.body as {
                 provider?: string;
                 claude?: {
                     model?: string;
@@ -337,16 +333,11 @@ export function createSystemRoutes(
                     reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
                     maxTokens?: number;
                 };
-                dsh?: {
-                    model?: string;
-                    streaming?: boolean;
-                    maxTokens?: number;
-                };
             };
 
             // 内置 provider 或有效的 custom 记录 id 才算合法
             const isKnownProvider = (id: string): boolean => {
-                if (id === 'claude' || id === 'codex' || id === 'pi' || id === 'dsh') return true;
+                if (id === 'claude' || id === 'codex' || id === 'pi') return true;
                 try {
                     const rec = new ModelProviderStore().get(id);
                     return !!rec && rec.kind === 'custom' && rec.enabled !== false;
@@ -384,14 +375,6 @@ export function createSystemRoutes(
                 config.cliProvider = {
                     ...config.cliProvider,
                     pi: {...config.cliProvider?.pi, ...pi},
-                };
-            }
-
-            // 更新 Dsh 配置
-            if (dsh) {
-                config.cliProvider = {
-                    ...config.cliProvider,
-                    dsh: {...config.cliProvider?.dsh, ...dsh},
                 };
             }
 

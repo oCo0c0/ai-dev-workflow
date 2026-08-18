@@ -6,7 +6,7 @@
 
 import {useState, useEffect} from 'react';
 import {apiGet, apiPost} from '../api';
-import {X, Check, Loader2, Terminal, Bot, Sparkles, Boxes} from 'lucide-react';
+import {X, Check, Loader2, Terminal, Bot, Sparkles} from 'lucide-react';
 import {Button} from './ui/button';
 
 /** 检测到的 Provider 状态 */
@@ -162,9 +162,7 @@ function ProviderCard(
         ? <Bot className="h-5 w-5"/>
         : provider.id === 'pi'
             ? <Sparkles className="h-5 w-5"/>
-            : provider.id === 'dsh'
-                ? <Boxes className="h-5 w-5"/>
-                : <Terminal className="h-5 w-5"/>;
+            : <Terminal className="h-5 w-5"/>;
 
     return (
         <button

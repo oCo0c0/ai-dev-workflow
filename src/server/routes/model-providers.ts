@@ -19,7 +19,7 @@ import type {ModelProviderInput} from '../services/model-provider-types.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 
 /** 允许的 kind 值 */
-const VALID_KINDS = ['claude', 'codex', 'pi', 'dsh', 'custom'] as const;
+const VALID_KINDS = ['claude', 'codex', 'pi', 'custom'] as const;
 /** 允许的 source 值 */
 const VALID_SOURCES = ['external', 'manual', 'builtin'] as const;
 
@@ -103,8 +103,8 @@ export function createModelProviderRoutes(store: ModelProviderStore): Router {
     });
 
     // POST /models/fetch - 用表单当前凭据向端点拉取可用模型清单
-    // （对齐 dsh Models 页哲学：用“正在填写、尚未保存”的 key 询问端点，
-    //   只返回候选清单，绝不背后写配置；拉取失败由前端就地展示并可手填。）
+    // （用“正在填写、尚未保存”的 key 询问端点，只返回候选清单，
+    //   绝不背后写配置；拉取失败由前端就地展示并可手填。）
     router.post('/models/fetch', async (req, res) => {
         const body = (req.body ?? {}) as {apiKey?: unknown; baseUrl?: unknown; id?: unknown; kind?: unknown};
         const kind = typeof body.kind === 'string' ? body.kind : '';

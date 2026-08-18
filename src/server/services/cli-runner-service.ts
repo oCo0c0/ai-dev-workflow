@@ -95,7 +95,7 @@ export class CLIRunnerService {
      * @param activeProviderId - 初始 Provider ID，默认 'claude'（内置或自定义供应商记录 id）
      */
     constructor(activeProviderId: string = 'claude') {
-        const builtin = activeProviderId === 'claude' || activeProviderId === 'codex' || activeProviderId === 'pi' || activeProviderId === 'dsh';
+        const builtin = activeProviderId === 'claude' || activeProviderId === 'codex' || activeProviderId === 'pi';
         if (!builtin) {
             // 自定义供应商记录：经 Claude 引擎调用 Anthropic 兼容端点（如智谱）
             const rec = this.readCustomRecord(activeProviderId);
@@ -179,7 +179,7 @@ export class CLIRunnerService {
      * @param providerId - 目标 Provider ID（内置 'claude' | 'codex' | 'pi'，或自定义供应商记录 id）
      */
     async switchProvider(providerId: string): Promise<void> {
-        const builtin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi' || providerId === 'dsh';
+        const builtin = providerId === 'claude' || providerId === 'codex' || providerId === 'pi';
 
         // 释放当前 Provider 资源
         try {
@@ -299,11 +299,6 @@ export class CLIRunnerService {
                     reasoningEffort: config.cliProvider.pi.reasoningEffort,
                     piProvider: config.cliProvider.pi.provider,
                 } as any;
-            } else if (this.activeProviderId === 'dsh' && config.cliProvider?.dsh) {
-                modelOptions = {
-                    model: config.cliProvider.dsh.model,
-                    streaming: config.cliProvider.dsh.streaming,
-                };
             }
         } catch {
             // 配置读取失败时使用 Provider 默认行为

@@ -9,7 +9,7 @@
 
 import {useState, useEffect} from 'react';
 import {useAppStore} from '../stores/app-store';
-import {X, Bot, Terminal, Sparkles, Check, Loader2, Boxes} from 'lucide-react';
+import {X, Bot, Terminal, Sparkles, Check, Loader2} from 'lucide-react';
 import {Button} from './ui/button';
 
 /** 推理强度选项 */
@@ -56,11 +56,9 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
     const isClaude = activeProvider === 'claude';
     const isCodex = activeProvider === 'codex';
     const isPi = activeProvider === 'pi';
-    const isDsh = activeProvider === 'dsh';
     const claudeConfig = modelConfig.claude;
     const codexConfig = modelConfig.codex;
     const piConfig = modelConfig.pi;
-    const dshConfig = modelConfig.dsh ?? {model: 'deepseek-chat', streaming: true};
 
     /** 保存当前 Provider 配置 */
     const handleSave = async () => {
@@ -72,8 +70,6 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
                 await saveModelConfig('codex', codexConfig);
             } else if (isPi) {
                 await saveModelConfig('pi', piConfig);
-            } else if (isDsh) {
-                await saveModelConfig('dsh', dshConfig);
             }
             onClose();
         } catch {
@@ -93,12 +89,10 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
                             ? <Bot className="h-5 w-5 text-primary"/>
                             : isCodex
                                 ? <Terminal className="h-5 w-5 text-primary"/>
-                                : isDsh
-                                ? <Boxes className="h-5 w-5 text-primary"/>
                                 : <Sparkles className="h-5 w-5 text-primary"/>
                         }
                         <h2 className="text-lg font-semibold text-foreground">
-                            模型配置 — {isClaude ? 'Claude Code' : isCodex ? 'Codex' : isDsh ? 'DeepSeek Harness' : 'Pi'}
+                            模型配置 — {isClaude ? 'Claude Code' : isCodex ? 'Codex' : 'Pi'}
                         </h2>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
@@ -126,11 +120,6 @@ export function ModelConfigModal({open, onClose}: ModelConfigModalProps) {
                             config={codexConfig}
                             currentModel={codexModel}
                             onChange={(updates) => setModelConfig('codex', updates)}
-                        />
-                    ) : isDsh ? (
-                        <DshConfigPanel
-                            config={dshConfig}
-                            onChange={(updates) => setModelConfig('dsh', updates)}
                         />
                     ) : (
                         <PiConfigPanel
@@ -437,48 +426,6 @@ function PiConfigPanel({
                 description="启用后实时输出响应内容"
                 checked={config.streaming}
                 onChange={(v) => onChange({ streaming: v })}
-            />
-        </div>
-    );
-}
-
-/** DeepSeek Harness 配置面板 */
-function DshConfigPanel({
-    config,
-    onChange,
-}: {
-    config: {
-        model: string;
-        streaming: boolean;
-        maxTokens?: number;
-    };
-    onChange: (updates: Partial<typeof config>) => void;
-}) {
-    return (
-        <div className="space-y-4">
-            {/* 模型选择 */}
-            <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">模型</label>
-                <select
-                    value={config.model}
-                    onChange={(e) => onChange({model: e.target.value})}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                    <option value="deepseek-chat">DeepSeek Chat（V3 通用）</option>
-                    <option value="deepseek-reasoner">DeepSeek Reasoner（R1 推理）</option>
-                    <option value="deepseek-v4-flash">DeepSeek V4 Flash（快速）</option>
-                </select>
-                <p className="text-xs text-muted-foreground/70 mt-1.5">
-                    经 DeepSeek Harness 运行时调用官方端点；需设置 DEEPSEEK_API_KEY 环境变量
-                </p>
-            </div>
-
-            {/* 流式开关 */}
-            <ToggleRow
-                label="流式输出（Streaming）"
-                description="dsh 事件流天然全量；此开关仅作展示提示"
-                checked={config.streaming}
-                onChange={(v) => onChange({streaming: v})}
             />
         </div>
     );

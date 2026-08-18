@@ -35,7 +35,6 @@ import {
     Server,
     KeyRound,
     Globe,
-    Boxes,
 } from 'lucide-react';
 import type {
     SafeModelProviderRecord,
@@ -53,7 +52,6 @@ const KIND_ICONS: Record<ModelProviderKind, typeof Bot> = {
     claude: Bot,
     codex: Terminal,
     pi: Sparkles,
-    dsh: Boxes,
     custom: Cpu,
 };
 
@@ -69,7 +67,6 @@ const KIND_OPTIONS: { value: ModelProviderKind; label: string }[] = [
     {value: 'claude', label: 'Claude'},
     {value: 'codex', label: 'Codex'},
     {value: 'pi', label: 'Pi'},
-    {value: 'dsh', label: 'DeepSeek Harness'},
     {value: 'custom', label: 'Custom'},
 ];
 
@@ -110,7 +107,7 @@ export default function ModelProvidersPage() {
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState(emptyForm());
 
-    // 模型拉取状态（对齐 dsh Models 页：候选只供挑选，不自动写配置）
+    // 模型拉取状态（候选只供挑选，不自动写配置）
     const [fetchingModels, setFetchingModels] = useState(false);
     const [modelCandidates, setModelCandidates] = useState<string[]>([]);
     const [fetchError, setFetchError] = useState<string | null>(null);
@@ -242,7 +239,7 @@ export default function ModelProvidersPage() {
         setField('kind', kind);
         if (creating) {
             const opt = KIND_OPTIONS.find((k) => k.value === kind);
-            if (!form.id.trim()) setField('id', kind === 'dsh' ? 'dsh' : kind);
+            if (!form.id.trim()) setField('id', kind);
             if (!form.label.trim() && opt) setField('label', opt.label);
         }
     };
