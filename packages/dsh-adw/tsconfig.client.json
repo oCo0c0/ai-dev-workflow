@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@along/adw-requirement-core": ["../adw-requirement-core/src/index.ts"]
+    }
+  },
+  "include": ["src/client"]
+}

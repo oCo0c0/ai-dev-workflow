@@ -1,4 +1,8 @@
-packages: []
+packages:
+  - 'packages/*'
+# 子包（packages/*）以 --ignore-workspace 独立安装，pnpm run 的依赖状态自检会
+# 尝试整仓重装（无 TTY 时失败）。关闭自检：构建一律直接调 tsc/esbuild。
+verifyDepsBeforeRun: false
 allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': true
