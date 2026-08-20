@@ -20677,12 +20677,26 @@ var RequirementStore = class {
     });
     req.description = desc;
     for (const att of req.attachments) {
-      if (att.url && /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name)) {
+      if (/\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name) || att.type.startsWith("image/")) {
         if (fs4.existsSync(path3.join(imgDir, att.name))) {
           att.url = localUrl(att.name);
         }
       }
     }
+    const seen = /* @__PURE__ */ new Set();
+    req.attachments = req.attachments.filter((att) => {
+      const key = `${att.name}
+${att.url}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    req.attachments = req.attachments.filter((att) => {
+      const looksImage = /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name) || att.type.startsWith("image/");
+      if (!looksImage) return true;
+      if (att.url !== "") return true;
+      return fs4.existsSync(path3.join(imgDir, att.name));
+    });
   }
   /** 落盘（写临时文件后 rename，原子替换） */
   persist() {
