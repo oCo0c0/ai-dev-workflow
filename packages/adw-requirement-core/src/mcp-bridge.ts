@@ -12,7 +12,10 @@
 
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
+import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import {SSEClientTransport} from '@modelcontextprotocol/sdk/client/sse.js';
 import {McpError, ErrorCode} from '@modelcontextprotocol/sdk/types.js';
+import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
 import type {MCPServerConfig} from './mcp-config.js';
 import {getErrorMessage} from './error-utils.js';
 import {resolveAdapter, getAdapter, listCatalogAdapters} from './requirement-sources/index.js';
@@ -24,6 +27,40 @@ import type {
     SourceInstallTemplate,
     ToolCapability,
 } from './requirement-sources/index.js';
+
+/** Windows 下需要经由 cmd /c 拉起的脚本型命令（spawn 无 shell 时解析不了 .cmd） */
+const WINDOWS_SCRIPT_COMMANDS = new Set(['npx', 'npm', 'pnpm', 'yarn', 'bun', 'bunx', 'deno', 'uvx', 'uv', 'node', 'python', 'python3', 'pip']);
+
+/**
+ * 为 stdio 型配置构建传输层（Windows 归一化：脚本命令包 cmd /c）。
+ */
+function buildStdioTransport(config: MCPServerConfig): StdioClientTransport {
+    const isWindows = process.platform === 'win32';
+    const bare = config.command.toLowerCase();
+    const needsShellWrapper = isWindows && (WINDOWS_SCRIPT_COMMANDS.has(bare) || bare.endsWith('.cmd') === false && config.command.includes('/'));
+    const command = needsShellWrapper ? 'cmd' : config.command;
+    const args = needsShellWrapper ? ['/c', config.command, ...config.args] : config.args;
+    return new StdioClientTransport({
+        command,
+        args,
+        env: {...process.env, ...config.env} as Record<string, string>,
+    });
+}
+
+/**
+ * 为 url 型配置构建传输层：优先 Streamable HTTP，失败回退 SSE（旧服务器）。
+ */
+async function buildHttpTransport(config: MCPServerConfig): Promise<Transport> {
+    const url = new URL(config.url!);
+    const headers = {...config.env};
+    try {
+        const transport = new StreamableHTTPClientTransport(url, {requestInit: {headers}});
+        await transport.start();
+        return transport;
+    } catch {
+        return await Promise.resolve(new SSEClientTransport(url, {requestInit: {headers}}));
+    }
+}
 
 // 数据模型从 requirement-sources 重导出（保持既有导入路径兼容）
 export type {Requirement, RequirementDetail} from './requirement-sources/index.js';
@@ -183,12 +220,10 @@ export class MCPBridgeService {
                 );
             }
 
-            // 基于标准输入输出的传输层，合并当前进程环境变量与服务器自定义环境变量
-            const transport = new StdioClientTransport({
-                command: config.command,
-                args: config.args,
-                env: {...process.env, ...config.env} as Record<string, string>,
-            });
+            // 传输层：url 型走 Streamable HTTP（SSE 兜底）；stdio 型走进程拉起
+            const transport = config.url !== undefined
+                ? await buildHttpTransport(config)
+                : buildStdioTransport(config);
 
             const client = new Client(
                 {name: 'ai-dev-workbench', version: '0.1.0'},

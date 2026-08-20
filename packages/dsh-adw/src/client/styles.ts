@@ -159,7 +159,28 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-fieldLabel { font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
 .adw-modalActions { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* ── 源设置（面板内嵌页） ────────────────────────────────── */
+/* ── 源设置（官方设置页插件卡 + 面板源页共用行样式） ─────── */
+.adw-setCard {
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+  color: var(--dsw-alias-label-primary); font-size: 13px; width: 100%;
+  box-sizing: border-box; text-align: start;
+}
+.adw-setHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adw-setTitle { font-size: 14px; font-weight: 700; }
+.adw-customSection {
+  display: flex; flex-direction: column; gap: 8px;
+  border-top: 1px dashed var(--dsw-alias-separator-primary); padding-top: 12px; margin-top: 4px;
+}
+.adw-badge {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary);
+}
+.adw-srcCmdPreview {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%;
+}
+.adw-envArea { min-height: 54px; resize: vertical; font-family: var(--dsw-alias-font-mono, monospace); font-size: 12px; }
 .adw-srcList { display: flex; flex-direction: column; gap: 10px; }
 .adw-srcRow {
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px;

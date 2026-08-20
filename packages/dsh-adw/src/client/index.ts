@@ -14,6 +14,7 @@ import { ExecutionService } from './execution.ts'
 import { createPanelController } from './controller.ts'
 import { mountSidebarEntry } from './sidebar-entry.ts'
 import { mountPanel } from './panel-mount.tsx'
+import { AdwSettingsCard, AdwSettingsCardController, ADW_SETTINGS_NS, noteCardScope } from './settings-card.tsx'
 import { ensureStyles } from './styles.ts'
 
 /** Module-scope apply claim: a duplicated client injection (module factory
@@ -34,6 +35,37 @@ export function apply(ctx: ClientContext): void {
 
   const controller = createPanelController()
   const disposers: Array<() => void> = [ensureStyles()]
+
+  // Official plugin-settings card: the dsh-client-ui-settings-plugins
+  // surface declares the keyed `settings.plugin.item` slot and pairs it with
+  // the Host-served 'dsh-adw' namespace (registered host-side via
+  // installSettingsSection). Pure official channel — renders in the
+  // settings page's configurable-plugins tab wherever dsh serves it.
+  ctx.inject(['slots', 'settingsScope'], (settingsCtx) => {
+    const scope = settingsCtx.settingsScope.bind<Record<string, unknown>>({ namespace: ADW_SETTINGS_NS })
+    const card = new AdwSettingsCardController(scope)
+    noteCardScope(scope)
+    return settingsCtx.slots.inject('settings.plugin.item', () => {
+      const unregister = settingsCtx.slots.register({
+        name: 'settings.plugin.item',
+        key: ADW_SETTINGS_NS,
+        inject: () => card.inject(),
+      }, AdwSettingsCard)
+      return () => {
+        card.dispose()
+        unregister()
+      }
+    })
+  })
+
+  // Panel-side MinerU config access: bind the same 'dsh-adw' settings scope
+  // when a settings surface serves this client; the panel's「源」view then
+  // shares the card's writable config row (absent surface → read-only row).
+  ctx.inject(['settingsScope'], (scopeCtx) => {
+    const scope = scopeCtx.settingsScope.bind<Record<string, unknown>>({ namespace: ADW_SETTINGS_NS })
+    controller.noteSettingsScope(scope)
+    return () => { controller.noteSettingsScope(undefined) }
+  })
 
   try {
     const sessions = ctx.sessions

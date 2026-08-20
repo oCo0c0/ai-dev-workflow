@@ -219,6 +219,7 @@ var ExecutionService = class {
 // src/client/controller.ts
 function createPanelController() {
   let open = false;
+  let scope;
   const listeners = /* @__PURE__ */ new Set();
   const emit = () => {
     for (const fn of listeners) fn();
@@ -246,7 +247,12 @@ function createPanelController() {
       return () => {
         listeners.delete(fn);
       };
-    }
+    },
+    noteSettingsScope(next) {
+      scope = next;
+      emit();
+    },
+    getSettingsScope: () => scope
   };
 }
 
@@ -429,6 +435,15 @@ function testServer(name) {
 function removeServer(name) {
   return call(`/servers/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
+function listServers() {
+  return call("/servers");
+}
+function addServer(config) {
+  return call("/servers", { method: "POST", body: JSON.stringify(config) });
+}
+function mineruHealth() {
+  return call("/mineru/health");
+}
 
 // src/client/source-config.tsx
 var import_react = require("react");
@@ -453,95 +468,338 @@ function SourceConfigBody(props) {
       }
     })();
   }, [onChanged]);
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-srcList", children: sources.map((source) => {
-    const configured = source.servers.length > 0;
-    const expanded = openId === source.adapterId;
-    const key = source.adapterId;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRow", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRowHead", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: source.label }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-badge", "data-tone": configured ? "succeeded" : "", children: configured ? source.servers.join("\u3001") : "\u672A\u914D\u7F6E" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-srcSpacer" }),
-        configured ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "adw-btn adw-btnSm",
-              disabled: busy !== "",
-              onClick: () => run(key, async () => {
-                const r = await testServer(source.servers[0]);
-                return r.ok ? "\u8FDE\u63A5\u6210\u529F" : `\u8FDE\u63A5\u5931\u8D25\uFF1A${r.message}`;
-              }),
-              children: "\u6D4B\u8BD5"
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "adw-btn adw-btnSm adw-btnDanger",
-              disabled: busy !== "",
-              onClick: () => run(key, async () => {
-                await removeServer(source.servers[0]);
-                return "\u5DF2\u79FB\u9664\u914D\u7F6E";
-              }),
-              children: "\u79FB\u9664"
-            }
-          )
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
-          setOpenId(expanded ? "" : key);
-          setEnv({});
-          setNote(void 0);
-        }, children: expanded ? "\u6536\u8D77" : "\u914D\u7F6E" })
-      ] }),
-      expanded && source.installTemplate !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcForm", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-srcFormGrid", children: source.installTemplate.envSpecs.map((spec) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-fieldLabel", children: [
-            spec.label,
-            spec.required ? " *" : "",
-            spec.hint !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-hint", children: [
-              " \u2014 ",
-              spec.hint
-            ] }) : null
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "input",
-            {
-              className: "adw-input",
-              type: spec.secret ? "password" : "text",
-              value: env[spec.key] ?? "",
-              onChange: (e) => setEnv((prev) => ({ ...prev, [spec.key]: e.target.value }))
-            }
-          )
-        ] }, spec.key)) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcFormActions", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "adw-btn adw-btnPrimary adw-btnSm",
-              disabled: busy !== "",
-              onClick: () => run(key, async () => {
-                const missing = source.installTemplate.envSpecs.filter((s) => s.required && (env[s.key] ?? "").trim() === "");
-                if (missing.length > 0) throw new Error(`\u7F3A\u5C11\u5FC5\u586B\u9879\uFF1A${missing.map((m) => m.label).join("\u3001")}`);
-                const r = await installSource(source.adapterId, env);
-                setOpenId("");
-                return r.connectionTest ? r.connectionTest.ok ? "\u5DF2\u914D\u7F6E\u5E76\u8FDE\u63A5\u6210\u529F" : `\u5DF2\u914D\u7F6E\uFF1B\u8FDE\u63A5\u6D4B\u8BD5\uFF1A${r.connectionTest.message}` : "\u5DF2\u914D\u7F6E";
-              }),
-              children: busy === key ? "\u914D\u7F6E\u4E2D\u2026" : "\u4FDD\u5B58\u5E76\u6D4B\u8BD5"
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
-            setOpenId("");
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcList", children: [
+    sources.map((source) => {
+      const configured = source.servers.length > 0;
+      const expanded = openId === source.adapterId;
+      const key = source.adapterId;
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRow", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRowHead", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: source.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-badge", "data-tone": configured ? "succeeded" : "", children: configured ? source.servers.join("\u3001") : "\u672A\u914D\u7F6E" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-srcSpacer" }),
+          configured ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "adw-btn adw-btnSm",
+                disabled: busy !== "",
+                onClick: () => run(key, async () => {
+                  const r = await testServer(source.servers[0]);
+                  return r.ok ? "\u8FDE\u63A5\u6210\u529F" : `\u8FDE\u63A5\u5931\u8D25\uFF1A${r.message}`;
+                }),
+                children: "\u6D4B\u8BD5"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "adw-btn adw-btnSm adw-btnDanger",
+                disabled: busy !== "",
+                onClick: () => run(key, async () => {
+                  await removeServer(source.servers[0]);
+                  return "\u5DF2\u79FB\u9664\u914D\u7F6E";
+                }),
+                children: "\u79FB\u9664"
+              }
+            )
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
+            setOpenId(expanded ? "" : key);
             setEnv({});
-          }, children: "\u53D6\u6D88" })
+            setNote(void 0);
+          }, children: expanded ? "\u6536\u8D77" : "\u914D\u7F6E" })
+        ] }),
+        expanded && source.installTemplate !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcForm", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-srcFormGrid", children: source.installTemplate.envSpecs.map((spec) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-fieldLabel", children: [
+              spec.label,
+              spec.required ? " *" : "",
+              spec.hint !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-hint", children: [
+                " \u2014 ",
+                spec.hint
+              ] }) : null
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "input",
+              {
+                className: "adw-input",
+                type: spec.secret ? "password" : "text",
+                value: env[spec.key] ?? "",
+                onChange: (e) => setEnv((prev) => ({ ...prev, [spec.key]: e.target.value }))
+              }
+            )
+          ] }, spec.key)) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcFormActions", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "adw-btn adw-btnPrimary adw-btnSm",
+                disabled: busy !== "",
+                onClick: () => run(key, async () => {
+                  const missing = source.installTemplate.envSpecs.filter((s) => s.required && (env[s.key] ?? "").trim() === "");
+                  if (missing.length > 0) throw new Error(`\u7F3A\u5C11\u5FC5\u586B\u9879\uFF1A${missing.map((m) => m.label).join("\u3001")}`);
+                  const r = await installSource(source.adapterId, env);
+                  setOpenId("");
+                  return r.connectionTest ? r.connectionTest.ok ? "\u5DF2\u914D\u7F6E\u5E76\u8FDE\u63A5\u6210\u529F" : `\u5DF2\u914D\u7F6E\uFF1B\u8FDE\u63A5\u6D4B\u8BD5\uFF1A${r.connectionTest.message}` : "\u5DF2\u914D\u7F6E";
+                }),
+                children: busy === key ? "\u914D\u7F6E\u4E2D\u2026" : "\u4FDD\u5B58\u5E76\u6D4B\u8BD5"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
+              setOpenId("");
+              setEnv({});
+            }, children: "\u53D6\u6D88" })
+          ] })
+        ] }),
+        busy === key && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: "\u5904\u7406\u4E2D\u2026" }),
+        busy !== key && note !== void 0 && note.key === key && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: note.text })
+      ] }, key);
+    }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CustomServerSection, { busy, note, run, onChanged }),
+    props.mineru !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MineruConfigRow, { scope: props.mineru.scope })
+  ] });
+}
+function MineruConfigRow(props) {
+  const { scope } = props;
+  const [url, setUrl] = (0, import_react.useState)("");
+  const [editable, setEditable] = (0, import_react.useState)("");
+  const [busy, setBusy] = (0, import_react.useState)(false);
+  const [note, setNote] = (0, import_react.useState)("");
+  (0, import_react.useEffect)(() => {
+    if (scope === void 0) {
+      setUrl("");
+      setEditable("");
+      return;
+    }
+    const sync = () => {
+      const snapshot = scope.getSnapshot();
+      const value = typeof snapshot.value?.mineruUrl === "string" ? snapshot.value.mineruUrl : "";
+      setUrl(value);
+      setEditable(value);
+    };
+    sync();
+    return scope.subscribe(sync);
+  }, [scope]);
+  (0, import_react.useEffect)(() => {
+    if (scope !== void 0) return;
+    void mineruHealth().then((health) => {
+      setUrl(health.baseUrl ?? "");
+      setEditable(health.baseUrl ?? "");
+    }).catch(() => {
+    });
+  }, [scope]);
+  const save = () => {
+    void (async () => {
+      setBusy(true);
+      setNote("");
+      try {
+        if (scope === void 0) throw new Error("\u8BBE\u7F6E\u670D\u52A1\u4E0D\u53EF\u7528\uFF1A\u8BF7\u5728\u8BBE\u7F6E\u9875\u300C\u63D2\u4EF6\u300D\u5206\u7EC4\u4E2D\u914D\u7F6E");
+        await scope.set("mineruUrl", editable.trim());
+        setNote("\u5DF2\u4FDD\u5B58");
+      } catch (err) {
+        setNote(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+  const probe = () => {
+    void (async () => {
+      setBusy(true);
+      setNote("");
+      try {
+        const health = await mineruHealth();
+        setNote(health.configured ? health.healthy ? `\u5065\u5EB7\uFF1A${health.latency ?? "?"}ms` : `\u4E0D\u53EF\u8FBE\uFF1A${health.error ?? "unknown"}` : "\u672A\u914D\u7F6E\u670D\u52A1\u5730\u5740");
+      } catch (err) {
+        setNote(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-customSection", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRowHead", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "MinerU \u6587\u6863\u89E3\u6790" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-hint", children: "PDF / Word / \u622A\u56FE \u2192 Markdown\uFF08adw_parse_document \u5DE5\u5177\u4E0E\u9644\u4EF6\u89E3\u6790\u7528\uFF09" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-badge", children: url !== "" ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-srcFormGrid", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-fieldLabel", children: "\u670D\u52A1\u5730\u5740" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "input",
+        {
+          className: "adw-input",
+          value: editable,
+          disabled: scope === void 0,
+          onChange: (e) => setEditable(e.target.value),
+          placeholder: "http://127.0.0.1:8000"
+        }
+      )
+    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcFormActions", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnPrimary adw-btnSm", disabled: busy || scope === void 0, onClick: save, children: busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", disabled: busy, onClick: probe, children: "\u5065\u5EB7\u68C0\u67E5" }),
+      scope === void 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-hint", children: [
+        "\u8BBE\u7F6E\u670D\u52A1\u4E0D\u53EF\u7528\uFF0C\u6B64\u5904\u53EA\u8BFB\uFF08\u5F53\u524D\u503C\uFF1A",
+        url === "" ? "\u672A\u914D\u7F6E" : url,
+        "\uFF09"
+      ] })
+    ] }),
+    note !== "" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: note })
+  ] });
+}
+function CustomServerRow(props) {
+  const { server, busy, run, onChanged } = props;
+  const key = `srv:${server.name}`;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRow", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRowHead", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: server.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-badge", children: server.url !== void 0 ? "http" : server.type }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-hint adw-srcCmdPreview", children: server.url ?? [server.command, ...server.args].join(" ") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-srcSpacer" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "adw-btn adw-btnSm",
+          disabled: busy !== "",
+          onClick: () => run(key, async () => {
+            const r = await testServer(server.name);
+            return r.ok ? "\u8FDE\u63A5\u6210\u529F" : `\u8FDE\u63A5\u5931\u8D25\uFF1A${r.message}`;
+          }),
+          children: "\u6D4B\u8BD5"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "adw-btn adw-btnSm adw-btnDanger",
+          disabled: busy !== "",
+          onClick: () => run(key, async () => {
+            await removeServer(server.name);
+            onChanged();
+            return `\u5DF2\u79FB\u9664 ${server.name}`;
+          }),
+          children: "\u79FB\u9664"
+        }
+      )
+    ] }),
+    busy === key && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: "\u5904\u7406\u4E2D\u2026" })
+  ] });
+}
+function CustomServerSection(props) {
+  const { busy, note, run, onChanged } = props;
+  const [servers, setServers] = (0, import_react.useState)([]);
+  const [open, setOpen] = (0, import_react.useState)(false);
+  const [mode, setMode] = (0, import_react.useState)("stdio");
+  const [name, setName] = (0, import_react.useState)("");
+  const [command, setCommand] = (0, import_react.useState)("");
+  const [args, setArgs] = (0, import_react.useState)("");
+  const [url, setUrl] = (0, import_react.useState)("");
+  const [env, setEnv] = (0, import_react.useState)("");
+  const reload = (0, import_react.useCallback)(async () => {
+    try {
+      setServers(await listServers());
+    } catch {
+    }
+  }, []);
+  (0, import_react.useEffect)(() => {
+    void reload();
+  }, [reload, onChanged]);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-customSection", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcRowHead", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "\u81EA\u5B9A\u4E49 MCP \u670D\u52A1\u5668" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-hint", children: "stdio\uFF08npx / python / docker \u2026\uFF09\u6216\u8FDC\u7A0B http(s)\uFF0C\u517C\u5BB9\u6807\u51C6 mcpServers \u914D\u7F6E" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-srcSpacer" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
+        setOpen(!open);
+        setMode("stdio");
+      }, children: open ? "\u6536\u8D77" : "\u6DFB\u52A0" })
+    ] }),
+    servers.map((server) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CustomServerRow, { server, busy, run, onChanged }, server.name)),
+    open && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcForm", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcFormGrid", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-fieldLabel", children: "\u540D\u79F0 *" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { className: "adw-input", value: name, onChange: (e) => setName(e.target.value), placeholder: "\u5982 my-mcp" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-fieldLabel", children: "\u7C7B\u578B" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { className: "adw-select", value: mode, onChange: (e) => setMode(e.target.value === "url" ? "url" : "stdio"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "stdio", children: "\u672C\u5730 stdio" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "url", children: "\u8FDC\u7A0B http(s)" })
+          ] })
+        ] }),
+        mode === "stdio" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-fieldLabel", children: "\u547D\u4EE4 *" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { className: "adw-input", value: command, onChange: (e) => setCommand(e.target.value), placeholder: "\u5982 npx \u6216 python" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-fieldLabel", children: "\u53C2\u6570\uFF08\u7A7A\u683C\u5206\u9694\uFF09" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { className: "adw-input", value: args, onChange: (e) => setArgs(e.target.value), placeholder: "\u5982 -y some-mcp-server" })
+          ] })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-fieldLabel", children: "URL *" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { className: "adw-input", value: url, onChange: (e) => setUrl(e.target.value), placeholder: "https://example.com/mcp" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "adw-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-fieldLabel", children: mode === "url" ? "\u8BF7\u6C42\u5934\uFF08KEY=VALUE \u6BCF\u884C\u4E00\u4E2A\uFF09" : "\u73AF\u5883\u53D8\u91CF\uFF08KEY=VALUE \u6BCF\u884C\u4E00\u4E2A\uFF09" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { className: "adw-textarea adw-envArea", value: env, onChange: (e) => setEnv(e.target.value), placeholder: mode === "url" ? "Authorization=Bearer xxx" : "API_KEY=xxx" })
         ] })
       ] }),
-      busy === key && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: "\u5904\u7406\u4E2D\u2026" }),
-      busy !== key && note !== void 0 && note.key === key && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: note.text })
-    ] }, key);
-  }) });
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-srcFormActions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            type: "button",
+            className: "adw-btn adw-btnPrimary adw-btnSm",
+            disabled: busy !== "",
+            onClick: () => run("custom:add", async () => {
+              if (name.trim() === "") throw new Error("\u540D\u79F0\u5FC5\u586B");
+              const envMap = {};
+              for (const line of env.split(/\r?\n/)) {
+                const trimmed = line.trim();
+                if (trimmed === "") continue;
+                const eq = trimmed.indexOf("=");
+                if (eq <= 0) throw new Error(`\u73AF\u5883\u53D8\u91CF\u683C\u5F0F\u9519\u8BEF\uFF08\u5E94\u4E3A KEY=VALUE\uFF09\uFF1A${trimmed}`);
+                envMap[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+              }
+              await addServer({
+                name: name.trim(),
+                ...mode === "url" ? { url: url.trim() } : { command: command.trim(), args: args.trim() === "" ? [] : args.trim().split(/\s+/) },
+                env: envMap
+              });
+              setOpen(false);
+              setName("");
+              setCommand("");
+              setArgs("");
+              setUrl("");
+              setEnv("");
+              await reload();
+              onChanged();
+              return `\u5DF2\u6DFB\u52A0 ${name.trim()}\uFF0C\u53EF\u70B9\u300C\u6D4B\u8BD5\u300D\u9A8C\u8BC1`;
+            }),
+            children: busy === "custom:add" ? "\u6DFB\u52A0\u4E2D\u2026" : "\u6DFB\u52A0"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
+          setOpen(false);
+          setName("");
+          setCommand("");
+          setArgs("");
+          setUrl("");
+          setEnv("");
+        }, children: "\u53D6\u6D88" })
+      ] })
+    ] }),
+    busy === "custom:add" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: "\u5904\u7406\u4E2D\u2026" }),
+    busy !== "custom:add" && note !== void 0 && note.key.startsWith("srv:") && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-hint", children: note.text })
+  ] });
 }
 
 // src/client/Panel.tsx
@@ -738,10 +996,10 @@ function AdwPanel(props) {
       view.kind === "sources" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "adw-section", children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-sectionTitle", children: "\u9700\u6C42\u6E90\u8BBE\u7F6E" }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-sectionBody", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-hint", children: "ONES / GitHub \u5404\u81EA\u72EC\u7ACB\u914D\u7F6E\uFF0C\u51ED\u636E\u4FDD\u5B58\u5728\u63D2\u4EF6\u81EA\u7BA1\u6587\u4EF6 ~/.dsh/dsh-adw/mcp-servers.json\uFF0C\u4FEE\u6539\u5373\u65F6\u751F\u6548\uFF0C\u4E0D\u8BFB\u5199\u4EFB\u4F55\u5176\u5B83\u5DE5\u5177\u7684\u914D\u7F6E\u3002" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-hint", children: "ONES / GitHub / \u81EA\u5B9A\u4E49 MCP \u5404\u81EA\u72EC\u7ACB\u914D\u7F6E\uFF08MCP \u5B58 ~/.dsh/dsh-adw/mcp-servers.json\uFF0CMinerU \u5730\u5740\u5B58\u8BBE\u7F6E\u9875\uFF09\uFF0C\u4FEE\u6539\u5373\u65F6\u751F\u6548\uFF0C\u4E0D\u8BFB\u5199\u4EFB\u4F55\u5176\u5B83\u5DE5\u5177\u7684\u914D\u7F6E\u3002" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(SourceConfigBody, { sources, onChanged: () => {
             void reload(true);
-          } })
+          }, mineru: { scope: controller.getSettingsScope() } })
         ] })
       ] }),
       view.kind === "detail" && detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
@@ -1103,6 +1361,73 @@ function mountPanel(controller, services) {
   };
 }
 
+// src/client/settings-card.tsx
+var import_react3 = require("react");
+var import_client2 = require("@deepseek-ai/dsh-client-runtime/client");
+var import_jsx_runtime4 = require("react/jsx-runtime");
+var ADW_SETTINGS_NS = "dsh-adw";
+var cardScope;
+function noteCardScope(scope) {
+  cardScope = scope;
+}
+var AdwSettingsCardController = class {
+  store;
+  unsubscribe;
+  /** The bound scope — shared with the card body for the MinerU config row. */
+  scope;
+  /** @param scope - the bound settings scope for the 'dsh-adw' namespace. */
+  constructor(scope) {
+    this.scope = scope;
+    const project = () => {
+      const snapshot = scope.getSnapshot();
+      return {
+        available: snapshot.status !== "loading",
+        exposed: snapshot.status === "ready"
+      };
+    };
+    this.store = (0, import_client2.createSnapshotStore)(project());
+    this.unsubscribe = scope.subscribe(() => {
+      this.store.set(project());
+    });
+  }
+  /**
+   * Build the face the card's slot registration injects.
+   * @returns the card's snapshot store.
+   */
+  inject() {
+    return { hooks: { adwSettingsCard: this.store } };
+  }
+  /** Release the scope subscription; the slot disposer calls this on teardown. */
+  dispose() {
+    this.unsubscribe();
+  }
+};
+function AdwSettingsCard(props) {
+  const state = props.useAdwSettingsCard((snapshot) => snapshot);
+  const [sources, setSources] = (0, import_react3.useState)([]);
+  const [error, setError] = (0, import_react3.useState)("");
+  const reload = (0, import_react3.useCallback)(async () => {
+    try {
+      setSources(await listSources());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+  (0, import_react3.useEffect)(() => {
+    void reload();
+  }, [reload]);
+  if (!state.available) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-setCard", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-setHead", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-setTitle", children: "adw \u9700\u6C42\u5DE5\u4F5C\u53F0" }),
+      !state.exposed && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-hint", children: "\uFF08\u8BBE\u7F6E\u547D\u540D\u7A7A\u95F4\u672A\u66B4\u9732\uFF0C\u4EE5\u4E0B\u914D\u7F6E\u4ECD\u7136\u53EF\u7528\uFF09" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "adw-hint", children: "\u9700\u6C42\u6E90\uFF08ONES / GitHub Issues / \u81EA\u5B9A\u4E49 MCP\uFF09\u4E0E MinerU \u6587\u6863\u89E3\u6790\u72EC\u7ACB\u914D\u7F6E\uFF1AMCP \u914D\u7F6E\u4FDD\u5B58\u5728\u63D2\u4EF6\u81EA\u7BA1\u6587\u4EF6 ~/.dsh/dsh-adw/mcp-servers.json\uFF0CMinerU \u5730\u5740\u5B58\u4E8E\u672C\u8BBE\u7F6E\uFF1B\u4FEE\u6539\u5373\u65F6\u751F\u6548\uFF0C\u4E0D\u8BFB\u5199\u4EFB\u4F55\u5176\u5B83\u5DE5\u5177\u7684\u914D\u7F6E\u3002\u540C\u4E00\u914D\u7F6E\u4E5F\u53EF\u5728\u9700\u6C42\u5DE5\u4F5C\u53F0\u9762\u677F\u7684\u300C\u6E90\u300D\u9875\u4E2D\u7BA1\u7406\u3002" }),
+    error !== "" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "adw-errorText", children: error }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SourceConfigBody, { sources, onChanged: reload, mineru: { scope: cardScope } })
+  ] });
+}
+
 // src/client/styles.ts
 var STYLE_TAG = "data-dsh-adw-styles";
 var CSS = `
@@ -1252,7 +1577,28 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-fieldLabel { font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
 .adw-modalActions { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* \u2500\u2500 \u6E90\u8BBE\u7F6E\uFF08\u9762\u677F\u5185\u5D4C\u9875\uFF09 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+/* \u2500\u2500 \u6E90\u8BBE\u7F6E\uFF08\u5B98\u65B9\u8BBE\u7F6E\u9875\u63D2\u4EF6\u5361 + \u9762\u677F\u6E90\u9875\u5171\u7528\u884C\u6837\u5F0F\uFF09 \u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.adw-setCard {
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+  color: var(--dsw-alias-label-primary); font-size: 13px; width: 100%;
+  box-sizing: border-box; text-align: start;
+}
+.adw-setHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adw-setTitle { font-size: 14px; font-weight: 700; }
+.adw-customSection {
+  display: flex; flex-direction: column; gap: 8px;
+  border-top: 1px dashed var(--dsw-alias-separator-primary); padding-top: 12px; margin-top: 4px;
+}
+.adw-badge {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary);
+}
+.adw-srcCmdPreview {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%;
+}
+.adw-envArea { min-height: 54px; resize: vertical; font-family: var(--dsw-alias-font-mono, monospace); font-size: 12px; }
 .adw-srcList { display: flex; flex-direction: column; gap: 10px; }
 .adw-srcRow {
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px;
@@ -1296,6 +1642,29 @@ function apply(ctx) {
   }, "dsh-adw: apply claim");
   const controller = createPanelController();
   const disposers = [ensureStyles()];
+  ctx.inject(["slots", "settingsScope"], (settingsCtx) => {
+    const scope = settingsCtx.settingsScope.bind({ namespace: ADW_SETTINGS_NS });
+    const card = new AdwSettingsCardController(scope);
+    noteCardScope(scope);
+    return settingsCtx.slots.inject("settings.plugin.item", () => {
+      const unregister = settingsCtx.slots.register({
+        name: "settings.plugin.item",
+        key: ADW_SETTINGS_NS,
+        inject: () => card.inject()
+      }, AdwSettingsCard);
+      return () => {
+        card.dispose();
+        unregister();
+      };
+    });
+  });
+  ctx.inject(["settingsScope"], (scopeCtx) => {
+    const scope = scopeCtx.settingsScope.bind({ namespace: ADW_SETTINGS_NS });
+    controller.noteSettingsScope(scope);
+    return () => {
+      controller.noteSettingsScope(void 0);
+    };
+  });
   try {
     const sessions = ctx.sessions;
     const workspaces = ctx.workspaces;

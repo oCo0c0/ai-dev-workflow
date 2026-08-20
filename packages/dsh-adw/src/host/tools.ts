@@ -11,6 +11,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { RequirementEngine, SavedRequirement } from '@along/adw-requirement-core'
+import { parseDocument } from './mineru.ts'
 
 /** One text content block (the only render shape these tools emit). */
 function text(value: string): ContentBlock[] {
@@ -222,6 +223,39 @@ export function adwSearchTool(engine: RequirementEngine) {
       } catch (error) {
         return { results: [], error: messageOf(error) }
       }
+    },
+  })
+}
+
+/** The parse tool: one document (file / URL / requirement attachment) → Markdown via MinerU. */
+export function adwParseDocumentTool(engine: RequirementEngine, getMineruUrl: () => string) {
+  return defineTool({
+    name: 'adw_parse_document',
+    description: 'Parse one document (PDF / Word / PPT / Excel / screenshot image) into Markdown through the configured MinerU service — OCR, tables, formulas and layout analysis; the right tool when a requirement or the user supplies a PRD/PDF/screenshot whose text content is needed. ' +
+      'Input dialect: a local absolute path, an http(s) URL, or a saved-requirement attachment ref adw-image://<requirementId>/<filename>. Returns the extracted Markdown. Triggers: the user mentions parsing a document / reading a PDF or screenshot / extracting requirement-attachment content.',
+    parameters: {
+      input: { type: 'string', required: true, description: 'Document locator: absolute local path, http(s) URL, or adw-image://<requirementId>/<filename> (attachment of a saved requirement).' },
+      backend: { type: 'string', description: 'Optional MinerU backend: pipeline / vlm-auto-engine / vlm-http-client / hybrid-auto-engine (default) / hybrid-http-client.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          markdown: { type: 'string', required: true },
+          target: { type: 'string' },
+          error: { type: 'string' },
+        },
+      },
+      render: (_args, value: { markdown?: string; target?: string; error?: string }) =>
+        text(value.error !== undefined
+          ? `parse failed: ${value.error}`
+          : `parsed ${value.target ?? 'document'} → ${value.markdown?.length ?? 0} chars of Markdown`),
+    },
+    async execute(args): Promise<{ markdown: string; error?: string; target?: string }> {
+      const result = await parseDocument(engine, getMineruUrl(), args.input, {backend: args.backend})
+      if (!result.success) return { markdown: '', error: result.error}
+      return { markdown: result.markdown ?? '', target: result.target }
     },
   })
 }

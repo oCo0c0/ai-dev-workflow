@@ -13,6 +13,17 @@ export {RequirementStore, type ExecutionLink, type SavedRequirement} from './sto
 export {MCPBridgeService, type BridgeCallOptions, type RequirementSourceEntry, type MCPConfigSource} from './mcp-bridge.js';
 export {MCPConfigService, type MCPServerConfig} from './mcp-config.js';
 
+// === MinerU 文档解析 ===
+export {
+    MinerUClient,
+    type MinerUBackend,
+    type MinerUParseMethod,
+    type MinerUParseOptions,
+    type MinerUParseResult,
+    type MinerUTaskStatus,
+    type MinerUTaskSubmitResult,
+} from './mineru-client.js';
+
 // === 需求源适配器 ===
 export {
     resolveAdapter,

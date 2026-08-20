@@ -6,14 +6,16 @@
 export interface MCPServerConfig {
     /** 服务器名称，作为配置中的唯一标识 */
     name: string;
-    /** 服务器运行时类型（由系统根据命令自动推断：node/python/docker/custom） */
+    /** 服务器运行时类型（由系统根据命令自动推断：node/python/docker/custom，或 url 型的 http/sse） */
     type: string;
-    /** 启动服务器的可执行命令 */
+    /** 启动服务器的可执行命令（stdio 型；与 url 二选一） */
     command: string;
     /** 传递给命令的参数数组 */
     args: string[];
     /** 环境变量键值对 */
     env: Record<string, string>;
+    /** 远程服务器地址（http/sse 型；与 command 二选一） */
+    url?: string;
     /** 服务器是否启用 */
     enabled: boolean;
     /** 服务器连接状态（运行时动态值，非持久化） */
@@ -129,19 +131,5 @@ export declare class MCPConfigService {
      * @returns string 配置文件的绝对路径
      */
     getSettingsFile(): string;
-    /**
-     * 根据命令和参数推断 MCP 服务器的运行时类型
-     *
-     * 通过检查命令和参数中是否包含特定关键字来判断服务器类型：
-     * - 包含 npx/node/.js → 'node'
-     * - 包含 python/.py → 'python'
-     * - 包含 docker → 'docker'
-     * - 其他 → 'custom'
-     *
-     * @param command - 启动命令
-     * @param args - 命令参数（可选）
-     * @returns string 推断出的运行时类型标识
-     */
-    private inferType;
 }
 //# sourceMappingURL=mcp-config.d.ts.map

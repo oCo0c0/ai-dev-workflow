@@ -70,6 +70,24 @@ export class RequirementEngine {
     removeServer(serverName: string): boolean {
         return this.mcpConfig.delete(serverName);
     }
+
+    /** 列出自管文件中的全部 MCP 服务器（含 url 型自定义服务器） */
+    listServers(): Array<import('./mcp-config.js').MCPServerConfig> {
+        return this.mcpConfig.list();
+    }
+
+    /** 添加自定义 MCP 服务器（stdio command/args 或 http url），返回添加结果 */
+    addServer(config: {name: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string}): import('./mcp-config.js').MCPServerConfig {
+        return this.mcpConfig.add({
+            name: config.name,
+            type: 'custom',
+            command: config.command ?? '',
+            args: config.args ?? [],
+            env: config.env ?? {},
+            ...(config.url !== undefined ? {url: config.url} : {}),
+            enabled: true,
+        });
+    }
     /**
      * 拉取需求并保存（推荐入口）
      * @param input - 用户原始输入（链接 / 编号 / issue key / owner-repo#N）

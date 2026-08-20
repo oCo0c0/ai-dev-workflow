@@ -10,6 +10,8 @@ export { RequirementStore } from './store.js';
 // === 桥接与配置 ===
 export { MCPBridgeService } from './mcp-bridge.js';
 export { MCPConfigService } from './mcp-config.js';
+// === MinerU 文档解析 ===
+export { MinerUClient, } from './mineru-client.js';
 // === 需求源适配器 ===
 export { resolveAdapter, getAdapter, listAdapters, listCatalogAdapters, bindServer, unbindServer, registerRequirementSource, } from './requirement-sources/index.js';
 // === 工具 ===

@@ -49,6 +49,16 @@ export declare class RequirementEngine {
     }>;
     /** 删除一个 MCP server 配置（源卸载；返回是否存在） */
     removeServer(serverName: string): boolean;
+    /** 列出自管文件中的全部 MCP 服务器（含 url 型自定义服务器） */
+    listServers(): Array<import('./mcp-config.js').MCPServerConfig>;
+    /** 添加自定义 MCP 服务器（stdio command/args 或 http url），返回添加结果 */
+    addServer(config: {
+        name: string;
+        command?: string;
+        args?: string[];
+        env?: Record<string, string>;
+        url?: string;
+    }): import('./mcp-config.js').MCPServerConfig;
     /**
      * 拉取需求并保存（推荐入口）
      * @param input - 用户原始输入（链接 / 编号 / issue key / owner-repo#N）

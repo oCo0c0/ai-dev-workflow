@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { RequirementEngine, type SavedRequirement } from '@along/adw-requirement-core'
 import { makeRoutes } from './host/routes.ts'
-import { adwFetchTool, adwListTool, adwSearchTool } from './host/tools.ts'
+import { adwFetchTool, adwListTool, adwSearchTool, adwParseDocumentTool } from './host/tools.ts'
 import { mountOnce } from './mount-once.ts'
 
 /** Stable cordis plugin name. */
@@ -60,6 +60,8 @@ export interface Config {
   devPromptTemplate?: string
   /** Default requirement source (MCP server name); empty = auto-resolution. */
   defaultServerName?: string
+  /** MinerU document-parse service base URL (e.g. http://127.0.0.1:8000); empty = disabled. */
+  mineruUrl?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -67,13 +69,14 @@ export const Config: z<Config> = z.object({
   announceToAgent: z.boolean().default(true),
   devPromptTemplate: z.string().default(DEFAULT_DEV_PROMPT_TEMPLATE),
   defaultServerName: z.string().default(''),
+  mineruUrl: z.string().default(''),
 })
 
 /** Order of the announcement section within the tool-guidance band. */
 const SECTION_ORDER = 160
 
 /** Model-facing announcement: plugin presence, capabilities, and limits. */
-export const ADW_GUIDANCE = '本机已安装 dsh-adw 插件（adw 需求工作台）：侧边栏「需求工作台」入口；在 adw 仓库（packages/dsh-adw + packages/adw-requirement-core）维护。能力：从需求源（ONES / GitHub Issues / 通用 MCP；需求源配置由插件自管，存 ~/.dsh/dsh-adw/mcp-servers.json，用户在设置页「插件」分组中配置，与其它工具互不影响）拉取需求文档——adw_fetch_requirement 按链接/编号/issue key 拉取并保存、adw_list_requirements 列已保存需求（含执行状态）、adw_search_requirements 源内搜索；需求保存在 ~/.dsh/dsh-adw/；用户可在 GUI 中选择工作区对需求执行开发（真实 dsh 会话，执行记录回写需求）。限制：插件路由仅本机回环可用；拉取消耗外部系统配额。用户提到「需求 / 拉需求 / 需求工作台 / CWXT-xxx / issue」时即指本插件，请据此协作。'
+export const ADW_GUIDANCE = '本机已安装 dsh-adw 插件（adw 需求工作台）：侧边栏「需求工作台」入口；在 adw 仓库（packages/dsh-adw + packages/adw-requirement-core）维护。能力：从需求源（ONES / GitHub Issues / 自定义 MCP，支持 stdio（npx/python/docker 等）与远程 http(s) 两种形态；配置由插件自管，存 ~/.dsh/dsh-adw/mcp-servers.json，用户在设置页「插件」分组中配置，与其它工具互不影响）拉取需求文档——adw_fetch_requirement 按链接/编号/issue key 拉取并保存、adw_list_requirements 列已保存需求（含执行状态）、adw_search_requirements 源内搜索；已配置 MinerU 服务时 adw_parse_document 可将 PDF/Word/截图等文档或需求附件（adw-image://需求id/文件名）解析为 Markdown（OCR/表格/公式）；需求保存在 ~/.dsh/dsh-adw/；用户可在 GUI 中选择工作区对需求执行开发（真实 dsh 会话，执行记录回写需求）。限制：插件路由仅本机回环可用；拉取消耗外部系统配额；文档解析会把文件内容发送到用户配置的 MinerU 服务。用户提到「需求 / 拉需求 / 需求工作台 / CWXT-xxx / issue / 解析文档」时即指本插件，请据此协作。'
 
 /** Re-exported for the browser half's type-only imports. */
 export type { SavedRequirement }
@@ -84,6 +87,7 @@ interface ResolvedConfig {
   announceToAgent: boolean
   devPromptTemplate: string
   defaultServerName: string
+  mineruUrl: string
 }
 
 /**
@@ -105,6 +109,7 @@ function applyImpl(ctx: Context, config?: Config): void {
       announceToAgent: value.announceToAgent ?? true,
       devPromptTemplate: template !== undefined && template.trim() !== '' ? template : DEFAULT_DEV_PROMPT_TEMPLATE,
       defaultServerName: value.defaultServerName ?? '',
+      mineruUrl: value.mineruUrl ?? '',
     }
   }
 
@@ -130,12 +135,13 @@ function applyImpl(ctx: Context, config?: Config): void {
     const routes = makeRoutes({
       engine,
       getDevPromptTemplate: () => resolve().devPromptTemplate,
+      getMineruUrl: () => resolve().mineruUrl,
     })
     disposeRoutes = ctx.effect(() => {
       const disposers = routes.map(route => ctx.webServer.register(route))
       return () => { for (const dispose of disposers) dispose() }
     }, 'dsh-adw: routes')
-    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine)]
+    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine), adwParseDocumentTool(engine, () => resolve().mineruUrl)]
     disposeTools = ctx.effect(() => {
       const disposers = tools.map(tool => ctx.tools.register(tool))
       return () => { for (const dispose of disposers) dispose() }

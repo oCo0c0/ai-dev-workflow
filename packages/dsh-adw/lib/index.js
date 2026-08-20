@@ -3231,8 +3231,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path4) {
-      let input = path4;
+    function removeDotSegments(path5) {
+      let input = path5;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3484,8 +3484,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path4, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
+        const [path5, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6611,7 +6611,7 @@ var require_formats = __commonJS({
     }
     exports.fullFormats = {
       // date: http://tools.ietf.org/html/rfc3339#section-5.6
-      date: fmtDef(date3, compareDate),
+      date: fmtDef(date4, compareDate),
       // date-time: http://tools.ietf.org/html/rfc3339#section-5.6
       time: fmtDef(getTime(true), compareTime),
       "date-time": fmtDef(getDateTime(true), compareDateTime),
@@ -6677,7 +6677,7 @@ var require_formats = __commonJS({
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function date3(str2) {
+    function date4(str2) {
       const matches = DATE.exec(str2);
       if (!matches)
         return false;
@@ -6746,7 +6746,7 @@ var require_formats = __commonJS({
       const time3 = getTime(strictTimeZone);
       return function date_time(str2) {
         const dateTime = str2.split(DATE_TIME_SEPARATOR);
-        return dateTime.length === 2 && date3(dateTime[0]) && time3(dateTime[1]);
+        return dateTime.length === 2 && date4(dateTime[0]) && time3(dateTime[1]);
       };
     }
     function compareDateTime(dt1, dt2) {
@@ -6904,12 +6904,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name2}"`);
       return f;
     };
-    function addFormats(ajv, list, fs5, exportName) {
+    function addFormats(ajv, list, fs6, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs5[f]);
+        ajv.addFormat(f, fs6[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -6922,8 +6922,8 @@ var require_windows = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/isexe@2.0.0/node_modules/isexe/windows.js"(exports, module) {
     module.exports = isexe;
     isexe.sync = sync;
-    var fs5 = __require("fs");
-    function checkPathExt(path4, options) {
+    var fs6 = __require("fs");
+    function checkPathExt(path5, options) {
       var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
       if (!pathext) {
         return true;
@@ -6934,25 +6934,25 @@ var require_windows = __commonJS({
       }
       for (var i = 0; i < pathext.length; i++) {
         var p = pathext[i].toLowerCase();
-        if (p && path4.substr(-p.length).toLowerCase() === p) {
+        if (p && path5.substr(-p.length).toLowerCase() === p) {
           return true;
         }
       }
       return false;
     }
-    function checkStat(stat, path4, options) {
+    function checkStat(stat, path5, options) {
       if (!stat.isSymbolicLink() && !stat.isFile()) {
         return false;
       }
-      return checkPathExt(path4, options);
+      return checkPathExt(path5, options);
     }
-    function isexe(path4, options, cb) {
-      fs5.stat(path4, function(er, stat) {
-        cb(er, er ? false : checkStat(stat, path4, options));
+    function isexe(path5, options, cb) {
+      fs6.stat(path5, function(er, stat) {
+        cb(er, er ? false : checkStat(stat, path5, options));
       });
     }
-    function sync(path4, options) {
-      return checkStat(fs5.statSync(path4), path4, options);
+    function sync(path5, options) {
+      return checkStat(fs6.statSync(path5), path5, options);
     }
   }
 });
@@ -6962,14 +6962,14 @@ var require_mode = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/isexe@2.0.0/node_modules/isexe/mode.js"(exports, module) {
     module.exports = isexe;
     isexe.sync = sync;
-    var fs5 = __require("fs");
-    function isexe(path4, options, cb) {
-      fs5.stat(path4, function(er, stat) {
+    var fs6 = __require("fs");
+    function isexe(path5, options, cb) {
+      fs6.stat(path5, function(er, stat) {
         cb(er, er ? false : checkStat(stat, options));
       });
     }
-    function sync(path4, options) {
-      return checkStat(fs5.statSync(path4), options);
+    function sync(path5, options) {
+      return checkStat(fs6.statSync(path5), options);
     }
     function checkStat(stat, options) {
       return stat.isFile() && checkMode(stat, options);
@@ -6993,7 +6993,7 @@ var require_mode = __commonJS({
 // ../adw-requirement-core/node_modules/.pnpm/isexe@2.0.0/node_modules/isexe/index.js
 var require_isexe = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/isexe@2.0.0/node_modules/isexe/index.js"(exports, module) {
-    var fs5 = __require("fs");
+    var fs6 = __require("fs");
     var core;
     if (process.platform === "win32" || global.TESTING_WINDOWS) {
       core = require_windows();
@@ -7002,7 +7002,7 @@ var require_isexe = __commonJS({
     }
     module.exports = isexe;
     isexe.sync = sync;
-    function isexe(path4, options, cb) {
+    function isexe(path5, options, cb) {
       if (typeof options === "function") {
         cb = options;
         options = {};
@@ -7012,7 +7012,7 @@ var require_isexe = __commonJS({
           throw new TypeError("callback not provided");
         }
         return new Promise(function(resolve, reject) {
-          isexe(path4, options || {}, function(er, is) {
+          isexe(path5, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
@@ -7021,7 +7021,7 @@ var require_isexe = __commonJS({
           });
         });
       }
-      core(path4, options || {}, function(er, is) {
+      core(path5, options || {}, function(er, is) {
         if (er) {
           if (er.code === "EACCES" || options && options.ignoreErrors) {
             er = null;
@@ -7031,9 +7031,9 @@ var require_isexe = __commonJS({
         cb(er, is);
       });
     }
-    function sync(path4, options) {
+    function sync(path5, options) {
       try {
-        return core.sync(path4, options || {});
+        return core.sync(path5, options || {});
       } catch (er) {
         if (options && options.ignoreErrors || er.code === "EACCES") {
           return false;
@@ -7049,7 +7049,7 @@ var require_isexe = __commonJS({
 var require_which = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/which@2.0.2/node_modules/which/which.js"(exports, module) {
     var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path4 = __require("path");
+    var path5 = __require("path");
     var COLON = isWindows ? ";" : ":";
     var isexe = require_isexe();
     var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
@@ -7087,7 +7087,7 @@ var require_which = __commonJS({
           return opt.all && found.length ? resolve(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path4.join(pathPart, cmd);
+        const pCmd = path5.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         resolve(subStep(p, i, 0));
       });
@@ -7114,7 +7114,7 @@ var require_which = __commonJS({
       for (let i = 0; i < pathEnv.length; i++) {
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path4.join(pathPart, cmd);
+        const pCmd = path5.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         for (let j = 0; j < pathExt.length; j++) {
           const cur = p + pathExt[j];
@@ -7162,7 +7162,7 @@ var require_path_key = __commonJS({
 var require_resolveCommand = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports, module) {
     "use strict";
-    var path4 = __require("path");
+    var path5 = __require("path");
     var which = require_which();
     var getPathKey = require_path_key();
     function resolveCommandAttempt(parsed, withoutPathExt) {
@@ -7180,7 +7180,7 @@ var require_resolveCommand = __commonJS({
       try {
         resolved = which.sync(parsed.command, {
           path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path4.delimiter : void 0
+          pathExt: withoutPathExt ? path5.delimiter : void 0
         });
       } catch (e) {
       } finally {
@@ -7189,7 +7189,7 @@ var require_resolveCommand = __commonJS({
         }
       }
       if (resolved) {
-        resolved = path4.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
+        resolved = path5.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
       }
       return resolved;
     }
@@ -7238,13 +7238,13 @@ var require_shebang_command = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/shebang-command@2.0.0/node_modules/shebang-command/index.js"(exports, module) {
     "use strict";
     var shebangRegex = require_shebang_regex();
-    module.exports = (string3 = "") => {
-      const match = string3.match(shebangRegex);
+    module.exports = (string4 = "") => {
+      const match = string4.match(shebangRegex);
       if (!match) {
         return null;
       }
-      const [path4, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path4.split("/").pop();
+      const [path5, argument] = match[0].replace(/#! ?/, "").split(" ");
+      const binary = path5.split("/").pop();
       if (binary === "env") {
         return argument;
       }
@@ -7257,16 +7257,16 @@ var require_shebang_command = __commonJS({
 var require_readShebang = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js"(exports, module) {
     "use strict";
-    var fs5 = __require("fs");
+    var fs6 = __require("fs");
     var shebangCommand = require_shebang_command();
     function readShebang(command) {
       const size = 150;
       const buffer = Buffer.alloc(size);
       let fd;
       try {
-        fd = fs5.openSync(command, "r");
-        fs5.readSync(fd, buffer, 0, size, 0);
-        fs5.closeSync(fd);
+        fd = fs6.openSync(command, "r");
+        fs6.readSync(fd, buffer, 0, size, 0);
+        fs6.closeSync(fd);
       } catch (e) {
       }
       return shebangCommand(buffer.toString());
@@ -7279,7 +7279,7 @@ var require_readShebang = __commonJS({
 var require_parse = __commonJS({
   "../adw-requirement-core/node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js"(exports, module) {
     "use strict";
-    var path4 = __require("path");
+    var path5 = __require("path");
     var resolveCommand = require_resolveCommand();
     var escape2 = require_escape();
     var readShebang = require_readShebang();
@@ -7304,7 +7304,7 @@ var require_parse = __commonJS({
       const needsShell = !isExecutableRegExp.test(commandFile);
       if (parsed.options.forceShell || needsShell) {
         const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path4.normalize(parsed.command);
+        parsed.command = path5.normalize(parsed.command);
         parsed.command = escape2.command(parsed.command);
         parsed.args = parsed.args.map((arg) => escape2.argument(arg, needsDoubleEscapeMetaChars));
         const shellCommand = [parsed.command].concat(parsed.args).join(" ");
@@ -7414,6 +7414,110 @@ var require_cross_spawn = __commonJS({
   }
 });
 
+// ../adw-requirement-core/node_modules/.pnpm/content-type@1.0.5/node_modules/content-type/index.js
+var require_content_type = __commonJS({
+  "../adw-requirement-core/node_modules/.pnpm/content-type@1.0.5/node_modules/content-type/index.js"(exports) {
+    "use strict";
+    var PARAM_REGEXP = /; *([!#$%&'*+.^_`|~0-9A-Za-z-]+) *= *("(?:[\u000b\u0020\u0021\u0023-\u005b\u005d-\u007e\u0080-\u00ff]|\\[\u000b\u0020-\u00ff])*"|[!#$%&'*+.^_`|~0-9A-Za-z-]+) */g;
+    var TEXT_REGEXP = /^[\u000b\u0020-\u007e\u0080-\u00ff]+$/;
+    var TOKEN_REGEXP = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+    var QESC_REGEXP = /\\([\u000b\u0020-\u00ff])/g;
+    var QUOTE_REGEXP = /([\\"])/g;
+    var TYPE_REGEXP = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+    exports.format = format;
+    exports.parse = parse3;
+    function format(obj) {
+      if (!obj || typeof obj !== "object") {
+        throw new TypeError("argument obj is required");
+      }
+      var parameters = obj.parameters;
+      var type = obj.type;
+      if (!type || !TYPE_REGEXP.test(type)) {
+        throw new TypeError("invalid type");
+      }
+      var string4 = type;
+      if (parameters && typeof parameters === "object") {
+        var param;
+        var params = Object.keys(parameters).sort();
+        for (var i = 0; i < params.length; i++) {
+          param = params[i];
+          if (!TOKEN_REGEXP.test(param)) {
+            throw new TypeError("invalid parameter name");
+          }
+          string4 += "; " + param + "=" + qstring(parameters[param]);
+        }
+      }
+      return string4;
+    }
+    function parse3(string4) {
+      if (!string4) {
+        throw new TypeError("argument string is required");
+      }
+      var header = typeof string4 === "object" ? getcontenttype(string4) : string4;
+      if (typeof header !== "string") {
+        throw new TypeError("argument string is required to be a string");
+      }
+      var index = header.indexOf(";");
+      var type = index !== -1 ? header.slice(0, index).trim() : header.trim();
+      if (!TYPE_REGEXP.test(type)) {
+        throw new TypeError("invalid media type");
+      }
+      var obj = new ContentType(type.toLowerCase());
+      if (index !== -1) {
+        var key;
+        var match;
+        var value;
+        PARAM_REGEXP.lastIndex = index;
+        while (match = PARAM_REGEXP.exec(header)) {
+          if (match.index !== index) {
+            throw new TypeError("invalid parameter format");
+          }
+          index += match[0].length;
+          key = match[1].toLowerCase();
+          value = match[2];
+          if (value.charCodeAt(0) === 34) {
+            value = value.slice(1, -1);
+            if (value.indexOf("\\") !== -1) {
+              value = value.replace(QESC_REGEXP, "$1");
+            }
+          }
+          obj.parameters[key] = value;
+        }
+        if (index !== header.length) {
+          throw new TypeError("invalid parameter format");
+        }
+      }
+      return obj;
+    }
+    function getcontenttype(obj) {
+      var header;
+      if (typeof obj.getHeader === "function") {
+        header = obj.getHeader("content-type");
+      } else if (typeof obj.headers === "object") {
+        header = obj.headers && obj.headers["content-type"];
+      }
+      if (typeof header !== "string") {
+        throw new TypeError("content-type header is missing from object");
+      }
+      return header;
+    }
+    function qstring(val) {
+      var str2 = String(val);
+      if (TOKEN_REGEXP.test(str2)) {
+        return str2;
+      }
+      if (str2.length > 0 && !TEXT_REGEXP.test(str2)) {
+        throw new TypeError("invalid parameter value");
+      }
+      return '"' + str2.replace(QUOTE_REGEXP, "\\$1") + '"';
+    }
+    function ContentType(type) {
+      this.parameters = /* @__PURE__ */ Object.create(null);
+      this.type = type;
+    }
+  }
+});
+
 // src/index.ts
 import { homedir } from "os";
 import { join as join2 } from "path";
@@ -7471,6 +7575,43 @@ function validateMcpEnv(env) {
     }
   }
   return env;
+}
+function validateMcpUrl(url2) {
+  let parsed;
+  try {
+    parsed = new URL(url2);
+  } catch {
+    throw new Error("MCP Server url must be an absolute http(s) URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("MCP Server url must be an absolute http(s) URL");
+  }
+}
+function toStored(name2, config2) {
+  const env = validateMcpEnv(config2.env);
+  if (config2.url !== void 0 && config2.url.trim() !== "") {
+    validateMcpUrl(config2.url.trim());
+    const stored2 = { url: config2.url.trim() };
+    if (Object.keys(env).length > 0) stored2.env = env;
+    return stored2;
+  }
+  if (config2.command === void 0 || config2.command.trim() === "") {
+    throw new Error(`MCP Server "${name2}" needs either command (stdio) or url (http/sse)`);
+  }
+  validateMcpCommand(config2.command);
+  const args = validateMcpArgs(config2.args);
+  const stored = { command: config2.command };
+  if (args.length > 0) stored.args = args;
+  if (Object.keys(env).length > 0) stored.env = env;
+  return stored;
+}
+function fromStored(name2, stored) {
+  if (stored.url !== void 0 && stored.url.trim() !== "") {
+    return { name: name2, type: "http", command: "", args: [], env: stored.env ?? {}, url: stored.url.trim(), enabled: true, status: "disconnected" };
+  }
+  const command = stored.command ?? "";
+  const args = stored.args ?? [];
+  return { name: name2, type: inferType(command, args), command, args, env: stored.env ?? {}, enabled: true, status: "disconnected" };
 }
 var MCPConfigService = class {
   /** 配置文件的绝对路径 */
@@ -7537,19 +7678,7 @@ var MCPConfigService = class {
    */
   list() {
     const servers = this.loadSettings().mcpServers ?? {};
-    const configs = [];
-    for (const [name2, config2] of Object.entries(servers)) {
-      configs.push({
-        name: name2,
-        type: this.inferType(config2.command, config2.args),
-        command: config2.command,
-        args: config2.args ?? [],
-        env: config2.env ?? {},
-        enabled: true,
-        status: "disconnected"
-      });
-    }
-    return configs;
+    return Object.entries(servers).map(([name2, stored]) => fromStored(name2, stored));
   }
   /**
    * 根据名称获取单个 MCP 服务器配置
@@ -7558,19 +7687,11 @@ var MCPConfigService = class {
    * @returns MCPServerConfig | undefined 找到则返回配置，未找到返回 undefined
    */
   get(name2) {
-    const config2 = (this.loadSettings().mcpServers ?? {})[name2];
-    if (!config2) {
+    const stored = (this.loadSettings().mcpServers ?? {})[name2];
+    if (!stored) {
       return void 0;
     }
-    return {
-      name: name2,
-      type: this.inferType(config2.command, config2.args),
-      command: config2.command,
-      args: config2.args ?? [],
-      env: config2.env ?? {},
-      enabled: true,
-      status: "disconnected"
-    };
+    return fromStored(name2, stored);
   }
   /**
    * 添加新的 MCP 服务器配置
@@ -7585,9 +7706,7 @@ var MCPConfigService = class {
     if (!config2.name || config2.name.trim() === "") {
       throw new Error("MCP Server name is required");
     }
-    validateMcpCommand(config2.command);
-    const validatedArgs = validateMcpArgs(config2.args);
-    const validatedEnv = validateMcpEnv(config2.env);
+    const stored = toStored(config2.name, config2);
     const settings = this.loadSettings();
     if (!settings.mcpServers) {
       settings.mcpServers = {};
@@ -7595,19 +7714,9 @@ var MCPConfigService = class {
     if (settings.mcpServers[config2.name]) {
       throw new Error(`MCP Server "${config2.name}" already exists`);
     }
-    settings.mcpServers[config2.name] = {
-      command: config2.command,
-      args: validatedArgs.length > 0 ? validatedArgs : void 0,
-      env: Object.keys(validatedEnv).length > 0 ? validatedEnv : void 0
-    };
+    settings.mcpServers[config2.name] = stored;
     this.saveSettings(settings);
-    return {
-      ...config2,
-      args: validatedArgs,
-      env: validatedEnv,
-      type: this.inferType(config2.command, validatedArgs),
-      status: "disconnected"
-    };
+    return fromStored(config2.name, stored);
   }
   /**
    * 更新已有的 MCP 服务器配置
@@ -7629,27 +7738,11 @@ var MCPConfigService = class {
       throw new Error(`MCP Server "${name2}" not found`);
     }
     const existing = settings.mcpServers[name2];
-    const updatedCommand = config2.command ?? existing.command;
-    const updatedArgs = config2.args ?? existing.args ?? [];
-    const updatedEnv = config2.env ?? existing.env ?? {};
-    validateMcpCommand(updatedCommand);
-    const validatedArgs = validateMcpArgs(updatedArgs);
-    const validatedEnv = validateMcpEnv(updatedEnv);
-    settings.mcpServers[name2] = {
-      command: updatedCommand,
-      args: validatedArgs.length > 0 ? validatedArgs : void 0,
-      env: Object.keys(validatedEnv).length > 0 ? validatedEnv : void 0
-    };
+    const merged = { command: existing.command, args: existing.args, env: existing.env, url: existing.url, ...config2 };
+    const stored = toStored(name2, merged);
+    settings.mcpServers[name2] = stored;
     this.saveSettings(settings);
-    return {
-      name: name2,
-      type: this.inferType(updatedCommand, validatedArgs),
-      command: updatedCommand,
-      args: validatedArgs,
-      env: validatedEnv,
-      enabled: config2.enabled ?? true,
-      status: "disconnected"
-    };
+    return fromStored(name2, stored);
   }
   /**
    * 删除 MCP 服务器配置
@@ -7685,6 +7778,17 @@ var MCPConfigService = class {
     const config2 = this.get(name2);
     if (!config2) {
       return Promise.resolve({ status: "error", message: `MCP Server "${name2}" not found` });
+    }
+    if (config2.url !== void 0) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      return fetch(config2.url, { method: "GET", signal: controller.signal, headers: config2.env }).then(() => {
+        clearTimeout(timer);
+        return { status: "connected", message: "URL reachable" };
+      }).catch((err) => {
+        clearTimeout(timer);
+        return { status: "error", message: `URL unreachable: ${getErrorMessage(err)}` };
+      });
     }
     return new Promise((resolve) => {
       try {
@@ -7736,36 +7840,26 @@ var MCPConfigService = class {
   getSettingsFile() {
     return this.settingsFile;
   }
-  /**
-   * 根据命令和参数推断 MCP 服务器的运行时类型
-   *
-   * 通过检查命令和参数中是否包含特定关键字来判断服务器类型：
-   * - 包含 npx/node/.js → 'node'
-   * - 包含 python/.py → 'python'
-   * - 包含 docker → 'docker'
-   * - 其他 → 'custom'
-   *
-   * @param command - 启动命令
-   * @param args - 命令参数（可选）
-   * @returns string 推断出的运行时类型标识
-   */
-  inferType(command, args) {
-    const allParts = [command, ...args ?? []].join(" ").toLowerCase();
-    if (allParts.includes("npx") || allParts.includes("node") || allParts.includes(".js")) {
-      return "node";
-    }
-    if (allParts.includes("python") || allParts.includes(".py")) {
-      return "python";
-    }
-    if (allParts.includes("docker")) {
-      return "docker";
-    }
-    return "custom";
-  }
 };
+function inferType(command, args) {
+  const allParts = [command, ...args ?? []].join(" ").toLowerCase();
+  if (allParts.includes("npx") || allParts.includes("node") || allParts.includes(".js")) {
+    return "node";
+  }
+  if (allParts.includes("python") || allParts.includes(".py")) {
+    return "python";
+  }
+  if (allParts.includes("docker")) {
+    return "docker";
+  }
+  return "custom";
+}
 
 // ../adw-requirement-core/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js
 var _a;
+var NEVER = /* @__PURE__ */ Object.freeze({
+  status: "aborted"
+});
 // @__NO_SIDE_EFFECTS__
 function $constructor(name2, initializer3, params) {
   function init(inst, def) {
@@ -8005,10 +8099,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path4) {
-  if (!path4)
+function getElementAtPath(obj, path5) {
+  if (!path5)
     return obj;
-  return path4.reduce((acc, key) => acc?.[key], obj);
+  return path5.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -8417,11 +8511,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path4, issues) {
+function prefixIssues(path5, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path4);
+    iss.path.unshift(path5);
     return iss;
   });
 }
@@ -8568,16 +8662,16 @@ function flattenError(error2, mapper = (issue2) => issue2.message) {
 }
 function formatError(error2, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error3, path4 = []) => {
+  const processError = (error3, path5 = []) => {
     for (const issue2 of error3.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path4, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else {
-        const fullpath = [...path4, ...issue2.path];
+        const fullpath = [...path5, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -8732,6 +8826,7 @@ var string = (params) => {
   const regex = params ? `[\\s\\S]{${params?.minimum ?? 0},${params?.maximum ?? ""}}` : `[\\s\\S]*`;
   return new RegExp(`^${regex}$`);
 };
+var bigint = /^-?\d+n?$/;
 var integer = /^-?\d+$/;
 var number = /^-?\d+(?:\.\d+)?$/;
 var boolean = /^(?:true|false)$/i;
@@ -9354,10 +9449,10 @@ var $ZodURL = /* @__PURE__ */ $constructor("$ZodURL", (inst, def) => {
           return;
         }
       }
-      const url = new URL(trimmed);
+      const url2 = new URL(trimmed);
       if (def.hostname) {
         def.hostname.lastIndex = 0;
-        if (!def.hostname.test(url.hostname)) {
+        if (!def.hostname.test(url2.hostname)) {
           payload.issues.push({
             code: "invalid_format",
             format: "url",
@@ -9371,7 +9466,7 @@ var $ZodURL = /* @__PURE__ */ $constructor("$ZodURL", (inst, def) => {
       }
       if (def.protocol) {
         def.protocol.lastIndex = 0;
-        if (!def.protocol.test(url.protocol.endsWith(":") ? url.protocol.slice(0, -1) : url.protocol)) {
+        if (!def.protocol.test(url2.protocol.endsWith(":") ? url2.protocol.slice(0, -1) : url2.protocol)) {
           payload.issues.push({
             code: "invalid_format",
             format: "url",
@@ -9384,7 +9479,7 @@ var $ZodURL = /* @__PURE__ */ $constructor("$ZodURL", (inst, def) => {
         }
       }
       if (def.normalize) {
-        payload.value = url.href;
+        payload.value = url2.href;
       } else {
         payload.value = trimmed;
       }
@@ -9639,6 +9734,26 @@ var $ZodBoolean = /* @__PURE__ */ $constructor("$ZodBoolean", (inst, def) => {
     return payload;
   };
 });
+var $ZodBigInt = /* @__PURE__ */ $constructor("$ZodBigInt", (inst, def) => {
+  $ZodType.init(inst, def);
+  inst._zod.pattern = bigint;
+  inst._zod.parse = (payload, _ctx) => {
+    if (def.coerce)
+      try {
+        payload.value = BigInt(payload.value);
+      } catch (_) {
+      }
+    if (typeof payload.value === "bigint")
+      return payload;
+    payload.issues.push({
+      expected: "bigint",
+      code: "invalid_type",
+      input: payload.value,
+      inst
+    });
+    return payload;
+  };
+});
 var $ZodNull = /* @__PURE__ */ $constructor("$ZodNull", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.pattern = _null;
@@ -9656,6 +9771,10 @@ var $ZodNull = /* @__PURE__ */ $constructor("$ZodNull", (inst, def) => {
     return payload;
   };
 });
+var $ZodAny = /* @__PURE__ */ $constructor("$ZodAny", (inst, def) => {
+  $ZodType.init(inst, def);
+  inst._zod.parse = (payload) => payload;
+});
 var $ZodUnknown = /* @__PURE__ */ $constructor("$ZodUnknown", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.parse = (payload) => payload;
@@ -9667,6 +9786,30 @@ var $ZodNever = /* @__PURE__ */ $constructor("$ZodNever", (inst, def) => {
       expected: "never",
       code: "invalid_type",
       input: payload.value,
+      inst
+    });
+    return payload;
+  };
+});
+var $ZodDate = /* @__PURE__ */ $constructor("$ZodDate", (inst, def) => {
+  $ZodType.init(inst, def);
+  inst._zod.parse = (payload, _ctx) => {
+    if (def.coerce) {
+      try {
+        payload.value = new Date(payload.value);
+      } catch (_err) {
+      }
+    }
+    const input = payload.value;
+    const isDate = input instanceof Date;
+    const isValidDate = isDate && !Number.isNaN(input.getTime());
+    if (isValidDate)
+      return payload;
+    payload.issues.push({
+      expected: "date",
+      code: "invalid_type",
+      input,
+      ...isDate ? { received: "Invalid Date" } : {},
       inst
     });
     return payload;
@@ -10824,6 +10967,14 @@ function _string(Class2, params) {
   });
 }
 // @__NO_SIDE_EFFECTS__
+function _coercedString(Class2, params) {
+  return new Class2({
+    type: "string",
+    coerce: true,
+    ...normalizeParams(params)
+  });
+}
+// @__NO_SIDE_EFFECTS__
 function _email(Class2, params) {
   return new Class2({
     type: "string",
@@ -11095,6 +11246,15 @@ function _number(Class2, params) {
   });
 }
 // @__NO_SIDE_EFFECTS__
+function _coercedNumber(Class2, params) {
+  return new Class2({
+    type: "number",
+    coerce: true,
+    checks: [],
+    ...normalizeParams(params)
+  });
+}
+// @__NO_SIDE_EFFECTS__
 function _int(Class2, params) {
   return new Class2({
     type: "number",
@@ -11112,10 +11272,32 @@ function _boolean(Class2, params) {
   });
 }
 // @__NO_SIDE_EFFECTS__
+function _coercedBoolean(Class2, params) {
+  return new Class2({
+    type: "boolean",
+    coerce: true,
+    ...normalizeParams(params)
+  });
+}
+// @__NO_SIDE_EFFECTS__
+function _coercedBigint(Class2, params) {
+  return new Class2({
+    type: "bigint",
+    coerce: true,
+    ...normalizeParams(params)
+  });
+}
+// @__NO_SIDE_EFFECTS__
 function _null2(Class2, params) {
   return new Class2({
     type: "null",
     ...normalizeParams(params)
+  });
+}
+// @__NO_SIDE_EFFECTS__
+function _any(Class2) {
+  return new Class2({
+    type: "any"
   });
 }
 // @__NO_SIDE_EFFECTS__
@@ -11128,6 +11310,14 @@ function _unknown(Class2) {
 function _never(Class2, params) {
   return new Class2({
     type: "never",
+    ...normalizeParams(params)
+  });
+}
+// @__NO_SIDE_EFFECTS__
+function _coercedDate(Class2, params) {
+  return new Class2({
+    type: "date",
+    coerce: true,
     ...normalizeParams(params)
   });
 }
@@ -11779,6 +11969,11 @@ var numberProcessor = (schema, ctx, _json, _params) => {
 var booleanProcessor = (_schema, _ctx, json, _params) => {
   json.type = "boolean";
 };
+var bigintProcessor = (_schema, ctx, _json, _params) => {
+  if (ctx.unrepresentable === "throw") {
+    throw new Error("BigInt cannot be represented in JSON Schema");
+  }
+};
 var nullProcessor = (_schema, ctx, json, _params) => {
   if (ctx.target === "openapi-3.0") {
     json.type = "string";
@@ -11791,7 +11986,14 @@ var nullProcessor = (_schema, ctx, json, _params) => {
 var neverProcessor = (_schema, _ctx, json, _params) => {
   json.not = {};
 };
+var anyProcessor = (_schema, _ctx, _json, _params) => {
+};
 var unknownProcessor = (_schema, _ctx, _json, _params) => {
+};
+var dateProcessor = (_schema, ctx, _json, _params) => {
+  if (ctx.unrepresentable === "throw") {
+    throw new Error("Date cannot be represented in JSON Schema");
+  }
 };
 var enumProcessor = (schema, _ctx, json, _params) => {
   const def = schema._zod.def;
@@ -12469,6 +12671,9 @@ var ZodURL = /* @__PURE__ */ $constructor("ZodURL", (inst, def) => {
   $ZodURL.init(inst, def);
   ZodStringFormat.init(inst, def);
 });
+function url(params) {
+  return _url(ZodURL, params);
+}
 var ZodEmoji = /* @__PURE__ */ $constructor("ZodEmoji", (inst, def) => {
   $ZodEmoji.init(inst, def);
   ZodStringFormat.init(inst, def);
@@ -12605,6 +12810,28 @@ var ZodBoolean = /* @__PURE__ */ $constructor("ZodBoolean", (inst, def) => {
 function boolean2(params) {
   return _boolean(ZodBoolean, params);
 }
+var ZodBigInt = /* @__PURE__ */ $constructor("ZodBigInt", (inst, def) => {
+  $ZodBigInt.init(inst, def);
+  ZodType.init(inst, def);
+  inst._zod.processJSONSchema = (ctx, json, params) => bigintProcessor(inst, ctx, json, params);
+  inst.gte = (value, params) => inst.check(_gte(value, params));
+  inst.min = (value, params) => inst.check(_gte(value, params));
+  inst.gt = (value, params) => inst.check(_gt(value, params));
+  inst.gte = (value, params) => inst.check(_gte(value, params));
+  inst.min = (value, params) => inst.check(_gte(value, params));
+  inst.lt = (value, params) => inst.check(_lt(value, params));
+  inst.lte = (value, params) => inst.check(_lte(value, params));
+  inst.max = (value, params) => inst.check(_lte(value, params));
+  inst.positive = (params) => inst.check(_gt(BigInt(0), params));
+  inst.negative = (params) => inst.check(_lt(BigInt(0), params));
+  inst.nonpositive = (params) => inst.check(_lte(BigInt(0), params));
+  inst.nonnegative = (params) => inst.check(_gte(BigInt(0), params));
+  inst.multipleOf = (value, params) => inst.check(_multipleOf(value, params));
+  const bag = inst._zod.bag;
+  inst.minValue = bag.minimum ?? null;
+  inst.maxValue = bag.maximum ?? null;
+  inst.format = bag.format ?? null;
+});
 var ZodNull = /* @__PURE__ */ $constructor("ZodNull", (inst, def) => {
   $ZodNull.init(inst, def);
   ZodType.init(inst, def);
@@ -12612,6 +12839,14 @@ var ZodNull = /* @__PURE__ */ $constructor("ZodNull", (inst, def) => {
 });
 function _null3(params) {
   return _null2(ZodNull, params);
+}
+var ZodAny = /* @__PURE__ */ $constructor("ZodAny", (inst, def) => {
+  $ZodAny.init(inst, def);
+  ZodType.init(inst, def);
+  inst._zod.processJSONSchema = (ctx, json, params) => anyProcessor(inst, ctx, json, params);
+});
+function any() {
+  return _any(ZodAny);
 }
 var ZodUnknown = /* @__PURE__ */ $constructor("ZodUnknown", (inst, def) => {
   $ZodUnknown.init(inst, def);
@@ -12629,6 +12864,16 @@ var ZodNever = /* @__PURE__ */ $constructor("ZodNever", (inst, def) => {
 function never(params) {
   return _never(ZodNever, params);
 }
+var ZodDate = /* @__PURE__ */ $constructor("ZodDate", (inst, def) => {
+  $ZodDate.init(inst, def);
+  ZodType.init(inst, def);
+  inst._zod.processJSONSchema = (ctx, json, params) => dateProcessor(inst, ctx, json, params);
+  inst.min = (value, params) => inst.check(_gte(value, params));
+  inst.max = (value, params) => inst.check(_lte(value, params));
+  const c = inst._zod.bag;
+  inst.minDate = c.minimum ? new Date(c.minimum) : null;
+  inst.maxDate = c.maximum ? new Date(c.maximum) : null;
+});
 var ZodArray = /* @__PURE__ */ $constructor("ZodArray", (inst, def) => {
   $ZodArray.init(inst, def);
   ZodType.init(inst, def);
@@ -13032,6 +13277,49 @@ function preprocess(fn, schema) {
     in: transform(fn),
     out: schema
   });
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js
+var ZodIssueCode = {
+  invalid_type: "invalid_type",
+  too_big: "too_big",
+  too_small: "too_small",
+  invalid_format: "invalid_format",
+  not_multiple_of: "not_multiple_of",
+  unrecognized_keys: "unrecognized_keys",
+  invalid_union: "invalid_union",
+  invalid_key: "invalid_key",
+  invalid_element: "invalid_element",
+  invalid_value: "invalid_value",
+  custom: "custom"
+};
+var ZodFirstPartyTypeKind;
+/* @__PURE__ */ (function(ZodFirstPartyTypeKind2) {
+})(ZodFirstPartyTypeKind || (ZodFirstPartyTypeKind = {}));
+
+// ../adw-requirement-core/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js
+var coerce_exports = {};
+__export(coerce_exports, {
+  bigint: () => bigint2,
+  boolean: () => boolean3,
+  date: () => date3,
+  number: () => number3,
+  string: () => string3
+});
+function string3(params) {
+  return _coercedString(ZodString, params);
+}
+function number3(params) {
+  return _coercedNumber(ZodNumber, params);
+}
+function boolean3(params) {
+  return _coercedBoolean(ZodBoolean, params);
+}
+function bigint2(params) {
+  return _coercedBigint(ZodBigInt, params);
+}
+function date3(params) {
+  return _coercedDate(ZodDate, params);
 }
 
 // ../adw-requirement-core/node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
@@ -13438,6 +13726,7 @@ var InitializedNotificationSchema = NotificationSchema.extend({
   method: literal("notifications/initialized"),
   params: NotificationsParamsSchema.optional()
 });
+var isInitializedNotification = (value) => InitializedNotificationSchema.safeParse(value).success;
 var PingRequestSchema = RequestSchema.extend({
   method: literal("ping"),
   params: BaseRequestParamsSchema.optional()
@@ -16523,8 +16812,1981 @@ var StdioClientTransport = class {
   }
 };
 
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/mediaType.js
+var import_content_type = __toESM(require_content_type(), 1);
+function mediaTypeEssence(header) {
+  if (!header) {
+    return void 0;
+  }
+  try {
+    return import_content_type.default.parse(header).type;
+  } catch {
+    const essence = (header.split(";", 1)[0] ?? "").trim().toLowerCase();
+    if (essence === "" || header.slice(essence.length).includes(",")) {
+      return void 0;
+    }
+    return essence;
+  }
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/transport.js
+function normalizeHeaders(headers) {
+  if (!headers)
+    return {};
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+  return { ...headers };
+}
+function createFetchWithInit(baseFetch = fetch, baseInit) {
+  if (!baseInit) {
+    return baseFetch;
+  }
+  return async (url2, init) => {
+    const mergedInit = {
+      ...baseInit,
+      ...init,
+      // Headers need special handling - merge instead of replace
+      headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
+    };
+    return baseFetch(url2, mergedInit);
+  };
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/pkce-challenge@5.0.1/node_modules/pkce-challenge/dist/index.node.js
+var crypto;
+crypto = globalThis.crypto?.webcrypto ?? // Node.js [18-16] REPL
+globalThis.crypto ?? // Node.js >18
+import("crypto").then((m) => m.webcrypto);
+async function getRandomValues(size) {
+  return (await crypto).getRandomValues(new Uint8Array(size));
+}
+async function random(size) {
+  const mask = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+  const evenDistCutoff = Math.pow(2, 8) - Math.pow(2, 8) % mask.length;
+  let result = "";
+  while (result.length < size) {
+    const randomBytes = await getRandomValues(size - result.length);
+    for (const randomByte of randomBytes) {
+      if (randomByte < evenDistCutoff) {
+        result += mask[randomByte % mask.length];
+      }
+    }
+  }
+  return result;
+}
+async function generateVerifier(length) {
+  return await random(length);
+}
+async function generateChallenge(code_verifier) {
+  const buffer = await (await crypto).subtle.digest("SHA-256", new TextEncoder().encode(code_verifier));
+  return btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\//g, "_").replace(/\+/g, "-").replace(/=/g, "");
+}
+async function pkceChallenge(length) {
+  if (!length)
+    length = 43;
+  if (length < 43 || length > 128) {
+    throw `Expected a length between 43 and 128. Received ${length}.`;
+  }
+  const verifier = await generateVerifier(length);
+  const challenge = await generateChallenge(verifier);
+  return {
+    code_verifier: verifier,
+    code_challenge: challenge
+  };
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth.js
+var SafeUrlSchema = url().superRefine((val, ctx) => {
+  if (!URL.canParse(val)) {
+    ctx.addIssue({
+      code: ZodIssueCode.custom,
+      message: "URL must be parseable",
+      fatal: true
+    });
+    return NEVER;
+  }
+}).refine((url2) => {
+  const u = new URL(url2);
+  return u.protocol !== "javascript:" && u.protocol !== "data:" && u.protocol !== "vbscript:";
+}, { message: "URL cannot use javascript:, data:, or vbscript: scheme" });
+var OAuthProtectedResourceMetadataSchema = looseObject({
+  resource: string2().url(),
+  authorization_servers: array(SafeUrlSchema).optional(),
+  jwks_uri: string2().url().optional(),
+  scopes_supported: array(string2()).optional(),
+  bearer_methods_supported: array(string2()).optional(),
+  resource_signing_alg_values_supported: array(string2()).optional(),
+  resource_name: string2().optional(),
+  resource_documentation: string2().optional(),
+  resource_policy_uri: string2().url().optional(),
+  resource_tos_uri: string2().url().optional(),
+  tls_client_certificate_bound_access_tokens: boolean2().optional(),
+  authorization_details_types_supported: array(string2()).optional(),
+  dpop_signing_alg_values_supported: array(string2()).optional(),
+  dpop_bound_access_tokens_required: boolean2().optional()
+});
+var OAuthMetadataSchema = looseObject({
+  issuer: string2(),
+  authorization_endpoint: SafeUrlSchema,
+  token_endpoint: SafeUrlSchema,
+  registration_endpoint: SafeUrlSchema.optional(),
+  scopes_supported: array(string2()).optional(),
+  response_types_supported: array(string2()),
+  response_modes_supported: array(string2()).optional(),
+  grant_types_supported: array(string2()).optional(),
+  token_endpoint_auth_methods_supported: array(string2()).optional(),
+  token_endpoint_auth_signing_alg_values_supported: array(string2()).optional(),
+  service_documentation: SafeUrlSchema.optional(),
+  revocation_endpoint: SafeUrlSchema.optional(),
+  revocation_endpoint_auth_methods_supported: array(string2()).optional(),
+  revocation_endpoint_auth_signing_alg_values_supported: array(string2()).optional(),
+  introspection_endpoint: string2().optional(),
+  introspection_endpoint_auth_methods_supported: array(string2()).optional(),
+  introspection_endpoint_auth_signing_alg_values_supported: array(string2()).optional(),
+  code_challenge_methods_supported: array(string2()).optional(),
+  client_id_metadata_document_supported: boolean2().optional()
+});
+var OpenIdProviderMetadataSchema = looseObject({
+  issuer: string2(),
+  authorization_endpoint: SafeUrlSchema,
+  token_endpoint: SafeUrlSchema,
+  userinfo_endpoint: SafeUrlSchema.optional(),
+  jwks_uri: SafeUrlSchema,
+  registration_endpoint: SafeUrlSchema.optional(),
+  scopes_supported: array(string2()).optional(),
+  response_types_supported: array(string2()),
+  response_modes_supported: array(string2()).optional(),
+  grant_types_supported: array(string2()).optional(),
+  acr_values_supported: array(string2()).optional(),
+  subject_types_supported: array(string2()),
+  id_token_signing_alg_values_supported: array(string2()),
+  id_token_encryption_alg_values_supported: array(string2()).optional(),
+  id_token_encryption_enc_values_supported: array(string2()).optional(),
+  userinfo_signing_alg_values_supported: array(string2()).optional(),
+  userinfo_encryption_alg_values_supported: array(string2()).optional(),
+  userinfo_encryption_enc_values_supported: array(string2()).optional(),
+  request_object_signing_alg_values_supported: array(string2()).optional(),
+  request_object_encryption_alg_values_supported: array(string2()).optional(),
+  request_object_encryption_enc_values_supported: array(string2()).optional(),
+  token_endpoint_auth_methods_supported: array(string2()).optional(),
+  token_endpoint_auth_signing_alg_values_supported: array(string2()).optional(),
+  display_values_supported: array(string2()).optional(),
+  claim_types_supported: array(string2()).optional(),
+  claims_supported: array(string2()).optional(),
+  service_documentation: string2().optional(),
+  claims_locales_supported: array(string2()).optional(),
+  ui_locales_supported: array(string2()).optional(),
+  claims_parameter_supported: boolean2().optional(),
+  request_parameter_supported: boolean2().optional(),
+  request_uri_parameter_supported: boolean2().optional(),
+  require_request_uri_registration: boolean2().optional(),
+  op_policy_uri: SafeUrlSchema.optional(),
+  op_tos_uri: SafeUrlSchema.optional(),
+  client_id_metadata_document_supported: boolean2().optional()
+});
+var OpenIdProviderDiscoveryMetadataSchema = object2({
+  ...OpenIdProviderMetadataSchema.shape,
+  ...OAuthMetadataSchema.pick({
+    code_challenge_methods_supported: true
+  }).shape
+});
+var OAuthTokensSchema = object2({
+  access_token: string2(),
+  id_token: string2().optional(),
+  // Optional for OAuth 2.1, but necessary in OpenID Connect
+  token_type: string2(),
+  expires_in: coerce_exports.number().optional(),
+  scope: string2().optional(),
+  refresh_token: string2().optional()
+}).strip();
+var OAuthErrorResponseSchema = object2({
+  error: string2(),
+  error_description: string2().optional(),
+  error_uri: string2().optional()
+});
+var OptionalSafeUrlSchema = SafeUrlSchema.optional().or(literal("").transform(() => void 0));
+var OAuthClientMetadataSchema = object2({
+  redirect_uris: array(SafeUrlSchema),
+  token_endpoint_auth_method: string2().optional(),
+  grant_types: array(string2()).optional(),
+  response_types: array(string2()).optional(),
+  client_name: string2().optional(),
+  client_uri: SafeUrlSchema.optional(),
+  logo_uri: OptionalSafeUrlSchema,
+  scope: string2().optional(),
+  contacts: array(string2()).optional(),
+  tos_uri: OptionalSafeUrlSchema,
+  policy_uri: string2().optional(),
+  jwks_uri: SafeUrlSchema.optional(),
+  jwks: any().optional(),
+  software_id: string2().optional(),
+  software_version: string2().optional(),
+  software_statement: string2().optional()
+}).strip();
+var OAuthClientInformationSchema = object2({
+  client_id: string2(),
+  client_secret: string2().optional(),
+  client_id_issued_at: number2().optional(),
+  client_secret_expires_at: number2().optional()
+}).strip();
+var OAuthClientInformationFullSchema = OAuthClientMetadataSchema.merge(OAuthClientInformationSchema);
+var OAuthClientRegistrationErrorSchema = object2({
+  error: string2(),
+  error_description: string2().optional()
+}).strip();
+var OAuthTokenRevocationRequestSchema = object2({
+  token: string2(),
+  token_type_hint: string2().optional()
+}).strip();
+
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth-utils.js
+function resourceUrlFromServerUrl(url2) {
+  const resourceURL = typeof url2 === "string" ? new URL(url2) : new URL(url2.href);
+  resourceURL.hash = "";
+  return resourceURL;
+}
+function checkResourceAllowed({ requestedResource, configuredResource }) {
+  const requested = typeof requestedResource === "string" ? new URL(requestedResource) : new URL(requestedResource.href);
+  const configured = typeof configuredResource === "string" ? new URL(configuredResource) : new URL(configuredResource.href);
+  if (requested.origin !== configured.origin) {
+    return false;
+  }
+  if (requested.pathname.length < configured.pathname.length) {
+    return false;
+  }
+  const requestedPath = requested.pathname.endsWith("/") ? requested.pathname : requested.pathname + "/";
+  const configuredPath = configured.pathname.endsWith("/") ? configured.pathname : configured.pathname + "/";
+  return requestedPath.startsWith(configuredPath);
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/server/auth/errors.js
+var OAuthError = class extends Error {
+  constructor(message, errorUri) {
+    super(message);
+    this.errorUri = errorUri;
+    this.name = this.constructor.name;
+  }
+  /**
+   * Converts the error to a standard OAuth error response object
+   */
+  toResponseObject() {
+    const response = {
+      error: this.errorCode,
+      error_description: this.message
+    };
+    if (this.errorUri) {
+      response.error_uri = this.errorUri;
+    }
+    return response;
+  }
+  get errorCode() {
+    return this.constructor.errorCode;
+  }
+};
+var InvalidRequestError = class extends OAuthError {
+};
+InvalidRequestError.errorCode = "invalid_request";
+var InvalidClientError = class extends OAuthError {
+};
+InvalidClientError.errorCode = "invalid_client";
+var InvalidGrantError = class extends OAuthError {
+};
+InvalidGrantError.errorCode = "invalid_grant";
+var UnauthorizedClientError = class extends OAuthError {
+};
+UnauthorizedClientError.errorCode = "unauthorized_client";
+var UnsupportedGrantTypeError = class extends OAuthError {
+};
+UnsupportedGrantTypeError.errorCode = "unsupported_grant_type";
+var InvalidScopeError = class extends OAuthError {
+};
+InvalidScopeError.errorCode = "invalid_scope";
+var AccessDeniedError = class extends OAuthError {
+};
+AccessDeniedError.errorCode = "access_denied";
+var ServerError = class extends OAuthError {
+};
+ServerError.errorCode = "server_error";
+var TemporarilyUnavailableError = class extends OAuthError {
+};
+TemporarilyUnavailableError.errorCode = "temporarily_unavailable";
+var UnsupportedResponseTypeError = class extends OAuthError {
+};
+UnsupportedResponseTypeError.errorCode = "unsupported_response_type";
+var UnsupportedTokenTypeError = class extends OAuthError {
+};
+UnsupportedTokenTypeError.errorCode = "unsupported_token_type";
+var InvalidTokenError = class extends OAuthError {
+};
+InvalidTokenError.errorCode = "invalid_token";
+var MethodNotAllowedError = class extends OAuthError {
+};
+MethodNotAllowedError.errorCode = "method_not_allowed";
+var TooManyRequestsError = class extends OAuthError {
+};
+TooManyRequestsError.errorCode = "too_many_requests";
+var InvalidClientMetadataError = class extends OAuthError {
+};
+InvalidClientMetadataError.errorCode = "invalid_client_metadata";
+var InsufficientScopeError = class extends OAuthError {
+};
+InsufficientScopeError.errorCode = "insufficient_scope";
+var InvalidTargetError = class extends OAuthError {
+};
+InvalidTargetError.errorCode = "invalid_target";
+var OAUTH_ERRORS = {
+  [InvalidRequestError.errorCode]: InvalidRequestError,
+  [InvalidClientError.errorCode]: InvalidClientError,
+  [InvalidGrantError.errorCode]: InvalidGrantError,
+  [UnauthorizedClientError.errorCode]: UnauthorizedClientError,
+  [UnsupportedGrantTypeError.errorCode]: UnsupportedGrantTypeError,
+  [InvalidScopeError.errorCode]: InvalidScopeError,
+  [AccessDeniedError.errorCode]: AccessDeniedError,
+  [ServerError.errorCode]: ServerError,
+  [TemporarilyUnavailableError.errorCode]: TemporarilyUnavailableError,
+  [UnsupportedResponseTypeError.errorCode]: UnsupportedResponseTypeError,
+  [UnsupportedTokenTypeError.errorCode]: UnsupportedTokenTypeError,
+  [InvalidTokenError.errorCode]: InvalidTokenError,
+  [MethodNotAllowedError.errorCode]: MethodNotAllowedError,
+  [TooManyRequestsError.errorCode]: TooManyRequestsError,
+  [InvalidClientMetadataError.errorCode]: InvalidClientMetadataError,
+  [InsufficientScopeError.errorCode]: InsufficientScopeError,
+  [InvalidTargetError.errorCode]: InvalidTargetError
+};
+
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js
+var UnauthorizedError = class extends Error {
+  constructor(message) {
+    super(message ?? "Unauthorized");
+  }
+};
+function isClientAuthMethod(method) {
+  return ["client_secret_basic", "client_secret_post", "none"].includes(method);
+}
+var AUTHORIZATION_CODE_RESPONSE_TYPE = "code";
+var AUTHORIZATION_CODE_CHALLENGE_METHOD = "S256";
+function selectClientAuthMethod(clientInformation, supportedMethods) {
+  const hasClientSecret = clientInformation.client_secret !== void 0;
+  if ("token_endpoint_auth_method" in clientInformation && clientInformation.token_endpoint_auth_method && isClientAuthMethod(clientInformation.token_endpoint_auth_method) && (supportedMethods.length === 0 || supportedMethods.includes(clientInformation.token_endpoint_auth_method))) {
+    return clientInformation.token_endpoint_auth_method;
+  }
+  if (supportedMethods.length === 0) {
+    return hasClientSecret ? "client_secret_basic" : "none";
+  }
+  if (hasClientSecret && supportedMethods.includes("client_secret_basic")) {
+    return "client_secret_basic";
+  }
+  if (hasClientSecret && supportedMethods.includes("client_secret_post")) {
+    return "client_secret_post";
+  }
+  if (supportedMethods.includes("none")) {
+    return "none";
+  }
+  return hasClientSecret ? "client_secret_post" : "none";
+}
+function applyClientAuthentication(method, clientInformation, headers, params) {
+  const { client_id, client_secret } = clientInformation;
+  switch (method) {
+    case "client_secret_basic":
+      applyBasicAuth(client_id, client_secret, headers);
+      return;
+    case "client_secret_post":
+      applyPostAuth(client_id, client_secret, params);
+      return;
+    case "none":
+      applyPublicAuth(client_id, params);
+      return;
+    default:
+      throw new Error(`Unsupported client authentication method: ${method}`);
+  }
+}
+function applyBasicAuth(clientId, clientSecret, headers) {
+  if (!clientSecret) {
+    throw new Error("client_secret_basic authentication requires a client_secret");
+  }
+  const credentials = btoa(`${clientId}:${clientSecret}`);
+  headers.set("Authorization", `Basic ${credentials}`);
+}
+function applyPostAuth(clientId, clientSecret, params) {
+  params.set("client_id", clientId);
+  if (clientSecret) {
+    params.set("client_secret", clientSecret);
+  }
+}
+function applyPublicAuth(clientId, params) {
+  params.set("client_id", clientId);
+}
+async function parseErrorResponse(input) {
+  const statusCode = input instanceof Response ? input.status : void 0;
+  const body = input instanceof Response ? await input.text() : input;
+  try {
+    const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
+    const { error: error2, error_description, error_uri } = result;
+    const errorClass = OAUTH_ERRORS[error2] || ServerError;
+    return new errorClass(error_description || "", error_uri);
+  } catch (error2) {
+    const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ""}Invalid OAuth error response: ${error2}. Raw body: ${body}`;
+    return new ServerError(errorMessage);
+  }
+}
+async function auth(provider, options) {
+  try {
+    return await authInternal(provider, options);
+  } catch (error2) {
+    if (error2 instanceof InvalidClientError || error2 instanceof UnauthorizedClientError) {
+      await provider.invalidateCredentials?.("all");
+      return await authInternal(provider, options);
+    } else if (error2 instanceof InvalidGrantError) {
+      await provider.invalidateCredentials?.("tokens");
+      return await authInternal(provider, options);
+    }
+    throw error2;
+  }
+}
+async function authInternal(provider, { serverUrl, authorizationCode, scope, resourceMetadataUrl, fetchFn }) {
+  const cachedState = await provider.discoveryState?.();
+  let resourceMetadata;
+  let authorizationServerUrl;
+  let metadata;
+  let effectiveResourceMetadataUrl = resourceMetadataUrl;
+  if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
+    effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
+  }
+  if (cachedState?.authorizationServerUrl) {
+    authorizationServerUrl = cachedState.authorizationServerUrl;
+    resourceMetadata = cachedState.resourceMetadata;
+    metadata = cachedState.authorizationServerMetadata ?? await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn });
+    if (!resourceMetadata) {
+      try {
+        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl }, fetchFn);
+      } catch {
+      }
+    }
+    if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
+      await provider.saveDiscoveryState?.({
+        authorizationServerUrl: String(authorizationServerUrl),
+        resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+        resourceMetadata,
+        authorizationServerMetadata: metadata
+      });
+    }
+  } else {
+    const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
+    authorizationServerUrl = serverInfo.authorizationServerUrl;
+    metadata = serverInfo.authorizationServerMetadata;
+    resourceMetadata = serverInfo.resourceMetadata;
+    await provider.saveDiscoveryState?.({
+      authorizationServerUrl: String(authorizationServerUrl),
+      resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+      resourceMetadata,
+      authorizationServerMetadata: metadata
+    });
+  }
+  const resource = await selectResourceURL(serverUrl, provider, resourceMetadata);
+  const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(" ") || provider.clientMetadata.scope;
+  let clientInformation = await Promise.resolve(provider.clientInformation());
+  if (!clientInformation) {
+    if (authorizationCode !== void 0) {
+      throw new Error("Existing OAuth client information is required when exchanging an authorization code");
+    }
+    const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
+    const clientMetadataUrl = provider.clientMetadataUrl;
+    if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
+      throw new InvalidClientMetadataError(`clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${clientMetadataUrl}`);
+    }
+    const shouldUseUrlBasedClientId = supportsUrlBasedClientId && clientMetadataUrl;
+    if (shouldUseUrlBasedClientId) {
+      clientInformation = {
+        client_id: clientMetadataUrl
+      };
+      await provider.saveClientInformation?.(clientInformation);
+    } else {
+      if (!provider.saveClientInformation) {
+        throw new Error("OAuth client information must be saveable for dynamic registration");
+      }
+      const fullInformation = await registerClient(authorizationServerUrl, {
+        metadata,
+        clientMetadata: provider.clientMetadata,
+        scope: resolvedScope,
+        fetchFn
+      });
+      await provider.saveClientInformation(fullInformation);
+      clientInformation = fullInformation;
+    }
+  }
+  const nonInteractiveFlow = !provider.redirectUrl;
+  if (authorizationCode !== void 0 || nonInteractiveFlow) {
+    const tokens2 = await fetchToken(provider, authorizationServerUrl, {
+      metadata,
+      resource,
+      authorizationCode,
+      fetchFn
+    });
+    await provider.saveTokens(tokens2);
+    return "AUTHORIZED";
+  }
+  const tokens = await provider.tokens();
+  if (tokens?.refresh_token) {
+    try {
+      const newTokens = await refreshAuthorization(authorizationServerUrl, {
+        metadata,
+        clientInformation,
+        refreshToken: tokens.refresh_token,
+        resource,
+        addClientAuthentication: provider.addClientAuthentication,
+        fetchFn
+      });
+      await provider.saveTokens(newTokens);
+      return "AUTHORIZED";
+    } catch (error2) {
+      if (!(error2 instanceof OAuthError) || error2 instanceof ServerError) {
+      } else {
+        throw error2;
+      }
+    }
+  }
+  const state = provider.state ? await provider.state() : void 0;
+  const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
+    metadata,
+    clientInformation,
+    state,
+    redirectUrl: provider.redirectUrl,
+    scope: resolvedScope,
+    resource
+  });
+  await provider.saveCodeVerifier(codeVerifier);
+  await provider.redirectToAuthorization(authorizationUrl);
+  return "REDIRECT";
+}
+function isHttpsUrl(value) {
+  if (!value)
+    return false;
+  try {
+    const url2 = new URL(value);
+    return url2.protocol === "https:" && url2.pathname !== "/";
+  } catch {
+    return false;
+  }
+}
+async function selectResourceURL(serverUrl, provider, resourceMetadata) {
+  const defaultResource = resourceUrlFromServerUrl(serverUrl);
+  if (provider.validateResourceURL) {
+    return await provider.validateResourceURL(defaultResource, resourceMetadata?.resource);
+  }
+  if (!resourceMetadata) {
+    return void 0;
+  }
+  if (!checkResourceAllowed({ requestedResource: defaultResource, configuredResource: resourceMetadata.resource })) {
+    throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
+  }
+  return new URL(resourceMetadata.resource);
+}
+function extractWWWAuthenticateParams(res) {
+  const authenticateHeader = res.headers.get("WWW-Authenticate");
+  if (!authenticateHeader) {
+    return {};
+  }
+  const [type, scheme] = authenticateHeader.split(" ");
+  if (type.toLowerCase() !== "bearer" || !scheme) {
+    return {};
+  }
+  const resourceMetadataMatch = extractFieldFromWwwAuth(res, "resource_metadata") || void 0;
+  let resourceMetadataUrl;
+  if (resourceMetadataMatch) {
+    try {
+      resourceMetadataUrl = new URL(resourceMetadataMatch);
+    } catch {
+    }
+  }
+  const scope = extractFieldFromWwwAuth(res, "scope") || void 0;
+  const error2 = extractFieldFromWwwAuth(res, "error") || void 0;
+  return {
+    resourceMetadataUrl,
+    scope,
+    error: error2
+  };
+}
+function extractFieldFromWwwAuth(response, fieldName) {
+  const wwwAuthHeader = response.headers.get("WWW-Authenticate");
+  if (!wwwAuthHeader) {
+    return null;
+  }
+  const pattern = new RegExp(`${fieldName}=(?:"([^"]+)"|([^\\s,]+))`);
+  const match = wwwAuthHeader.match(pattern);
+  if (match) {
+    return match[1] || match[2];
+  }
+  return null;
+}
+async function discoverOAuthProtectedResourceMetadata(serverUrl, opts, fetchFn = fetch) {
+  const response = await discoverMetadataWithFallback(serverUrl, "oauth-protected-resource", fetchFn, {
+    protocolVersion: opts?.protocolVersion,
+    metadataUrl: opts?.resourceMetadataUrl
+  });
+  if (!response || response.status === 404) {
+    await response?.body?.cancel();
+    throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`);
+  }
+  return OAuthProtectedResourceMetadataSchema.parse(await response.json());
+}
+async function fetchWithCorsRetry(url2, headers, fetchFn = fetch) {
+  try {
+    return await fetchFn(url2, { headers });
+  } catch (error2) {
+    if (error2 instanceof TypeError) {
+      if (headers) {
+        return fetchWithCorsRetry(url2, void 0, fetchFn);
+      } else {
+        return void 0;
+      }
+    }
+    throw error2;
+  }
+}
+function buildWellKnownPath(wellKnownPrefix, pathname = "", options = {}) {
+  if (pathname.endsWith("/")) {
+    pathname = pathname.slice(0, -1);
+  }
+  return options.prependPathname ? `${pathname}/.well-known/${wellKnownPrefix}` : `/.well-known/${wellKnownPrefix}${pathname}`;
+}
+async function tryMetadataDiscovery(url2, protocolVersion, fetchFn = fetch) {
+  const headers = {
+    "MCP-Protocol-Version": protocolVersion
+  };
+  return await fetchWithCorsRetry(url2, headers, fetchFn);
+}
+function shouldAttemptFallback(response, pathname) {
+  return !response || response.status >= 400 && response.status < 500 && pathname !== "/";
+}
+async function discoverMetadataWithFallback(serverUrl, wellKnownType, fetchFn, opts) {
+  const issuer = new URL(serverUrl);
+  const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
+  let url2;
+  if (opts?.metadataUrl) {
+    url2 = new URL(opts.metadataUrl);
+  } else {
+    const wellKnownPath = buildWellKnownPath(wellKnownType, issuer.pathname);
+    url2 = new URL(wellKnownPath, opts?.metadataServerUrl ?? issuer);
+    url2.search = issuer.search;
+  }
+  let response = await tryMetadataDiscovery(url2, protocolVersion, fetchFn);
+  if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
+    const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
+    response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
+  }
+  return response;
+}
+function buildDiscoveryUrls(authorizationServerUrl) {
+  const url2 = typeof authorizationServerUrl === "string" ? new URL(authorizationServerUrl) : authorizationServerUrl;
+  const hasPath = url2.pathname !== "/";
+  const urlsToTry = [];
+  if (!hasPath) {
+    urlsToTry.push({
+      url: new URL("/.well-known/oauth-authorization-server", url2.origin),
+      type: "oauth"
+    });
+    urlsToTry.push({
+      url: new URL(`/.well-known/openid-configuration`, url2.origin),
+      type: "oidc"
+    });
+    return urlsToTry;
+  }
+  let pathname = url2.pathname;
+  if (pathname.endsWith("/")) {
+    pathname = pathname.slice(0, -1);
+  }
+  urlsToTry.push({
+    url: new URL(`/.well-known/oauth-authorization-server${pathname}`, url2.origin),
+    type: "oauth"
+  });
+  urlsToTry.push({
+    url: new URL(`/.well-known/openid-configuration${pathname}`, url2.origin),
+    type: "oidc"
+  });
+  urlsToTry.push({
+    url: new URL(`${pathname}/.well-known/openid-configuration`, url2.origin),
+    type: "oidc"
+  });
+  return urlsToTry;
+}
+async function discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn = fetch, protocolVersion = LATEST_PROTOCOL_VERSION } = {}) {
+  const headers = {
+    "MCP-Protocol-Version": protocolVersion,
+    Accept: "application/json"
+  };
+  const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
+  for (const { url: endpointUrl, type } of urlsToTry) {
+    const response = await fetchWithCorsRetry(endpointUrl, headers, fetchFn);
+    if (!response) {
+      continue;
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      if (response.status >= 400 && response.status < 500) {
+        continue;
+      }
+      throw new Error(`HTTP ${response.status} trying to load ${type === "oauth" ? "OAuth" : "OpenID provider"} metadata from ${endpointUrl}`);
+    }
+    if (type === "oauth") {
+      return OAuthMetadataSchema.parse(await response.json());
+    } else {
+      return OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+    }
+  }
+  return void 0;
+}
+async function discoverOAuthServerInfo(serverUrl, opts) {
+  let resourceMetadata;
+  let authorizationServerUrl;
+  try {
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: opts?.resourceMetadataUrl }, opts?.fetchFn);
+    if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+      authorizationServerUrl = resourceMetadata.authorization_servers[0];
+    }
+  } catch {
+  }
+  if (!authorizationServerUrl) {
+    authorizationServerUrl = String(new URL("/", serverUrl));
+  }
+  const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn: opts?.fetchFn });
+  return {
+    authorizationServerUrl,
+    authorizationServerMetadata,
+    resourceMetadata
+  };
+}
+async function startAuthorization(authorizationServerUrl, { metadata, clientInformation, redirectUrl, scope, state, resource }) {
+  let authorizationUrl;
+  if (metadata) {
+    authorizationUrl = new URL(metadata.authorization_endpoint);
+    if (!metadata.response_types_supported.includes(AUTHORIZATION_CODE_RESPONSE_TYPE)) {
+      throw new Error(`Incompatible auth server: does not support response type ${AUTHORIZATION_CODE_RESPONSE_TYPE}`);
+    }
+    if (metadata.code_challenge_methods_supported && !metadata.code_challenge_methods_supported.includes(AUTHORIZATION_CODE_CHALLENGE_METHOD)) {
+      throw new Error(`Incompatible auth server: does not support code challenge method ${AUTHORIZATION_CODE_CHALLENGE_METHOD}`);
+    }
+  } else {
+    authorizationUrl = new URL("/authorize", authorizationServerUrl);
+  }
+  const challenge = await pkceChallenge();
+  const codeVerifier = challenge.code_verifier;
+  const codeChallenge = challenge.code_challenge;
+  authorizationUrl.searchParams.set("response_type", AUTHORIZATION_CODE_RESPONSE_TYPE);
+  authorizationUrl.searchParams.set("client_id", clientInformation.client_id);
+  authorizationUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", AUTHORIZATION_CODE_CHALLENGE_METHOD);
+  authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
+  if (state) {
+    authorizationUrl.searchParams.set("state", state);
+  }
+  if (scope) {
+    authorizationUrl.searchParams.set("scope", scope);
+  }
+  if (scope?.includes("offline_access")) {
+    authorizationUrl.searchParams.append("prompt", "consent");
+  }
+  if (resource) {
+    authorizationUrl.searchParams.set("resource", resource.href);
+  }
+  return { authorizationUrl, codeVerifier };
+}
+function prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, redirectUri) {
+  return new URLSearchParams({
+    grant_type: "authorization_code",
+    code: authorizationCode,
+    code_verifier: codeVerifier,
+    redirect_uri: String(redirectUri)
+  });
+}
+async function executeTokenRequest(authorizationServerUrl, { metadata, tokenRequestParams, clientInformation, addClientAuthentication, resource, fetchFn }) {
+  const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL("/token", authorizationServerUrl);
+  const headers = new Headers({
+    "Content-Type": "application/x-www-form-urlencoded",
+    Accept: "application/json"
+  });
+  if (resource) {
+    tokenRequestParams.set("resource", resource.href);
+  }
+  if (addClientAuthentication) {
+    await addClientAuthentication(headers, tokenRequestParams, tokenUrl, metadata);
+  } else if (clientInformation) {
+    const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
+    const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
+    applyClientAuthentication(authMethod, clientInformation, headers, tokenRequestParams);
+  }
+  const response = await (fetchFn ?? fetch)(tokenUrl, {
+    method: "POST",
+    headers,
+    body: tokenRequestParams
+  });
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+  return OAuthTokensSchema.parse(await response.json());
+}
+async function refreshAuthorization(authorizationServerUrl, { metadata, clientInformation, refreshToken, resource, addClientAuthentication, fetchFn }) {
+  const tokenRequestParams = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken
+  });
+  const tokens = await executeTokenRequest(authorizationServerUrl, {
+    metadata,
+    tokenRequestParams,
+    clientInformation,
+    addClientAuthentication,
+    resource,
+    fetchFn
+  });
+  return { refresh_token: refreshToken, ...tokens };
+}
+async function fetchToken(provider, authorizationServerUrl, { metadata, resource, authorizationCode, fetchFn } = {}) {
+  const scope = provider.clientMetadata.scope;
+  let tokenRequestParams;
+  if (provider.prepareTokenRequest) {
+    tokenRequestParams = await provider.prepareTokenRequest(scope);
+  }
+  if (!tokenRequestParams) {
+    if (!authorizationCode) {
+      throw new Error("Either provider.prepareTokenRequest() or authorizationCode is required");
+    }
+    if (!provider.redirectUrl) {
+      throw new Error("redirectUrl is required for authorization_code flow");
+    }
+    const codeVerifier = await provider.codeVerifier();
+    tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
+  }
+  const clientInformation = await provider.clientInformation();
+  return executeTokenRequest(authorizationServerUrl, {
+    metadata,
+    tokenRequestParams,
+    clientInformation: clientInformation ?? void 0,
+    addClientAuthentication: provider.addClientAuthentication,
+    resource,
+    fetchFn
+  });
+}
+async function registerClient(authorizationServerUrl, { metadata, clientMetadata, scope, fetchFn }) {
+  let registrationUrl;
+  if (metadata) {
+    if (!metadata.registration_endpoint) {
+      throw new Error("Incompatible auth server: does not support dynamic client registration");
+    }
+    registrationUrl = new URL(metadata.registration_endpoint);
+  } else {
+    registrationUrl = new URL("/register", authorizationServerUrl);
+  }
+  const response = await (fetchFn ?? fetch)(registrationUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      ...clientMetadata,
+      ...scope !== void 0 ? { scope } : {}
+    })
+  });
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+  return OAuthClientInformationFullSchema.parse(await response.json());
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/eventsource-parser@3.1.1/node_modules/eventsource-parser/dist/index.js
+var ParseError = class extends Error {
+  constructor(message, options) {
+    super(message), this.name = "ParseError", this.type = options.type, this.field = options.field, this.value = options.value, this.line = options.line;
+  }
+};
+var LF = 10;
+var CR = 13;
+var SPACE = 32;
+function noop(_arg) {
+}
+function createParser(config2) {
+  if (typeof config2 == "function")
+    throw new TypeError(
+      "`config` must be an object, got a function instead. Did you mean `createParser({onEvent: fn})`?"
+    );
+  const { onEvent = noop, onError = noop, onRetry = noop, onComment, maxBufferSize } = config2, pendingFragments = [];
+  let pendingFragmentsLength = 0, isFirstChunk = true, id, data = "", dataLines = 0, eventType, terminated = false;
+  function feed(chunk) {
+    if (terminated)
+      throw new Error(
+        "Cannot feed parser: it was terminated after exceeding the configured max buffer size. Call `reset()` to resume parsing."
+      );
+    if (isFirstChunk && (isFirstChunk = false, chunk.charCodeAt(0) === 239 && chunk.charCodeAt(1) === 187 && chunk.charCodeAt(2) === 191 && (chunk = chunk.slice(3))), pendingFragments.length === 0) {
+      const trailing2 = processLines(chunk);
+      trailing2 !== "" && (pendingFragments.push(trailing2), pendingFragmentsLength = trailing2.length), checkBufferSize();
+      return;
+    }
+    if (chunk.indexOf(`
+`) === -1 && chunk.indexOf("\r") === -1) {
+      pendingFragments.push(chunk), pendingFragmentsLength += chunk.length, checkBufferSize();
+      return;
+    }
+    pendingFragments.push(chunk);
+    const input = pendingFragments.join("");
+    pendingFragments.length = 0, pendingFragmentsLength = 0;
+    const trailing = processLines(input);
+    trailing !== "" && (pendingFragments.push(trailing), pendingFragmentsLength = trailing.length), checkBufferSize();
+  }
+  function checkBufferSize() {
+    maxBufferSize !== void 0 && (pendingFragmentsLength + data.length <= maxBufferSize || (terminated = true, pendingFragments.length = 0, pendingFragmentsLength = 0, id = void 0, data = "", dataLines = 0, eventType = void 0, onError(
+      new ParseError(`Buffered data exceeded max buffer size of ${maxBufferSize} characters`, {
+        type: "max-buffer-size-exceeded"
+      })
+    )));
+  }
+  function processLines(chunk) {
+    let searchIndex = 0;
+    if (chunk.indexOf("\r") === -1) {
+      let lfIndex = chunk.indexOf(`
+`, searchIndex);
+      for (; lfIndex !== -1; ) {
+        if (searchIndex === lfIndex) {
+          dataLines > 0 && onEvent({ id, event: eventType, data }), id = void 0, data = "", dataLines = 0, eventType = void 0, searchIndex = lfIndex + 1, lfIndex = chunk.indexOf(`
+`, searchIndex);
+          continue;
+        }
+        const firstCharCode = chunk.charCodeAt(searchIndex);
+        if (isDataPrefix(chunk, searchIndex, firstCharCode)) {
+          const valueStart = chunk.charCodeAt(searchIndex + 5) === SPACE ? searchIndex + 6 : searchIndex + 5, value = chunk.slice(valueStart, lfIndex);
+          if (dataLines === 0 && chunk.charCodeAt(lfIndex + 1) === LF) {
+            onEvent({ id, event: eventType, data: value }), id = void 0, data = "", eventType = void 0, searchIndex = lfIndex + 2, lfIndex = chunk.indexOf(`
+`, searchIndex);
+            continue;
+          }
+          data = dataLines === 0 ? value : `${data}
+${value}`, dataLines++;
+        } else isEventPrefix(chunk, searchIndex, firstCharCode) ? eventType = chunk.slice(
+          chunk.charCodeAt(searchIndex + 6) === SPACE ? searchIndex + 7 : searchIndex + 6,
+          lfIndex
+        ) || void 0 : parseLine(chunk, searchIndex, lfIndex);
+        searchIndex = lfIndex + 1, lfIndex = chunk.indexOf(`
+`, searchIndex);
+      }
+      return chunk.slice(searchIndex);
+    }
+    for (; searchIndex < chunk.length; ) {
+      const crIndex = chunk.indexOf("\r", searchIndex), lfIndex = chunk.indexOf(`
+`, searchIndex);
+      let lineEnd = -1;
+      if (crIndex !== -1 && lfIndex !== -1 ? lineEnd = crIndex < lfIndex ? crIndex : lfIndex : crIndex !== -1 ? crIndex === chunk.length - 1 ? lineEnd = -1 : lineEnd = crIndex : lfIndex !== -1 && (lineEnd = lfIndex), lineEnd === -1)
+        break;
+      parseLine(chunk, searchIndex, lineEnd), searchIndex = lineEnd + 1, chunk.charCodeAt(searchIndex - 1) === CR && chunk.charCodeAt(searchIndex) === LF && searchIndex++;
+    }
+    return chunk.slice(searchIndex);
+  }
+  function parseLine(chunk, start, end) {
+    if (start === end) {
+      dispatchEvent();
+      return;
+    }
+    const firstCharCode = chunk.charCodeAt(start);
+    if (isDataPrefix(chunk, start, firstCharCode)) {
+      const valueStart = chunk.charCodeAt(start + 5) === SPACE ? start + 6 : start + 5, value2 = chunk.slice(valueStart, end);
+      data = dataLines === 0 ? value2 : `${data}
+${value2}`, dataLines++;
+      return;
+    }
+    if (isEventPrefix(chunk, start, firstCharCode)) {
+      eventType = chunk.slice(chunk.charCodeAt(start + 6) === SPACE ? start + 7 : start + 6, end) || void 0;
+      return;
+    }
+    if (firstCharCode === 105 && chunk.charCodeAt(start + 1) === 100 && chunk.charCodeAt(start + 2) === 58) {
+      const value2 = chunk.slice(chunk.charCodeAt(start + 3) === SPACE ? start + 4 : start + 3, end);
+      value2.includes("\0") || (id = value2);
+      return;
+    }
+    if (firstCharCode === 58) {
+      if (onComment) {
+        const line2 = chunk.slice(start, end);
+        onComment(line2.slice(chunk.charCodeAt(start + 1) === SPACE ? 2 : 1));
+      }
+      return;
+    }
+    const line = chunk.slice(start, end), fieldSeparatorIndex = line.indexOf(":");
+    if (fieldSeparatorIndex === -1) {
+      processField(line, "", line);
+      return;
+    }
+    const field = line.slice(0, fieldSeparatorIndex), offset = line.charCodeAt(fieldSeparatorIndex + 1) === SPACE ? 2 : 1, value = line.slice(fieldSeparatorIndex + offset);
+    processField(field, value, line);
+  }
+  function processField(field, value, line) {
+    switch (field) {
+      case "event":
+        eventType = value || void 0;
+        break;
+      case "data":
+        data = dataLines === 0 ? value : `${data}
+${value}`, dataLines++;
+        break;
+      case "id":
+        value.includes("\0") || (id = value);
+        break;
+      case "retry":
+        /^\d+$/.test(value) ? onRetry(parseInt(value, 10)) : onError(
+          new ParseError(`Invalid \`retry\` value: "${value}"`, {
+            type: "invalid-retry",
+            value,
+            line
+          })
+        );
+        break;
+      default:
+        onError(
+          new ParseError(
+            `Unknown field "${field.length > 20 ? `${field.slice(0, 20)}\u2026` : field}"`,
+            { type: "unknown-field", field, value, line }
+          )
+        );
+        break;
+    }
+  }
+  function dispatchEvent() {
+    dataLines > 0 && onEvent({
+      id,
+      event: eventType,
+      data
+    }), id = void 0, data = "", dataLines = 0, eventType = void 0;
+  }
+  function reset(options = {}) {
+    if (options.consume && pendingFragments.length > 0) {
+      const incompleteLine = pendingFragments.join("");
+      parseLine(incompleteLine, 0, incompleteLine.length);
+    }
+    isFirstChunk = true, id = void 0, data = "", dataLines = 0, eventType = void 0, pendingFragments.length = 0, pendingFragmentsLength = 0, terminated = false;
+  }
+  return { feed, reset };
+}
+function isDataPrefix(chunk, i, firstCharCode) {
+  return firstCharCode === 100 && chunk.charCodeAt(i + 1) === 97 && chunk.charCodeAt(i + 2) === 116 && chunk.charCodeAt(i + 3) === 97 && chunk.charCodeAt(i + 4) === 58;
+}
+function isEventPrefix(chunk, i, firstCharCode) {
+  return firstCharCode === 101 && chunk.charCodeAt(i + 1) === 118 && chunk.charCodeAt(i + 2) === 101 && chunk.charCodeAt(i + 3) === 110 && chunk.charCodeAt(i + 4) === 116 && chunk.charCodeAt(i + 5) === 58;
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/eventsource-parser@3.1.1/node_modules/eventsource-parser/dist/stream.js
+var EventSourceParserStream = class extends TransformStream {
+  constructor({ onError, onRetry, onComment, maxBufferSize } = {}) {
+    let parser;
+    super({
+      start(controller) {
+        parser = createParser({
+          onEvent: (event) => {
+            controller.enqueue(event);
+          },
+          onError(error2) {
+            typeof onError == "function" && onError(error2), (onError === "terminate" || error2.type === "max-buffer-size-exceeded") && controller.error(error2);
+          },
+          onRetry,
+          onComment,
+          maxBufferSize
+        });
+      },
+      transform(chunk) {
+        parser.feed(chunk);
+      }
+    });
+  }
+};
+
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js
+var DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS = {
+  initialReconnectionDelay: 1e3,
+  maxReconnectionDelay: 3e4,
+  reconnectionDelayGrowFactor: 1.5,
+  maxRetries: 2
+};
+var StreamableHTTPError = class extends Error {
+  constructor(code, message) {
+    super(`Streamable HTTP error: ${message}`);
+    this.code = code;
+  }
+};
+var StreamableHTTPClientTransport = class {
+  constructor(url2, opts) {
+    this._hasCompletedAuthFlow = false;
+    this._url = url2;
+    this._resourceMetadataUrl = void 0;
+    this._scope = void 0;
+    this._requestInit = opts?.requestInit;
+    this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch;
+    this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+    this._sessionId = opts?.sessionId;
+    this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+  }
+  async _authThenStart() {
+    if (!this._authProvider) {
+      throw new UnauthorizedError("No auth provider");
+    }
+    let result;
+    try {
+      result = await auth(this._authProvider, {
+        serverUrl: this._url,
+        resourceMetadataUrl: this._resourceMetadataUrl,
+        scope: this._scope,
+        fetchFn: this._fetchWithInit
+      });
+    } catch (error2) {
+      this.onerror?.(error2);
+      throw error2;
+    }
+    if (result !== "AUTHORIZED") {
+      throw new UnauthorizedError();
+    }
+    return await this._startOrAuthSse({ resumptionToken: void 0 });
+  }
+  async _commonHeaders() {
+    const headers = {};
+    if (this._authProvider) {
+      const tokens = await this._authProvider.tokens();
+      if (tokens) {
+        headers["Authorization"] = `Bearer ${tokens.access_token}`;
+      }
+    }
+    if (this._sessionId) {
+      headers["mcp-session-id"] = this._sessionId;
+    }
+    if (this._protocolVersion) {
+      headers["mcp-protocol-version"] = this._protocolVersion;
+    }
+    const extraHeaders = normalizeHeaders(this._requestInit?.headers);
+    return new Headers({
+      ...headers,
+      ...extraHeaders
+    });
+  }
+  async _startOrAuthSse(options) {
+    const { resumptionToken } = options;
+    try {
+      const headers = await this._commonHeaders();
+      headers.set("Accept", "text/event-stream");
+      if (resumptionToken) {
+        headers.set("last-event-id", resumptionToken);
+      }
+      const response = await (this._fetch ?? fetch)(this._url, {
+        method: "GET",
+        headers,
+        signal: this._abortController?.signal
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        if (response.status === 401 && this._authProvider) {
+          return await this._authThenStart();
+        }
+        if (response.status === 405) {
+          return;
+        }
+        throw new StreamableHTTPError(response.status, `Failed to open SSE stream: ${response.statusText}`);
+      }
+      this._handleSseStream(response.body, options, true);
+    } catch (error2) {
+      this.onerror?.(error2);
+      throw error2;
+    }
+  }
+  /**
+   * Calculates the next reconnection delay using  backoff algorithm
+   *
+   * @param attempt Current reconnection attempt count for the specific stream
+   * @returns Time to wait in milliseconds before next reconnection attempt
+   */
+  _getNextReconnectionDelay(attempt) {
+    if (this._serverRetryMs !== void 0) {
+      return this._serverRetryMs;
+    }
+    const initialDelay = this._reconnectionOptions.initialReconnectionDelay;
+    const growFactor = this._reconnectionOptions.reconnectionDelayGrowFactor;
+    const maxDelay = this._reconnectionOptions.maxReconnectionDelay;
+    return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
+  }
+  /**
+   * Schedule a reconnection attempt using server-provided retry interval or backoff
+   *
+   * @param lastEventId The ID of the last received event for resumability
+   * @param attemptCount Current reconnection attempt count for this specific stream
+   */
+  _scheduleReconnection(options, attemptCount = 0) {
+    const maxRetries = this._reconnectionOptions.maxRetries;
+    if (attemptCount >= maxRetries) {
+      this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
+      return;
+    }
+    const delay = this._getNextReconnectionDelay(attemptCount);
+    this._reconnectionTimeout = setTimeout(() => {
+      this._startOrAuthSse(options).catch((error2) => {
+        this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error2 instanceof Error ? error2.message : String(error2)}`));
+        this._scheduleReconnection(options, attemptCount + 1);
+      });
+    }, delay);
+  }
+  _handleSseStream(stream, options, isReconnectable) {
+    if (!stream) {
+      return;
+    }
+    const { onresumptiontoken, replayMessageId } = options;
+    let lastEventId;
+    let hasPrimingEvent = false;
+    let receivedResponse = false;
+    const processStream = async () => {
+      try {
+        const reader = stream.pipeThrough(new TextDecoderStream()).pipeThrough(new EventSourceParserStream({
+          onRetry: (retryMs) => {
+            this._serverRetryMs = retryMs;
+          }
+        })).getReader();
+        while (true) {
+          const { value: event, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          if (event.id) {
+            lastEventId = event.id;
+            hasPrimingEvent = true;
+            onresumptiontoken?.(event.id);
+          }
+          if (!event.data) {
+            continue;
+          }
+          if (!event.event || event.event === "message") {
+            try {
+              const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
+              if (isJSONRPCResultResponse(message)) {
+                receivedResponse = true;
+                if (replayMessageId !== void 0) {
+                  message.id = replayMessageId;
+                }
+              }
+              this.onmessage?.(message);
+            } catch (error2) {
+              this.onerror?.(error2);
+            }
+          }
+        }
+        const canResume = isReconnectable || hasPrimingEvent;
+        const needsReconnect = canResume && !receivedResponse;
+        if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+          this._scheduleReconnection({
+            resumptionToken: lastEventId,
+            onresumptiontoken,
+            replayMessageId
+          }, 0);
+        }
+      } catch (error2) {
+        this.onerror?.(new Error(`SSE stream disconnected: ${error2}`));
+        const canResume = isReconnectable || hasPrimingEvent;
+        const needsReconnect = canResume && !receivedResponse;
+        if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+          try {
+            this._scheduleReconnection({
+              resumptionToken: lastEventId,
+              onresumptiontoken,
+              replayMessageId
+            }, 0);
+          } catch (error3) {
+            this.onerror?.(new Error(`Failed to reconnect: ${error3 instanceof Error ? error3.message : String(error3)}`));
+          }
+        }
+      }
+    };
+    processStream();
+  }
+  async start() {
+    if (this._abortController) {
+      throw new Error("StreamableHTTPClientTransport already started! If using Client class, note that connect() calls start() automatically.");
+    }
+    this._abortController = new AbortController();
+  }
+  /**
+   * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
+   */
+  async finishAuth(authorizationCode) {
+    if (!this._authProvider) {
+      throw new UnauthorizedError("No auth provider");
+    }
+    const result = await auth(this._authProvider, {
+      serverUrl: this._url,
+      authorizationCode,
+      resourceMetadataUrl: this._resourceMetadataUrl,
+      scope: this._scope,
+      fetchFn: this._fetchWithInit
+    });
+    if (result !== "AUTHORIZED") {
+      throw new UnauthorizedError("Failed to authorize");
+    }
+  }
+  async close() {
+    if (this._reconnectionTimeout) {
+      clearTimeout(this._reconnectionTimeout);
+      this._reconnectionTimeout = void 0;
+    }
+    this._abortController?.abort();
+    this.onclose?.();
+  }
+  async send(message, options) {
+    try {
+      const { resumptionToken, onresumptiontoken } = options || {};
+      if (resumptionToken) {
+        this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : void 0 }).catch((err) => this.onerror?.(err));
+        return;
+      }
+      const headers = await this._commonHeaders();
+      headers.set("content-type", "application/json");
+      headers.set("accept", "application/json, text/event-stream");
+      const init = {
+        ...this._requestInit,
+        method: "POST",
+        headers,
+        body: JSON.stringify(message),
+        signal: this._abortController?.signal
+      };
+      const response = await (this._fetch ?? fetch)(this._url, init);
+      const sessionId = response.headers.get("mcp-session-id");
+      if (sessionId) {
+        this._sessionId = sessionId;
+      }
+      if (!response.ok) {
+        const text2 = await response.text().catch(() => null);
+        if (response.status === 401 && this._authProvider) {
+          if (this._hasCompletedAuthFlow) {
+            throw new StreamableHTTPError(401, "Server returned 401 after successful authentication");
+          }
+          const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+          this._resourceMetadataUrl = resourceMetadataUrl;
+          this._scope = scope;
+          const result = await auth(this._authProvider, {
+            serverUrl: this._url,
+            resourceMetadataUrl: this._resourceMetadataUrl,
+            scope: this._scope,
+            fetchFn: this._fetchWithInit
+          });
+          if (result !== "AUTHORIZED") {
+            throw new UnauthorizedError();
+          }
+          this._hasCompletedAuthFlow = true;
+          return this.send(message);
+        }
+        if (response.status === 403 && this._authProvider) {
+          const { resourceMetadataUrl, scope, error: error2 } = extractWWWAuthenticateParams(response);
+          if (error2 === "insufficient_scope") {
+            const wwwAuthHeader = response.headers.get("WWW-Authenticate");
+            if (this._lastUpscopingHeader === wwwAuthHeader) {
+              throw new StreamableHTTPError(403, "Server returned 403 after trying upscoping");
+            }
+            if (scope) {
+              this._scope = scope;
+            }
+            if (resourceMetadataUrl) {
+              this._resourceMetadataUrl = resourceMetadataUrl;
+            }
+            this._lastUpscopingHeader = wwwAuthHeader ?? void 0;
+            const result = await auth(this._authProvider, {
+              serverUrl: this._url,
+              resourceMetadataUrl: this._resourceMetadataUrl,
+              scope: this._scope,
+              fetchFn: this._fetch
+            });
+            if (result !== "AUTHORIZED") {
+              throw new UnauthorizedError();
+            }
+            return this.send(message);
+          }
+        }
+        throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text2}`);
+      }
+      this._hasCompletedAuthFlow = false;
+      this._lastUpscopingHeader = void 0;
+      if (response.status === 202) {
+        await response.body?.cancel();
+        if (isInitializedNotification(message)) {
+          this._startOrAuthSse({ resumptionToken: void 0 }).catch((err) => this.onerror?.(err));
+        }
+        return;
+      }
+      const messages = Array.isArray(message) ? message : [message];
+      const hasRequests = messages.filter((msg) => "method" in msg && "id" in msg && msg.id !== void 0).length > 0;
+      const contentType2 = response.headers.get("content-type");
+      const responseMediaType = mediaTypeEssence(contentType2);
+      if (hasRequests) {
+        if (responseMediaType === "text/event-stream") {
+          this._handleSseStream(response.body, { onresumptiontoken }, false);
+        } else if (responseMediaType === "application/json") {
+          const data = await response.json();
+          const responseMessages = Array.isArray(data) ? data.map((msg) => JSONRPCMessageSchema.parse(msg)) : [JSONRPCMessageSchema.parse(data)];
+          for (const msg of responseMessages) {
+            this.onmessage?.(msg);
+          }
+        } else {
+          await response.body?.cancel();
+          throw new StreamableHTTPError(-1, `Unexpected content type: ${contentType2}`);
+        }
+      } else {
+        await response.body?.cancel();
+      }
+    } catch (error2) {
+      this.onerror?.(error2);
+      throw error2;
+    }
+  }
+  get sessionId() {
+    return this._sessionId;
+  }
+  /**
+   * Terminates the current session by sending a DELETE request to the server.
+   *
+   * Clients that no longer need a particular session
+   * (e.g., because the user is leaving the client application) SHOULD send an
+   * HTTP DELETE to the MCP endpoint with the Mcp-Session-Id header to explicitly
+   * terminate the session.
+   *
+   * The server MAY respond with HTTP 405 Method Not Allowed, indicating that
+   * the server does not allow clients to terminate sessions.
+   */
+  async terminateSession() {
+    if (!this._sessionId) {
+      return;
+    }
+    try {
+      const headers = await this._commonHeaders();
+      const init = {
+        ...this._requestInit,
+        method: "DELETE",
+        headers,
+        signal: this._abortController?.signal
+      };
+      const response = await (this._fetch ?? fetch)(this._url, init);
+      await response.body?.cancel();
+      if (!response.ok && response.status !== 405) {
+        throw new StreamableHTTPError(response.status, `Failed to terminate session: ${response.statusText}`);
+      }
+      this._sessionId = void 0;
+    } catch (error2) {
+      this.onerror?.(error2);
+      throw error2;
+    }
+  }
+  setProtocolVersion(version2) {
+    this._protocolVersion = version2;
+  }
+  get protocolVersion() {
+    return this._protocolVersion;
+  }
+  /**
+   * Resume an SSE stream from a previous event ID.
+   * Opens a GET SSE connection with Last-Event-ID header to replay missed events.
+   *
+   * @param lastEventId The event ID to resume from
+   * @param options Optional callback to receive new resumption tokens
+   */
+  async resumeStream(lastEventId, options) {
+    await this._startOrAuthSse({
+      resumptionToken: lastEventId,
+      onresumptiontoken: options?.onresumptiontoken
+    });
+  }
+};
+
+// ../adw-requirement-core/node_modules/.pnpm/eventsource@3.0.7/node_modules/eventsource/dist/index.js
+var ErrorEvent = class extends Event {
+  /**
+   * Constructs a new `ErrorEvent` instance. This is typically not called directly,
+   * but rather emitted by the `EventSource` object when an error occurs.
+   *
+   * @param type - The type of the event (should be "error")
+   * @param errorEventInitDict - Optional properties to include in the error event
+   */
+  constructor(type, errorEventInitDict) {
+    var _a3, _b;
+    super(type), this.code = (_a3 = errorEventInitDict == null ? void 0 : errorEventInitDict.code) != null ? _a3 : void 0, this.message = (_b = errorEventInitDict == null ? void 0 : errorEventInitDict.message) != null ? _b : void 0;
+  }
+  /**
+   * Node.js "hides" the `message` and `code` properties of the `ErrorEvent` instance,
+   * when it is `console.log`'ed. This makes it harder to debug errors. To ease debugging,
+   * we explicitly include the properties in the `inspect` method.
+   *
+   * This is automatically called by Node.js when you `console.log` an instance of this class.
+   *
+   * @param _depth - The current depth
+   * @param options - The options passed to `util.inspect`
+   * @param inspect - The inspect function to use (prevents having to import it from `util`)
+   * @returns A string representation of the error
+   */
+  [Symbol.for("nodejs.util.inspect.custom")](_depth, options, inspect) {
+    return inspect(inspectableError(this), options);
+  }
+  /**
+   * Deno "hides" the `message` and `code` properties of the `ErrorEvent` instance,
+   * when it is `console.log`'ed. This makes it harder to debug errors. To ease debugging,
+   * we explicitly include the properties in the `inspect` method.
+   *
+   * This is automatically called by Deno when you `console.log` an instance of this class.
+   *
+   * @param inspect - The inspect function to use (prevents having to import it from `util`)
+   * @param options - The options passed to `Deno.inspect`
+   * @returns A string representation of the error
+   */
+  [Symbol.for("Deno.customInspect")](inspect, options) {
+    return inspect(inspectableError(this), options);
+  }
+};
+function syntaxError(message) {
+  const DomException = globalThis.DOMException;
+  return typeof DomException == "function" ? new DomException(message, "SyntaxError") : new SyntaxError(message);
+}
+function flattenError2(err) {
+  return err instanceof Error ? "errors" in err && Array.isArray(err.errors) ? err.errors.map(flattenError2).join(", ") : "cause" in err && err.cause instanceof Error ? `${err}: ${flattenError2(err.cause)}` : err.message : `${err}`;
+}
+function inspectableError(err) {
+  return {
+    type: err.type,
+    message: err.message,
+    code: err.code,
+    defaultPrevented: err.defaultPrevented,
+    cancelable: err.cancelable,
+    timeStamp: err.timeStamp
+  };
+}
+var __typeError = (msg) => {
+  throw TypeError(msg);
+};
+var __accessCheck = (obj, member, msg) => member.has(obj) || __typeError("Cannot " + msg);
+var __privateGet = (obj, member, getter) => (__accessCheck(obj, member, "read from private field"), getter ? getter.call(obj) : member.get(obj));
+var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot add the same private member more than once") : member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
+var __privateSet = (obj, member, value, setter) => (__accessCheck(obj, member, "write to private field"), member.set(obj, value), value);
+var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
+var _readyState;
+var _url2;
+var _redirectUrl;
+var _withCredentials;
+var _fetch;
+var _reconnectInterval;
+var _reconnectTimer;
+var _lastEventId;
+var _controller;
+var _parser;
+var _onError;
+var _onMessage;
+var _onOpen;
+var _EventSource_instances;
+var connect_fn;
+var _onFetchResponse;
+var _onFetchError;
+var getRequestOptions_fn;
+var _onEvent;
+var _onRetryChange;
+var failConnection_fn;
+var scheduleReconnect_fn;
+var _reconnect;
+var EventSource = class extends EventTarget {
+  constructor(url2, eventSourceInitDict) {
+    var _a3, _b;
+    super(), __privateAdd(this, _EventSource_instances), this.CONNECTING = 0, this.OPEN = 1, this.CLOSED = 2, __privateAdd(this, _readyState), __privateAdd(this, _url2), __privateAdd(this, _redirectUrl), __privateAdd(this, _withCredentials), __privateAdd(this, _fetch), __privateAdd(this, _reconnectInterval), __privateAdd(this, _reconnectTimer), __privateAdd(this, _lastEventId, null), __privateAdd(this, _controller), __privateAdd(this, _parser), __privateAdd(this, _onError, null), __privateAdd(this, _onMessage, null), __privateAdd(this, _onOpen, null), __privateAdd(this, _onFetchResponse, async (response) => {
+      var _a22;
+      __privateGet(this, _parser).reset();
+      const { body, redirected, status, headers } = response;
+      if (status === 204) {
+        __privateMethod(this, _EventSource_instances, failConnection_fn).call(this, "Server sent HTTP 204, not reconnecting", 204), this.close();
+        return;
+      }
+      if (redirected ? __privateSet(this, _redirectUrl, new URL(response.url)) : __privateSet(this, _redirectUrl, void 0), status !== 200) {
+        __privateMethod(this, _EventSource_instances, failConnection_fn).call(this, `Non-200 status code (${status})`, status);
+        return;
+      }
+      if (!(headers.get("content-type") || "").startsWith("text/event-stream")) {
+        __privateMethod(this, _EventSource_instances, failConnection_fn).call(this, 'Invalid content type, expected "text/event-stream"', status);
+        return;
+      }
+      if (__privateGet(this, _readyState) === this.CLOSED)
+        return;
+      __privateSet(this, _readyState, this.OPEN);
+      const openEvent = new Event("open");
+      if ((_a22 = __privateGet(this, _onOpen)) == null || _a22.call(this, openEvent), this.dispatchEvent(openEvent), typeof body != "object" || !body || !("getReader" in body)) {
+        __privateMethod(this, _EventSource_instances, failConnection_fn).call(this, "Invalid response body, expected a web ReadableStream", status), this.close();
+        return;
+      }
+      const decoder = new TextDecoder(), reader = body.getReader();
+      let open = true;
+      do {
+        const { done, value } = await reader.read();
+        value && __privateGet(this, _parser).feed(decoder.decode(value, { stream: !done })), done && (open = false, __privateGet(this, _parser).reset(), __privateMethod(this, _EventSource_instances, scheduleReconnect_fn).call(this));
+      } while (open);
+    }), __privateAdd(this, _onFetchError, (err) => {
+      __privateSet(this, _controller, void 0), !(err.name === "AbortError" || err.type === "aborted") && __privateMethod(this, _EventSource_instances, scheduleReconnect_fn).call(this, flattenError2(err));
+    }), __privateAdd(this, _onEvent, (event) => {
+      typeof event.id == "string" && __privateSet(this, _lastEventId, event.id);
+      const messageEvent = new MessageEvent(event.event || "message", {
+        data: event.data,
+        origin: __privateGet(this, _redirectUrl) ? __privateGet(this, _redirectUrl).origin : __privateGet(this, _url2).origin,
+        lastEventId: event.id || ""
+      });
+      __privateGet(this, _onMessage) && (!event.event || event.event === "message") && __privateGet(this, _onMessage).call(this, messageEvent), this.dispatchEvent(messageEvent);
+    }), __privateAdd(this, _onRetryChange, (value) => {
+      __privateSet(this, _reconnectInterval, value);
+    }), __privateAdd(this, _reconnect, () => {
+      __privateSet(this, _reconnectTimer, void 0), __privateGet(this, _readyState) === this.CONNECTING && __privateMethod(this, _EventSource_instances, connect_fn).call(this);
+    });
+    try {
+      if (url2 instanceof URL)
+        __privateSet(this, _url2, url2);
+      else if (typeof url2 == "string")
+        __privateSet(this, _url2, new URL(url2, getBaseURL()));
+      else
+        throw new Error("Invalid URL");
+    } catch {
+      throw syntaxError("An invalid or illegal string was specified");
+    }
+    __privateSet(this, _parser, createParser({
+      onEvent: __privateGet(this, _onEvent),
+      onRetry: __privateGet(this, _onRetryChange)
+    })), __privateSet(this, _readyState, this.CONNECTING), __privateSet(this, _reconnectInterval, 3e3), __privateSet(this, _fetch, (_a3 = eventSourceInitDict == null ? void 0 : eventSourceInitDict.fetch) != null ? _a3 : globalThis.fetch), __privateSet(this, _withCredentials, (_b = eventSourceInitDict == null ? void 0 : eventSourceInitDict.withCredentials) != null ? _b : false), __privateMethod(this, _EventSource_instances, connect_fn).call(this);
+  }
+  /**
+   * Returns the state of this EventSource object's connection. It can have the values described below.
+   *
+   * [MDN Reference](https://developer.mozilla.org/docs/Web/API/EventSource/readyState)
+   *
+   * Note: typed as `number` instead of `0 | 1 | 2` for compatibility with the `EventSource` interface,
+   * defined in the TypeScript `dom` library.
+   *
+   * @public
+   */
+  get readyState() {
+    return __privateGet(this, _readyState);
+  }
+  /**
+   * Returns the URL providing the event stream.
+   *
+   * [MDN Reference](https://developer.mozilla.org/docs/Web/API/EventSource/url)
+   *
+   * @public
+   */
+  get url() {
+    return __privateGet(this, _url2).href;
+  }
+  /**
+   * Returns true if the credentials mode for connection requests to the URL providing the event stream is set to "include", and false otherwise.
+   *
+   * [MDN Reference](https://developer.mozilla.org/docs/Web/API/EventSource/withCredentials)
+   */
+  get withCredentials() {
+    return __privateGet(this, _withCredentials);
+  }
+  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/EventSource/error_event) */
+  get onerror() {
+    return __privateGet(this, _onError);
+  }
+  set onerror(value) {
+    __privateSet(this, _onError, value);
+  }
+  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/EventSource/message_event) */
+  get onmessage() {
+    return __privateGet(this, _onMessage);
+  }
+  set onmessage(value) {
+    __privateSet(this, _onMessage, value);
+  }
+  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/EventSource/open_event) */
+  get onopen() {
+    return __privateGet(this, _onOpen);
+  }
+  set onopen(value) {
+    __privateSet(this, _onOpen, value);
+  }
+  addEventListener(type, listener, options) {
+    const listen = listener;
+    super.addEventListener(type, listen, options);
+  }
+  removeEventListener(type, listener, options) {
+    const listen = listener;
+    super.removeEventListener(type, listen, options);
+  }
+  /**
+   * Aborts any instances of the fetch algorithm started for this EventSource object, and sets the readyState attribute to CLOSED.
+   *
+   * [MDN Reference](https://developer.mozilla.org/docs/Web/API/EventSource/close)
+   *
+   * @public
+   */
+  close() {
+    __privateGet(this, _reconnectTimer) && clearTimeout(__privateGet(this, _reconnectTimer)), __privateGet(this, _readyState) !== this.CLOSED && (__privateGet(this, _controller) && __privateGet(this, _controller).abort(), __privateSet(this, _readyState, this.CLOSED), __privateSet(this, _controller, void 0));
+  }
+};
+_readyState = /* @__PURE__ */ new WeakMap(), _url2 = /* @__PURE__ */ new WeakMap(), _redirectUrl = /* @__PURE__ */ new WeakMap(), _withCredentials = /* @__PURE__ */ new WeakMap(), _fetch = /* @__PURE__ */ new WeakMap(), _reconnectInterval = /* @__PURE__ */ new WeakMap(), _reconnectTimer = /* @__PURE__ */ new WeakMap(), _lastEventId = /* @__PURE__ */ new WeakMap(), _controller = /* @__PURE__ */ new WeakMap(), _parser = /* @__PURE__ */ new WeakMap(), _onError = /* @__PURE__ */ new WeakMap(), _onMessage = /* @__PURE__ */ new WeakMap(), _onOpen = /* @__PURE__ */ new WeakMap(), _EventSource_instances = /* @__PURE__ */ new WeakSet(), /**
+* Connect to the given URL and start receiving events
+*
+* @internal
+*/
+connect_fn = function() {
+  __privateSet(this, _readyState, this.CONNECTING), __privateSet(this, _controller, new AbortController()), __privateGet(this, _fetch)(__privateGet(this, _url2), __privateMethod(this, _EventSource_instances, getRequestOptions_fn).call(this)).then(__privateGet(this, _onFetchResponse)).catch(__privateGet(this, _onFetchError));
+}, _onFetchResponse = /* @__PURE__ */ new WeakMap(), _onFetchError = /* @__PURE__ */ new WeakMap(), /**
+* Get request options for the `fetch()` request
+*
+* @returns The request options
+* @internal
+*/
+getRequestOptions_fn = function() {
+  var _a3;
+  const init = {
+    // [spec] Let `corsAttributeState` be `Anonymous`…
+    // [spec] …will have their mode set to "cors"…
+    mode: "cors",
+    redirect: "follow",
+    headers: { Accept: "text/event-stream", ...__privateGet(this, _lastEventId) ? { "Last-Event-ID": __privateGet(this, _lastEventId) } : void 0 },
+    cache: "no-store",
+    signal: (_a3 = __privateGet(this, _controller)) == null ? void 0 : _a3.signal
+  };
+  return "window" in globalThis && (init.credentials = this.withCredentials ? "include" : "same-origin"), init;
+}, _onEvent = /* @__PURE__ */ new WeakMap(), _onRetryChange = /* @__PURE__ */ new WeakMap(), /**
+* Handles the process referred to in the EventSource specification as "failing a connection".
+*
+* @param error - The error causing the connection to fail
+* @param code - The HTTP status code, if available
+* @internal
+*/
+failConnection_fn = function(message, code) {
+  var _a3;
+  __privateGet(this, _readyState) !== this.CLOSED && __privateSet(this, _readyState, this.CLOSED);
+  const errorEvent = new ErrorEvent("error", { code, message });
+  (_a3 = __privateGet(this, _onError)) == null || _a3.call(this, errorEvent), this.dispatchEvent(errorEvent);
+}, /**
+* Schedules a reconnection attempt against the EventSource endpoint.
+*
+* @param message - The error causing the connection to fail
+* @param code - The HTTP status code, if available
+* @internal
+*/
+scheduleReconnect_fn = function(message, code) {
+  var _a3;
+  if (__privateGet(this, _readyState) === this.CLOSED)
+    return;
+  __privateSet(this, _readyState, this.CONNECTING);
+  const errorEvent = new ErrorEvent("error", { code, message });
+  (_a3 = __privateGet(this, _onError)) == null || _a3.call(this, errorEvent), this.dispatchEvent(errorEvent), __privateSet(this, _reconnectTimer, setTimeout(__privateGet(this, _reconnect), __privateGet(this, _reconnectInterval)));
+}, _reconnect = /* @__PURE__ */ new WeakMap(), /**
+* ReadyState representing an EventSource currently trying to connect
+*
+* @public
+*/
+EventSource.CONNECTING = 0, /**
+* ReadyState representing an EventSource connection that is open (eg connected)
+*
+* @public
+*/
+EventSource.OPEN = 1, /**
+* ReadyState representing an EventSource connection that is closed (eg disconnected)
+*
+* @public
+*/
+EventSource.CLOSED = 2;
+function getBaseURL() {
+  const doc = "document" in globalThis ? globalThis.document : void 0;
+  return doc && typeof doc == "object" && "baseURI" in doc && typeof doc.baseURI == "string" ? doc.baseURI : void 0;
+}
+
+// ../adw-requirement-core/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/node_modules/@modelcontextprotocol/sdk/dist/esm/client/sse.js
+var SseError = class extends Error {
+  constructor(code, message, event) {
+    super(`SSE error: ${message}`);
+    this.code = code;
+    this.event = event;
+  }
+};
+var SSEClientTransport = class {
+  constructor(url2, opts) {
+    this._url = url2;
+    this._resourceMetadataUrl = void 0;
+    this._scope = void 0;
+    this._eventSourceInit = opts?.eventSourceInit;
+    this._requestInit = opts?.requestInit;
+    this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch;
+    this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+  }
+  async _authThenStart() {
+    if (!this._authProvider) {
+      throw new UnauthorizedError("No auth provider");
+    }
+    let result;
+    try {
+      result = await auth(this._authProvider, {
+        serverUrl: this._url,
+        resourceMetadataUrl: this._resourceMetadataUrl,
+        scope: this._scope,
+        fetchFn: this._fetchWithInit
+      });
+    } catch (error2) {
+      this.onerror?.(error2);
+      throw error2;
+    }
+    if (result !== "AUTHORIZED") {
+      throw new UnauthorizedError();
+    }
+    return await this._startOrAuth();
+  }
+  async _commonHeaders() {
+    const headers = {};
+    if (this._authProvider) {
+      const tokens = await this._authProvider.tokens();
+      if (tokens) {
+        headers["Authorization"] = `Bearer ${tokens.access_token}`;
+      }
+    }
+    if (this._protocolVersion) {
+      headers["mcp-protocol-version"] = this._protocolVersion;
+    }
+    const extraHeaders = normalizeHeaders(this._requestInit?.headers);
+    return new Headers({
+      ...headers,
+      ...extraHeaders
+    });
+  }
+  _startOrAuth() {
+    const fetchImpl = this?._eventSourceInit?.fetch ?? this._fetch ?? fetch;
+    return new Promise((resolve, reject) => {
+      this._eventSource = new EventSource(this._url.href, {
+        ...this._eventSourceInit,
+        fetch: async (url2, init) => {
+          const headers = await this._commonHeaders();
+          headers.set("Accept", "text/event-stream");
+          const response = await fetchImpl(url2, {
+            ...init,
+            headers
+          });
+          if (response.status === 401 && response.headers.has("www-authenticate")) {
+            const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+            this._resourceMetadataUrl = resourceMetadataUrl;
+            this._scope = scope;
+          }
+          return response;
+        }
+      });
+      this._abortController = new AbortController();
+      this._eventSource.onerror = (event) => {
+        if (event.code === 401 && this._authProvider) {
+          this._authThenStart().then(resolve, reject);
+          return;
+        }
+        const error2 = new SseError(event.code, event.message, event);
+        reject(error2);
+        this.onerror?.(error2);
+      };
+      this._eventSource.onopen = () => {
+      };
+      this._eventSource.addEventListener("endpoint", (event) => {
+        const messageEvent = event;
+        try {
+          this._endpoint = new URL(messageEvent.data, this._url);
+          if (this._endpoint.origin !== this._url.origin) {
+            throw new Error(`Endpoint origin does not match connection origin: ${this._endpoint.origin}`);
+          }
+        } catch (error2) {
+          reject(error2);
+          this.onerror?.(error2);
+          void this.close();
+          return;
+        }
+        resolve();
+      });
+      this._eventSource.onmessage = (event) => {
+        const messageEvent = event;
+        let message;
+        try {
+          message = JSONRPCMessageSchema.parse(JSON.parse(messageEvent.data));
+        } catch (error2) {
+          this.onerror?.(error2);
+          return;
+        }
+        this.onmessage?.(message);
+      };
+    });
+  }
+  async start() {
+    if (this._eventSource) {
+      throw new Error("SSEClientTransport already started! If using Client class, note that connect() calls start() automatically.");
+    }
+    return await this._startOrAuth();
+  }
+  /**
+   * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
+   */
+  async finishAuth(authorizationCode) {
+    if (!this._authProvider) {
+      throw new UnauthorizedError("No auth provider");
+    }
+    const result = await auth(this._authProvider, {
+      serverUrl: this._url,
+      authorizationCode,
+      resourceMetadataUrl: this._resourceMetadataUrl,
+      scope: this._scope,
+      fetchFn: this._fetchWithInit
+    });
+    if (result !== "AUTHORIZED") {
+      throw new UnauthorizedError("Failed to authorize");
+    }
+  }
+  async close() {
+    this._abortController?.abort();
+    this._eventSource?.close();
+    this.onclose?.();
+  }
+  async send(message) {
+    if (!this._endpoint) {
+      throw new Error("Not connected");
+    }
+    try {
+      const headers = await this._commonHeaders();
+      headers.set("content-type", "application/json");
+      const init = {
+        ...this._requestInit,
+        method: "POST",
+        headers,
+        body: JSON.stringify(message),
+        signal: this._abortController?.signal
+      };
+      const response = await (this._fetch ?? fetch)(this._endpoint, init);
+      if (!response.ok) {
+        const text2 = await response.text().catch(() => null);
+        if (response.status === 401 && this._authProvider) {
+          const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+          this._resourceMetadataUrl = resourceMetadataUrl;
+          this._scope = scope;
+          const result = await auth(this._authProvider, {
+            serverUrl: this._url,
+            resourceMetadataUrl: this._resourceMetadataUrl,
+            scope: this._scope,
+            fetchFn: this._fetchWithInit
+          });
+          if (result !== "AUTHORIZED") {
+            throw new UnauthorizedError();
+          }
+          return this.send(message);
+        }
+        throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text2}`);
+      }
+      await response.body?.cancel();
+    } catch (error2) {
+      this.onerror?.(error2);
+      throw error2;
+    }
+  }
+  setProtocolVersion(version2) {
+    this._protocolVersion = version2;
+  }
+};
+
 // ../adw-requirement-core/src/ones-image-service.ts
-import crypto from "crypto";
+import crypto2 from "crypto";
 import fs3 from "fs";
 import path2 from "path";
 import http2 from "http";
@@ -16548,12 +18810,12 @@ var TIMEOUTS = {
 
 // ../adw-requirement-core/src/http-utils.ts
 var DISALLOWED_SCHEMES = ["file", "ftp", "data", "javascript", "vbscript"];
-function validateDownloadUrl(url) {
+function validateDownloadUrl(url2) {
   let parsed;
   try {
-    parsed = new URL2(url);
+    parsed = new URL2(url2);
   } catch {
-    throw new Error(`Invalid URL: ${url}`);
+    throw new Error(`Invalid URL: ${url2}`);
   }
   if (DISALLOWED_SCHEMES.includes(parsed.protocol.replace(":", ""))) {
     throw new Error(`URL scheme not allowed: ${parsed.protocol}`);
@@ -16572,11 +18834,11 @@ function validateDownloadUrl(url) {
     }
   }
 }
-function downloadFile(url, destPath, timeoutMs = TIMEOUTS.HTTP_DOWNLOAD, headers) {
-  validateDownloadUrl(url);
+function downloadFile(url2, destPath, timeoutMs = TIMEOUTS.HTTP_DOWNLOAD, headers) {
+  validateDownloadUrl(url2);
   return new Promise((resolve, reject) => {
-    const client = url.startsWith("https") ? https : http;
-    client.get(url, { timeout: timeoutMs, headers: headers ?? {} }, (res) => {
+    const client = url2.startsWith("https") ? https : http;
+    client.get(url2, { timeout: timeoutMs, headers: headers ?? {} }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         downloadFile(res.headers.location, destPath, timeoutMs, headers).then(resolve).catch(reject);
         return;
@@ -16595,9 +18857,9 @@ function downloadFile(url, destPath, timeoutMs = TIMEOUTS.HTTP_DOWNLOAD, headers
     }).on("error", reject);
   });
 }
-function urlToImageFilename(url) {
+function urlToImageFilename(url2) {
   try {
-    const pathname = new URL2(url).pathname;
+    const pathname = new URL2(url2).pathname;
     const base = pathname.split("/").pop() ?? "";
     if (base && /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(base)) return base;
   } catch {
@@ -16694,9 +18956,9 @@ var OnesImageService = class _OnesImageService {
     });
     if (!certRes.ok) throw new Error(`ONES: encryption_cert failed: ${certRes.status}`);
     const cert = await certRes.json();
-    const encryptedPassword = crypto.publicEncrypt({
+    const encryptedPassword = crypto2.publicEncrypt({
       key: cert.public_key,
-      padding: crypto.constants.RSA_PKCS1_PADDING
+      padding: crypto2.constants.RSA_PKCS1_PADDING
     }, Buffer.from(this.password, "utf-8")).toString("base64");
     const loginRes = await this.fetch(`${baseUrl}/identity/api/login`, {
       method: "POST",
@@ -16708,8 +18970,8 @@ var OnesImageService = class _OnesImageService {
     const loginData = await loginRes.json();
     const orgUser = loginData.org_users[0];
     const cookieHeader = () => allCookies.join("; ");
-    const codeVerifier = base64Url(crypto.randomBytes(32));
-    const codeChallenge = base64Url(crypto.createHash("sha256").update(codeVerifier).digest());
+    const codeVerifier = base64Url(crypto2.randomBytes(32));
+    const codeChallenge = base64Url(crypto2.createHash("sha256").update(codeVerifier).digest());
     const authorizeParams = new URLSearchParams({
       client_id: "ones.v1",
       scope: `openid offline_access ones:org:${orgUser.region_uuid}:${orgUser.org_uuid}:${orgUser.org_user.org_user_uuid}`,
@@ -16801,8 +19063,8 @@ var OnesImageService = class _OnesImageService {
   /** 执行 GraphQL 查询 */
   async graphql(query, variables) {
     const session = await this.ensureSession();
-    const url = `${this.apiBase}/project/api/project/team/${session.teamUuid}/items/graphql`;
-    const res = await this.fetch(url, {
+    const url2 = `${this.apiBase}/project/api/project/team/${session.teamUuid}/items/graphql`;
+    const res = await this.fetch(url2, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${session.accessToken}`,
@@ -16949,10 +19211,10 @@ var OnesImageService = class _OnesImageService {
       const re = /<img\b[^>]*\bsrc="([^"]+)"/gi;
       let match;
       while ((match = re.exec(html)) !== null) {
-        const url = match[1];
-        const uuidMatch = url.match(/\/res\/attachment\/([^/?]+)/);
+        const url2 = match[1];
+        const uuidMatch = url2.match(/\/res\/attachment\/([^/?]+)/);
         if (uuidMatch) {
-          images.push({ uuid: uuidMatch[1], url });
+          images.push({ uuid: uuidMatch[1], url: url2 });
         }
       }
       return images;
@@ -16997,8 +19259,8 @@ var OnesImageService = class _OnesImageService {
   async downloadTaskImage(uuid2, destPath) {
     try {
       const session = await this.ensureSession();
-      const url = `${this.apiBase}/project/api/project/team/${session.teamUuid}/res/attachment/${encodeURIComponent(uuid2)}?redirect=true`;
-      const res = await this.fetch(url, {
+      const url2 = `${this.apiBase}/project/api/project/team/${session.teamUuid}/res/attachment/${encodeURIComponent(uuid2)}?redirect=true`;
+      const res = await this.fetch(url2, {
         headers: { Authorization: `Bearer ${session.accessToken}` },
         redirect: "manual"
       });
@@ -17051,21 +19313,21 @@ var OnesImageService = class _OnesImageService {
    * @param destPath - 本地保存路径
    * @deprecated 使用 downloadWikiImage 代替
    */
-  async downloadFromUrl(url, destPath) {
+  async downloadFromUrl(url2, destPath) {
     try {
-      await downloadFile(url, destPath);
+      await downloadFile(url2, destPath);
       return true;
     } catch {
     }
     try {
       const headers = await this.getAuthHeaders();
-      await downloadFile(url, destPath, void 0, headers);
+      await downloadFile(url2, destPath, void 0, headers);
       return true;
     } catch {
     }
     try {
       const session = await this.ensureSession();
-      await this.downloadWithCookies(url, destPath, session.cookies);
+      await this.downloadWithCookies(url2, destPath, session.cookies);
       return true;
     } catch {
     }
@@ -17078,22 +19340,22 @@ var OnesImageService = class _OnesImageService {
   }
   // === 工具方法 ===
   /** 使用 Bearer token + cookies 下载文件 */
-  async downloadWithAuth(url, destPath) {
+  async downloadWithAuth(url2, destPath) {
     const session = await this.ensureSession();
     const headers = {
       Authorization: `Bearer ${session.accessToken}`
     };
-    return this.httpDownloadWithHeaders(url, destPath, headers);
+    return this.httpDownloadWithHeaders(url2, destPath, headers);
   }
   /** 使用 cookies 下载文件 */
-  downloadWithCookies(url, destPath, cookies) {
-    return this.httpDownloadWithHeaders(url, destPath, { Cookie: cookies });
+  downloadWithCookies(url2, destPath, cookies) {
+    return this.httpDownloadWithHeaders(url2, destPath, { Cookie: cookies });
   }
   /** 带自定义 headers 的 HTTP 下载 */
-  httpDownloadWithHeaders(url, destPath, headers) {
+  httpDownloadWithHeaders(url2, destPath, headers) {
     return new Promise((resolve, reject) => {
-      const client = url.startsWith("https") ? https2 : http2;
-      client.get(url, { timeout: TIMEOUTS.HTTP_DOWNLOAD, headers }, (res) => {
+      const client = url2.startsWith("https") ? https2 : http2;
+      client.get(url2, { timeout: TIMEOUTS.HTTP_DOWNLOAD, headers }, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           this.httpDownloadWithHeaders(res.headers.location, destPath, headers).then(resolve).catch(reject);
           return;
@@ -17116,19 +19378,19 @@ var OnesImageService = class _OnesImageService {
   async getSignedUrl(resourceUuid) {
     try {
       const session = await this.ensureSession();
-      const url = `${this.apiBase}/project/api/project/team/${session.teamUuid}/res/attachment/${resourceUuid}?op=${encodeURIComponent("imageMogr2/auto-orient")}`;
-      const res = await this.fetch(url, {
+      const url2 = `${this.apiBase}/project/api/project/team/${session.teamUuid}/res/attachment/${resourceUuid}?op=${encodeURIComponent("imageMogr2/auto-orient")}`;
+      const res = await this.fetch(url2, {
         headers: { Authorization: `Bearer ${session.accessToken}` },
         redirect: "manual"
       });
       if (res.status === 302 || res.status === 301) {
         return res.headers.get("location");
       }
-      const followRes = await this.fetch(url, {
+      const followRes = await this.fetch(url2, {
         headers: { Authorization: `Bearer ${session.accessToken}` },
         redirect: "follow"
       });
-      if (followRes.url && followRes.url !== url) return followRes.url;
+      if (followRes.url && followRes.url !== url2) return followRes.url;
       return null;
     } catch {
       return null;
@@ -17142,21 +19404,21 @@ var OnesImageService = class _OnesImageService {
     return raw ? [raw] : [];
   }
   /** fetch 封装（兼容 Node 18/20） */
-  async fetch(url, init) {
-    return globalThis.fetch(url, init);
+  async fetch(url2, init) {
+    return globalThis.fetch(url2, init);
   }
   /** 下载文件到本地（无认证） */
-  downloadFile(url, destPath) {
-    return downloadFile(url, destPath, TIMEOUTS.BRIDGE_START);
+  downloadFile(url2, destPath) {
+    return downloadFile(url2, destPath, TIMEOUTS.BRIDGE_START);
   }
 };
-function extFromUrl(url) {
-  const m = url.match(/\.(png|jpe?g|gif|webp|svg|bmp)(?:[?#]|$)/i);
+function extFromUrl(url2) {
+  const m = url2.match(/\.(png|jpe?g|gif|webp|svg|bmp)(?:[?#]|$)/i);
   if (!m) return "png";
   return m[1].toLowerCase() === "jpeg" ? "jpg" : m[1].toLowerCase();
 }
-function extFromContentType(contentType) {
-  const ct = (contentType ?? "").toLowerCase();
+function extFromContentType(contentType2) {
+  const ct = (contentType2 ?? "").toLowerCase();
   const map = {
     "image/png": "png",
     "image/jpeg": "jpg",
@@ -17312,7 +19574,7 @@ function parseMarkdownRequirementDetail(text2, options) {
   const stopSection = options.stopSection ?? /^##\s+Attachments/i;
   let id = "";
   let title = "";
-  let number3;
+  let number4;
   let status = "unknown";
   let priority = "medium";
   let assignee = "";
@@ -17320,7 +19582,7 @@ function parseMarkdownRequirementDetail(text2, options) {
   const titleLine = lines.find((l) => l.startsWith("# "));
   if (titleLine) {
     const numberMatch = titleLine.match(/^#\s+#(\d+)/);
-    if (numberMatch) number3 = `#${numberMatch[1]}`;
+    if (numberMatch) number4 = `#${numberMatch[1]}`;
     const cleaned = titleLine.replace(/^#\s+/, "").replace(/^#\d+\s+/, "").trim();
     title = cleaned;
   }
@@ -17415,7 +19677,7 @@ function parseMarkdownRequirementDetail(text2, options) {
   }
   return {
     id,
-    number: number3,
+    number: number4,
     title,
     status,
     priority,
@@ -17614,8 +19876,8 @@ var FALLBACK_TOOL_NAMES2 = {
   fetchDetail: ["get_issue"],
   search: ["search_issues"]
 };
-function parseIssueUrl(url) {
-  const m = url.match(/^https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/issues\/(\d+)/i);
+function parseIssueUrl(url2) {
+  const m = url2.match(/^https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/issues\/(\d+)/i);
   if (!m) return void 0;
   return { owner: m[1], repo: m[2].replace(/\.git$/, ""), number: Number(m[3]) };
 }
@@ -17768,11 +20030,11 @@ function extractImageLinks(body) {
   const re = /!\[([^\]]*)\]\(([^)]+)\)/g;
   let match;
   while ((match = re.exec(body)) !== null) {
-    const url = match[2].split(/\s+/)[0];
-    const ext = url.match(/\.(png|jpe?g|gif|webp|svg|bmp)(?:[?#]|$)/i)?.[1]?.toLowerCase() ?? "png";
+    const url2 = match[2].split(/\s+/)[0];
+    const ext = url2.match(/\.(png|jpe?g|gif|webp|svg|bmp)(?:[?#]|$)/i)?.[1]?.toLowerCase() ?? "png";
     links.push({
-      name: match[1] || url.split("/").pop()?.split("?")[0] || `image-${links.length + 1}`,
-      url,
+      name: match[1] || url2.split("/").pop()?.split("?")[0] || `image-${links.length + 1}`,
+      url: url2,
       type: `image/${ext === "jpg" ? "jpeg" : ext}`
     });
   }
@@ -17883,6 +20145,30 @@ function resolveAdapter(serverName, config2) {
 }
 
 // ../adw-requirement-core/src/mcp-bridge.ts
+var WINDOWS_SCRIPT_COMMANDS = /* @__PURE__ */ new Set(["npx", "npm", "pnpm", "yarn", "bun", "bunx", "deno", "uvx", "uv", "node", "python", "python3", "pip"]);
+function buildStdioTransport(config2) {
+  const isWindows = process.platform === "win32";
+  const bare = config2.command.toLowerCase();
+  const needsShellWrapper = isWindows && (WINDOWS_SCRIPT_COMMANDS.has(bare) || bare.endsWith(".cmd") === false && config2.command.includes("/"));
+  const command = needsShellWrapper ? "cmd" : config2.command;
+  const args = needsShellWrapper ? ["/c", config2.command, ...config2.args] : config2.args;
+  return new StdioClientTransport({
+    command,
+    args,
+    env: { ...process.env, ...config2.env }
+  });
+}
+async function buildHttpTransport(config2) {
+  const url2 = new URL(config2.url);
+  const headers = { ...config2.env };
+  try {
+    const transport = new StreamableHTTPClientTransport(url2, { requestInit: { headers } });
+    await transport.start();
+    return transport;
+  } catch {
+    return await Promise.resolve(new SSEClientTransport(url2, { requestInit: { headers } }));
+  }
+}
 var DEFAULT_SERVER_NAME = "ones-api";
 var MCPBridgeService = class {
   /** MCP 配置源（注册中心或兼容 get/list 的服务） */
@@ -17971,11 +20257,7 @@ var MCPBridgeService = class {
           `MCP Server "${serverName}" is not configured. Please add it in MCP Management.`
         );
       }
-      const transport = new StdioClientTransport({
-        command: config2.command,
-        args: config2.args,
-        env: { ...process.env, ...config2.env }
-      });
+      const transport = config2.url !== void 0 ? await buildHttpTransport(config2) : buildStdioTransport(config2);
       const client = new Client(
         { name: "ai-dev-workbench", version: "0.1.0" },
         { capabilities: {} }
@@ -18386,12 +20668,12 @@ var RequirementStore = class {
       return `![${trimmed}](${localUrl(trimmed)})`;
     });
     desc = desc.replace(/\[Embed:\s*([^\]]+)\]/g, (_m, embedType) => `> \u{1F4CE} \u5D4C\u5165\u5185\u5BB9: ${embedType.trim()}\uFF08\u8BF7\u5728\u6E90\u7CFB\u7EDF\u4E2D\u67E5\u770B\uFF09`);
-    desc = desc.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, (_m, alt, url) => {
-      const filename = urlToImageFilename(url);
+    desc = desc.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, (_m, alt, url2) => {
+      const filename = urlToImageFilename(url2);
       if (fs4.existsSync(path3.join(imgDir, filename))) {
         return `![${alt}](${localUrl(filename)})`;
       }
-      return `![${alt}](${url})`;
+      return `![${alt}](${url2})`;
     });
     req.description = desc;
     for (const att of req.attachments) {
@@ -18463,6 +20745,22 @@ var RequirementEngine = class {
   /** 删除一个 MCP server 配置（源卸载；返回是否存在） */
   removeServer(serverName) {
     return this.mcpConfig.delete(serverName);
+  }
+  /** 列出自管文件中的全部 MCP 服务器（含 url 型自定义服务器） */
+  listServers() {
+    return this.mcpConfig.list();
+  }
+  /** 添加自定义 MCP 服务器（stdio command/args 或 http url），返回添加结果 */
+  addServer(config2) {
+    return this.mcpConfig.add({
+      name: config2.name,
+      type: "custom",
+      command: config2.command ?? "",
+      args: config2.args ?? [],
+      env: config2.env ?? {},
+      ...config2.url !== void 0 ? { url: config2.url } : {},
+      enabled: true
+    });
   }
   /**
    * 拉取需求并保存（推荐入口）
@@ -18540,6 +20838,295 @@ function renderDevPrompt(template, req) {
   return template.replaceAll("{{title}}", req.title).replaceAll("{{number}}", req.number ?? req.id).replaceAll("{{id}}", req.id).replaceAll("{{status}}", req.status).replaceAll("{{priority}}", req.priority).replaceAll("{{description}}", req.description ?? "").replaceAll("{{acceptanceCriteria}}", (req.acceptanceCriteria ?? []).map((c) => `- [ ] ${c}`).join("\n"));
 }
 
+// ../adw-requirement-core/src/mineru-client.ts
+import fs5 from "fs";
+import path4 from "path";
+var MinerUClient = class _MinerUClient {
+  baseUrl;
+  /**
+   * @param apiUrl - MinerU 服务地址（如 http://127.0.0.1:8000）；空串 = 未配置
+   */
+  constructor(apiUrl) {
+    this.baseUrl = (apiUrl ?? "").trim().replace(/\/+$/, "");
+  }
+  /** 是否已配置 MinerU 服务 */
+  isConfigured() {
+    return this.baseUrl !== "";
+  }
+  /** 服务地址 */
+  getBaseUrl() {
+    return this.baseUrl;
+  }
+  /** 健康检查 */
+  async healthCheck() {
+    if (!this.isConfigured()) {
+      return { healthy: false, error: "MinerU service is not configured" };
+    }
+    const start = Date.now();
+    try {
+      const res = await fetch(`${this.baseUrl}/health`);
+      const latency = Date.now() - start;
+      return { healthy: res.ok, latency, error: res.ok ? void 0 : `HTTP ${res.status}` };
+    } catch (err) {
+      return { healthy: false, latency: Date.now() - start, error: getErrorMessage(err) };
+    }
+  }
+  /** 同步解析本地文件 */
+  async parseFile(filePath, options) {
+    if (!this.isConfigured()) return { success: false, error: "MinerU service is not configured" };
+    if (!fs5.existsSync(filePath)) return { success: false, error: `File not found: ${filePath}` };
+    const fileName = path4.basename(filePath);
+    const fileBuffer = fs5.readFileSync(filePath);
+    const mimeType = _MinerUClient.getMimeType(fileName);
+    return this.parseBuffer(fileName, fileBuffer, mimeType, options);
+  }
+  /** 同步解析 Buffer 文件 */
+  async parseBuffer(fileName, buffer, mimeType, options) {
+    if (!this.isConfigured()) return { success: false, error: "MinerU service is not configured" };
+    try {
+      const fd = this.buildFormData(fileName, buffer, mimeType, options);
+      const res = await fetch(`${this.baseUrl}/file_parse`, {
+        method: "POST",
+        body: fd
+      });
+      if (!res.ok) {
+        const text3 = await res.text();
+        return { success: false, error: `MinerU HTTP ${res.status}: ${text3.substring(0, 500)}` };
+      }
+      const text2 = await res.text();
+      return this.parseResponse(text2);
+    } catch (err) {
+      return { success: false, error: getErrorMessage(err) };
+    }
+  }
+  /** 解析远程 URL 文档（先下载到内存再同步解析） */
+  async parseUrl(fileUrl, options) {
+    if (!this.isConfigured()) return { success: false, error: "MinerU service is not configured" };
+    try {
+      const res = await fetch(fileUrl);
+      if (!res.ok) {
+        return { success: false, error: `Download failed: HTTP ${res.status}` };
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const fileName = path4.basename(new URL(fileUrl).pathname) || "document";
+      return this.parseBuffer(fileName, buffer, res.headers.get("content-type") ?? _MinerUClient.getMimeType(fileName), options);
+    } catch (err) {
+      return { success: false, error: getErrorMessage(err) };
+    }
+  }
+  /** 提交异步解析任务（本地文件），返回提交结果 */
+  async submitTask(filePath, options) {
+    if (!this.isConfigured()) return { task_id: "", error: "MinerU service is not configured" };
+    if (!fs5.existsSync(filePath)) return { task_id: "", error: `File not found: ${filePath}` };
+    const fileName = path4.basename(filePath);
+    const fileBuffer = fs5.readFileSync(filePath);
+    const mimeType = _MinerUClient.getMimeType(fileName);
+    return this.submitTaskBuffer(fileName, fileBuffer, mimeType, options);
+  }
+  /** 提交异步解析任务（Buffer） */
+  async submitTaskBuffer(fileName, buffer, mimeType, options) {
+    if (!this.isConfigured()) return { task_id: "", error: "MinerU service is not configured" };
+    try {
+      const fd = this.buildFormData(fileName, buffer, mimeType, options);
+      const res = await fetch(`${this.baseUrl}/tasks`, {
+        method: "POST",
+        body: fd
+      });
+      if (!res.ok) {
+        const text2 = await res.text();
+        return { task_id: "", error: `MinerU HTTP ${res.status}: ${text2.substring(0, 500)}` };
+      }
+      const result = await res.json();
+      return {
+        task_id: result.task_id,
+        status: result.status,
+        message: result.message
+      };
+    } catch (err) {
+      return { task_id: "", error: getErrorMessage(err) };
+    }
+  }
+  /** 查询异步任务状态 */
+  async getTaskStatus(taskId) {
+    if (!this.isConfigured()) return { task_id: taskId, status: "failed", error: "MinerU service is not configured" };
+    try {
+      const res = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}`);
+      if (!res.ok) {
+        const text2 = await res.text();
+        return { task_id: taskId, status: "failed", error: `HTTP ${res.status}: ${text2.substring(0, 300)}` };
+      }
+      return await res.json();
+    } catch (err) {
+      return { task_id: taskId, status: "failed", error: getErrorMessage(err) };
+    }
+  }
+  /** 获取异步任务结果 */
+  async getTaskResult(taskId) {
+    if (!this.isConfigured()) return { success: false, error: "MinerU service is not configured" };
+    try {
+      const res = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/result`);
+      if (!res.ok) {
+        const text3 = await res.text();
+        return { success: false, error: `HTTP ${res.status}: ${text3.substring(0, 300)}` };
+      }
+      const text2 = await res.text();
+      return this.parseResponse(text2);
+    } catch (err) {
+      return { success: false, error: getErrorMessage(err) };
+    }
+  }
+  /**
+   * 提交异步任务并轮询到完成（大文件推荐；同步 file_parse 会占住 HTTP 连接）。
+   * 状态 completed → 取结果；failed / 超时 → 返回 error。
+   */
+  async parseFileAsync(filePath, options) {
+    const { pollIntervalMs = 2e3, timeoutMs = 3e5, ...parseOptions } = options ?? {};
+    const submitted = await this.submitTask(filePath, parseOptions);
+    if (submitted.error !== void 0 || submitted.task_id === "") {
+      return { success: false, error: submitted.error ?? "Task submit failed" };
+    }
+    const deadline = Date.now() + timeoutMs;
+    for (; ; ) {
+      if (Date.now() > deadline) {
+        return { success: false, error: `Polling timed out after ${timeoutMs}ms (task ${submitted.task_id})` };
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      const status = await this.getTaskStatus(submitted.task_id);
+      if (status.error !== void 0) {
+        return { success: false, error: status.error };
+      }
+      if (status.status === "completed") {
+        return this.getTaskResult(submitted.task_id);
+      }
+      if (status.status === "failed") {
+        return { success: false, error: status.message ?? `Task ${submitted.task_id} failed` };
+      }
+    }
+  }
+  // ========== 私有方法 ==========
+  /** 合并默认选项 */
+  mergeOptions(options) {
+    return {
+      langList: options?.langList ?? ["ch"],
+      backend: options?.backend ?? "hybrid-auto-engine",
+      parseMethod: options?.parseMethod ?? "auto",
+      formulaEnable: options?.formulaEnable ?? true,
+      tableEnable: options?.tableEnable ?? true,
+      imageAnalysis: options?.imageAnalysis ?? true,
+      returnMd: options?.returnMd ?? true,
+      returnMiddleJson: options?.returnMiddleJson ?? false,
+      returnModelOutput: options?.returnModelOutput ?? false,
+      returnContentList: options?.returnContentList ?? false,
+      returnImages: options?.returnImages ?? false,
+      startPageId: options?.startPageId ?? 0,
+      endPageId: options?.endPageId ?? 99999
+    };
+  }
+  /**
+   * 使用 Node 18+ 原生 FormData + Blob 构建 multipart 请求
+   *
+   * FormData.append 配合 Blob 会自动处理 multipart boundary、
+   * Content-Type header 和二进制编码，无需手动拼接。
+   */
+  buildFormData(fileName, buffer, mimeType, options) {
+    const opts = this.mergeOptions(options);
+    const fd = new FormData();
+    fd.append("files", new Blob([buffer], { type: mimeType }), fileName);
+    fd.append("backend", opts.backend);
+    fd.append("parse_method", opts.parseMethod);
+    fd.append("formula_enable", String(opts.formulaEnable));
+    fd.append("table_enable", String(opts.tableEnable));
+    fd.append("image_analysis", String(opts.imageAnalysis));
+    fd.append("return_md", String(opts.returnMd));
+    fd.append("return_middle_json", String(opts.returnMiddleJson));
+    fd.append("return_model_output", String(opts.returnModelOutput));
+    fd.append("return_content_list", String(opts.returnContentList));
+    fd.append("return_images", String(opts.returnImages));
+    fd.append("start_page_id", String(opts.startPageId));
+    fd.append("end_page_id", String(opts.endPageId));
+    for (const lang of opts.langList) {
+      fd.append("lang_list", lang);
+    }
+    return fd;
+  }
+  /** 解析 MinerU 响应体 */
+  parseResponse(body) {
+    if (!body) return { success: false, error: "Empty response from MinerU" };
+    try {
+      const data = JSON.parse(body);
+      const result = { success: true, raw: data };
+      if (Array.isArray(data)) {
+        result.markdown = data.map((item) => _MinerUClient.extractMarkdown(item)).filter(Boolean).join("\n\n---\n\n");
+        return result;
+      }
+      if (typeof data === "object" && data !== null) {
+        const obj = data;
+        result.markdown = _MinerUClient.extractMarkdown(obj);
+        result.middleJson = obj.middle_json ?? obj.middleJson ?? obj.middle;
+        result.modelOutput = obj.model_output ?? obj.modelOutput;
+        result.contentList = obj.content_list ?? obj.contentList ?? obj.content;
+        result.images = _MinerUClient.extractImages(obj);
+      }
+      return result;
+    } catch {
+      return { success: true, markdown: body, raw: body };
+    }
+  }
+  /** 从响应对象中提取 markdown（兼容多种字段名） */
+  static extractMarkdown(obj) {
+    if (typeof obj === "string") return obj;
+    if (typeof obj !== "object" || obj === null) return "";
+    const o = obj;
+    if (typeof o.results === "object" && o.results !== null) {
+      const results = o.results;
+      const mdParts = [];
+      for (const [, fileResult] of Object.entries(results)) {
+        if (typeof fileResult === "object" && fileResult !== null) {
+          const fr = fileResult;
+          if (typeof fr.md_content === "string") {
+            mdParts.push(fr.md_content);
+          }
+        }
+      }
+      if (mdParts.length > 0) {
+        return mdParts.join("\n\n---\n\n");
+      }
+    }
+    for (const field of ["md_content", "markdown", "md", "content", "text"]) {
+      if (typeof o[field] === "string" && o[field].length > 0) {
+        return o[field];
+      }
+    }
+    if (typeof o.result === "object" && o.result !== null) {
+      return _MinerUClient.extractMarkdown(o.result);
+    }
+    return "";
+  }
+  /** 提取图片 */
+  static extractImages(obj) {
+    for (const field of ["images", "image_list", "imageList"]) {
+      if (Array.isArray(obj[field]) && obj[field].length > 0) {
+        return obj[field];
+      }
+    }
+    return void 0;
+  }
+  /** MIME 类型映射 */
+  static getMimeType(fileName) {
+    const ext = path4.extname(fileName).toLowerCase();
+    const map = {
+      ".pdf": "application/pdf",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheet.sheet"
+    };
+    return map[ext] ?? "application/octet-stream";
+  }
+};
+
 // src/host/routes.ts
 import { readFileSync } from "fs";
 
@@ -18578,6 +21165,62 @@ function isLoopbackRequest(request) {
   } catch {
     return false;
   }
+}
+
+// src/host/mineru.ts
+var MINERU_BACKENDS = [
+  "pipeline",
+  "vlm-auto-engine",
+  "vlm-http-client",
+  "hybrid-auto-engine",
+  "hybrid-http-client"
+];
+function resolveParseTarget(engine, input) {
+  const value = input.trim();
+  if (value === "") return { error: "input is empty" };
+  if (/^https?:\/\//i.test(value)) return { kind: "url", url: value };
+  if (value.toLowerCase().startsWith("adw-image://")) {
+    const rest = value.slice("adw-image://".length);
+    const slash = rest.indexOf("/");
+    if (slash <= 0 || slash === rest.length - 1) {
+      return { error: "adw-image ref must be adw-image://<requirementId>/<filename>" };
+    }
+    const id = decodeURIComponent(rest.slice(0, slash));
+    let filename;
+    try {
+      filename = decodeURIComponent(rest.slice(slash + 1));
+    } catch {
+      return { error: "malformed filename encoding in adw-image ref" };
+    }
+    const filePath = engine.getImagePath(id, filename);
+    if (filePath === void 0) return { error: `attachment not found: ${id}/${filename} (is the requirement saved?)` };
+    return { kind: "file", path: filePath };
+  }
+  return { kind: "file", path: value };
+}
+function toParseOptions(options) {
+  const backend = options?.backend !== void 0 && options.backend !== "" ? options.backend : "hybrid-auto-engine";
+  if (!MINERU_BACKENDS.includes(backend)) {
+    throw new Error(`unknown backend "${options?.backend}" (use: ${MINERU_BACKENDS.join(" / ")})`);
+  }
+  return {
+    backend,
+    langList: options?.langList !== void 0 && options.langList.length > 0 ? options.langList : ["ch"]
+  };
+}
+async function parseDocument(engine, mineruUrl, input, options) {
+  const target = resolveParseTarget(engine, input);
+  if ("error" in target) return { success: false, error: target.error };
+  const client = new MinerUClient(mineruUrl);
+  if (!client.isConfigured()) {
+    return { success: false, error: "MinerU service is not configured \u2014 set the service URL in the settings card (\u8BBE\u7F6E \u2192 \u63D2\u4EF6 \u2192 adw) or the panel\u300C\u6E90\u300Dpage" };
+  }
+  const parseOptions = toParseOptions(options);
+  const result = target.kind === "url" ? await client.parseUrl(target.url, parseOptions) : await client.parseFile(target.path, parseOptions);
+  if (!result.success) return { success: false, error: result.error ?? "parse failed" };
+  const markdown = result.markdown ?? "";
+  if (markdown === "") return { success: false, error: "MinerU returned no markdown content" };
+  return { success: true, markdown, target: target.kind === "url" ? target.url : target.path };
 }
 
 // src/host/routes.ts
@@ -18631,12 +21274,12 @@ function makeRoutes(deps) {
     return true;
   };
   const tail = (req) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    return url.pathname.slice(API_PREFIX.length).split("/").filter(Boolean);
+    const url2 = new URL(req.url ?? "/", "http://localhost");
+    return url2.pathname.slice(API_PREFIX.length).split("/").filter(Boolean);
   };
   const query = (req, name2) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const value = url.searchParams.get(name2);
+    const url2 = new URL(req.url ?? "/", "http://localhost");
+    const value = url2.searchParams.get(name2);
     return value === null ? void 0 : value;
   };
   const notFound = (res) => {
@@ -18661,6 +21304,26 @@ function makeRoutes(deps) {
         const status = /already exists|Missing required/.test(message) ? 409 : 404;
         writeJson(res, status, { code: "INSTALL_ERROR", message });
       }
+      return;
+    }
+    if (head === "servers" && parts.length === 1) {
+      if (req.method === "POST") {
+        const body = await readJsonBody(req);
+        try {
+          writeJson(res, 200, engine.addServer({
+            name: String(body?.name ?? ""),
+            command: body?.command !== void 0 ? String(body.command) : void 0,
+            args: Array.isArray(body?.args) ? body.args.map((a) => String(a)) : void 0,
+            env: body?.env ?? void 0,
+            url: body?.url !== void 0 ? String(body.url) : void 0
+          }));
+        } catch (err) {
+          writeJson(res, 400, { code: "ADD_SERVER_ERROR", message: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+      if (!guard(req, res, "GET")) return;
+      writeJson(res, 200, engine.listServers());
       return;
     }
     if (head === "servers" && parts.length === 3 && parts[2] === "test") {
@@ -18835,6 +21498,34 @@ function makeRoutes(deps) {
       notFound(res);
       return;
     }
+    if (head === "mineru" && parts.length === 2 && parts[1] === "health") {
+      if (!guard(req, res, "GET")) return;
+      const url2 = deps.getMineruUrl();
+      if (url2 === "") {
+        writeJson(res, 200, { configured: false, healthy: false, error: "not configured" });
+        return;
+      }
+      const probe = new MinerUClient(url2);
+      const health = await probe.healthCheck();
+      writeJson(res, 200, { configured: true, baseUrl: url2, ...health });
+      return;
+    }
+    if (head === "mineru" && parts.length === 2 && parts[1] === "parse") {
+      if (!guard(req, res, "POST")) return;
+      const body = await readJsonBody(req);
+      const input = str(body, "input");
+      if (input === void 0 || input === "") {
+        writeJson(res, 400, { code: "VALIDATION_ERROR", message: 'field "input" is required' });
+        return;
+      }
+      const backend = str(body, "backend");
+      try {
+        writeJson(res, 200, await parseDocument(engine, deps.getMineruUrl(), input, backend !== void 0 ? { backend } : void 0));
+      } catch (err) {
+        writeJson(res, 500, { code: "PARSE_ERROR", message: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
     notFound(res);
   };
   return [{
@@ -19007,6 +21698,33 @@ function adwSearchTool(engine) {
     }
   });
 }
+function adwParseDocumentTool(engine, getMineruUrl) {
+  return defineTool({
+    name: "adw_parse_document",
+    description: "Parse one document (PDF / Word / PPT / Excel / screenshot image) into Markdown through the configured MinerU service \u2014 OCR, tables, formulas and layout analysis; the right tool when a requirement or the user supplies a PRD/PDF/screenshot whose text content is needed. Input dialect: a local absolute path, an http(s) URL, or a saved-requirement attachment ref adw-image://<requirementId>/<filename>. Returns the extracted Markdown. Triggers: the user mentions parsing a document / reading a PDF or screenshot / extracting requirement-attachment content.",
+    parameters: {
+      input: { type: "string", required: true, description: "Document locator: absolute local path, http(s) URL, or adw-image://<requirementId>/<filename> (attachment of a saved requirement)." },
+      backend: { type: "string", description: "Optional MinerU backend: pipeline / vlm-auto-engine / vlm-http-client / hybrid-auto-engine (default) / hybrid-http-client." }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          markdown: { type: "string", required: true },
+          target: { type: "string" },
+          error: { type: "string" }
+        }
+      },
+      render: (_args, value) => text(value.error !== void 0 ? `parse failed: ${value.error}` : `parsed ${value.target ?? "document"} \u2192 ${value.markdown?.length ?? 0} chars of Markdown`)
+    },
+    async execute(args) {
+      const result = await parseDocument(engine, getMineruUrl(), args.input, { backend: args.backend });
+      if (!result.success) return { markdown: "", error: result.error };
+      return { markdown: result.markdown ?? "", target: result.target };
+    }
+  });
+}
 
 // src/mount-once.ts
 var MOUNTED = Symbol.for("dsh-adw.mounted-plugins");
@@ -19048,10 +21766,11 @@ var Config = z.object({
   enabled: z.boolean().default(true),
   announceToAgent: z.boolean().default(true),
   devPromptTemplate: z.string().default(DEFAULT_DEV_PROMPT_TEMPLATE),
-  defaultServerName: z.string().default("")
+  defaultServerName: z.string().default(""),
+  mineruUrl: z.string().default("")
 });
 var SECTION_ORDER = 160;
-var ADW_GUIDANCE = "\u672C\u673A\u5DF2\u5B89\u88C5 dsh-adw \u63D2\u4EF6\uFF08adw \u9700\u6C42\u5DE5\u4F5C\u53F0\uFF09\uFF1A\u4FA7\u8FB9\u680F\u300C\u9700\u6C42\u5DE5\u4F5C\u53F0\u300D\u5165\u53E3\uFF1B\u5728 adw \u4ED3\u5E93\uFF08packages/dsh-adw + packages/adw-requirement-core\uFF09\u7EF4\u62A4\u3002\u80FD\u529B\uFF1A\u4ECE\u9700\u6C42\u6E90\uFF08ONES / GitHub Issues / \u901A\u7528 MCP\uFF1B\u9700\u6C42\u6E90\u914D\u7F6E\u7531\u63D2\u4EF6\u81EA\u7BA1\uFF0C\u5B58 ~/.dsh/dsh-adw/mcp-servers.json\uFF0C\u7528\u6237\u5728\u8BBE\u7F6E\u9875\u300C\u63D2\u4EF6\u300D\u5206\u7EC4\u4E2D\u914D\u7F6E\uFF0C\u4E0E\u5176\u5B83\u5DE5\u5177\u4E92\u4E0D\u5F71\u54CD\uFF09\u62C9\u53D6\u9700\u6C42\u6587\u6863\u2014\u2014adw_fetch_requirement \u6309\u94FE\u63A5/\u7F16\u53F7/issue key \u62C9\u53D6\u5E76\u4FDD\u5B58\u3001adw_list_requirements \u5217\u5DF2\u4FDD\u5B58\u9700\u6C42\uFF08\u542B\u6267\u884C\u72B6\u6001\uFF09\u3001adw_search_requirements \u6E90\u5185\u641C\u7D22\uFF1B\u9700\u6C42\u4FDD\u5B58\u5728 ~/.dsh/dsh-adw/\uFF1B\u7528\u6237\u53EF\u5728 GUI \u4E2D\u9009\u62E9\u5DE5\u4F5C\u533A\u5BF9\u9700\u6C42\u6267\u884C\u5F00\u53D1\uFF08\u771F\u5B9E dsh \u4F1A\u8BDD\uFF0C\u6267\u884C\u8BB0\u5F55\u56DE\u5199\u9700\u6C42\uFF09\u3002\u9650\u5236\uFF1A\u63D2\u4EF6\u8DEF\u7531\u4EC5\u672C\u673A\u56DE\u73AF\u53EF\u7528\uFF1B\u62C9\u53D6\u6D88\u8017\u5916\u90E8\u7CFB\u7EDF\u914D\u989D\u3002\u7528\u6237\u63D0\u5230\u300C\u9700\u6C42 / \u62C9\u9700\u6C42 / \u9700\u6C42\u5DE5\u4F5C\u53F0 / CWXT-xxx / issue\u300D\u65F6\u5373\u6307\u672C\u63D2\u4EF6\uFF0C\u8BF7\u636E\u6B64\u534F\u4F5C\u3002";
+var ADW_GUIDANCE = "\u672C\u673A\u5DF2\u5B89\u88C5 dsh-adw \u63D2\u4EF6\uFF08adw \u9700\u6C42\u5DE5\u4F5C\u53F0\uFF09\uFF1A\u4FA7\u8FB9\u680F\u300C\u9700\u6C42\u5DE5\u4F5C\u53F0\u300D\u5165\u53E3\uFF1B\u5728 adw \u4ED3\u5E93\uFF08packages/dsh-adw + packages/adw-requirement-core\uFF09\u7EF4\u62A4\u3002\u80FD\u529B\uFF1A\u4ECE\u9700\u6C42\u6E90\uFF08ONES / GitHub Issues / \u81EA\u5B9A\u4E49 MCP\uFF0C\u652F\u6301 stdio\uFF08npx/python/docker \u7B49\uFF09\u4E0E\u8FDC\u7A0B http(s) \u4E24\u79CD\u5F62\u6001\uFF1B\u914D\u7F6E\u7531\u63D2\u4EF6\u81EA\u7BA1\uFF0C\u5B58 ~/.dsh/dsh-adw/mcp-servers.json\uFF0C\u7528\u6237\u5728\u8BBE\u7F6E\u9875\u300C\u63D2\u4EF6\u300D\u5206\u7EC4\u4E2D\u914D\u7F6E\uFF0C\u4E0E\u5176\u5B83\u5DE5\u5177\u4E92\u4E0D\u5F71\u54CD\uFF09\u62C9\u53D6\u9700\u6C42\u6587\u6863\u2014\u2014adw_fetch_requirement \u6309\u94FE\u63A5/\u7F16\u53F7/issue key \u62C9\u53D6\u5E76\u4FDD\u5B58\u3001adw_list_requirements \u5217\u5DF2\u4FDD\u5B58\u9700\u6C42\uFF08\u542B\u6267\u884C\u72B6\u6001\uFF09\u3001adw_search_requirements \u6E90\u5185\u641C\u7D22\uFF1B\u5DF2\u914D\u7F6E MinerU \u670D\u52A1\u65F6 adw_parse_document \u53EF\u5C06 PDF/Word/\u622A\u56FE\u7B49\u6587\u6863\u6216\u9700\u6C42\u9644\u4EF6\uFF08adw-image://\u9700\u6C42id/\u6587\u4EF6\u540D\uFF09\u89E3\u6790\u4E3A Markdown\uFF08OCR/\u8868\u683C/\u516C\u5F0F\uFF09\uFF1B\u9700\u6C42\u4FDD\u5B58\u5728 ~/.dsh/dsh-adw/\uFF1B\u7528\u6237\u53EF\u5728 GUI \u4E2D\u9009\u62E9\u5DE5\u4F5C\u533A\u5BF9\u9700\u6C42\u6267\u884C\u5F00\u53D1\uFF08\u771F\u5B9E dsh \u4F1A\u8BDD\uFF0C\u6267\u884C\u8BB0\u5F55\u56DE\u5199\u9700\u6C42\uFF09\u3002\u9650\u5236\uFF1A\u63D2\u4EF6\u8DEF\u7531\u4EC5\u672C\u673A\u56DE\u73AF\u53EF\u7528\uFF1B\u62C9\u53D6\u6D88\u8017\u5916\u90E8\u7CFB\u7EDF\u914D\u989D\uFF1B\u6587\u6863\u89E3\u6790\u4F1A\u628A\u6587\u4EF6\u5185\u5BB9\u53D1\u9001\u5230\u7528\u6237\u914D\u7F6E\u7684 MinerU \u670D\u52A1\u3002\u7528\u6237\u63D0\u5230\u300C\u9700\u6C42 / \u62C9\u9700\u6C42 / \u9700\u6C42\u5DE5\u4F5C\u53F0 / CWXT-xxx / issue / \u89E3\u6790\u6587\u6863\u300D\u65F6\u5373\u6307\u672C\u63D2\u4EF6\uFF0C\u8BF7\u636E\u6B64\u534F\u4F5C\u3002";
 var apply = mountOnce("@along/dsh-adw", applyImpl);
 function applyImpl(ctx, config2) {
   let current = () => config2 ?? {};
@@ -19062,7 +21781,8 @@ function applyImpl(ctx, config2) {
       enabled: value.enabled ?? true,
       announceToAgent: value.announceToAgent ?? true,
       devPromptTemplate: template !== void 0 && template.trim() !== "" ? template : DEFAULT_DEV_PROMPT_TEMPLATE,
-      defaultServerName: value.defaultServerName ?? ""
+      defaultServerName: value.defaultServerName ?? "",
+      mineruUrl: value.mineruUrl ?? ""
     };
   };
   const dshHome = process.env.DSH_HOME ?? join2(homedir(), ".dsh");
@@ -19093,7 +21813,8 @@ function applyImpl(ctx, config2) {
     if (!value.enabled) return;
     const routes = makeRoutes({
       engine,
-      getDevPromptTemplate: () => resolve().devPromptTemplate
+      getDevPromptTemplate: () => resolve().devPromptTemplate,
+      getMineruUrl: () => resolve().mineruUrl
     });
     disposeRoutes = ctx.effect(() => {
       const disposers = routes.map((route) => ctx.webServer.register(route));
@@ -19101,7 +21822,7 @@ function applyImpl(ctx, config2) {
         for (const dispose of disposers) dispose();
       };
     }, "dsh-adw: routes");
-    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine)];
+    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine), adwParseDocumentTool(engine, () => resolve().mineruUrl)];
     disposeTools = ctx.effect(() => {
       const disposers = tools.map((tool) => ctx.tools.register(tool));
       return () => {
@@ -19133,4 +21854,13 @@ export {
   inject,
   name
 };
+/*! Bundled license information:
+
+content-type/index.js:
+  (*!
+   * content-type
+   * Copyright(c) 2015 Douglas Christopher Wilson
+   * MIT Licensed
+   *)
+*/
 //# sourceMappingURL=index.js.map

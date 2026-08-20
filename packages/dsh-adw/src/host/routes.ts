@@ -12,8 +12,9 @@ import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { RequirementEngine } from '@along/adw-requirement-core'
-import { renderDevPrompt } from '@along/adw-requirement-core'
+import { renderDevPrompt, MinerUClient } from '@along/adw-requirement-core'
 import { isLoopbackRequest } from './loopback.ts'
+import { parseDocument } from './mineru.ts'
 
 /** Cap on JSON request bodies (fetch inputs and execution links are small). */
 const MAX_JSON_BODY_BYTES = 256 * 1024
@@ -64,6 +65,8 @@ export interface AdwRoutesDeps {
   engine: RequirementEngine
   /** Live config source: the dev-prompt template renderer reads it. */
   getDevPromptTemplate: () => string
+  /** Live config source: the MinerU service base URL ('' = not configured). */
+  getMineruUrl: () => string
 }
 
 /**
@@ -123,6 +126,27 @@ export function makeRoutes(deps: AdwRoutesDeps): WebRoute[] {
         const status = /already exists|Missing required/.test(message) ? 409 : 404
         writeJson(res, status, { code: 'INSTALL_ERROR', message })
       }
+      return
+    }
+    // ── 自定义 MCP 服务器管理（stdio / http url） ────────────────
+    if (head === 'servers' && parts.length === 1) {
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req)
+        try {
+          writeJson(res, 200, engine.addServer({
+            name: String(body?.name ?? ''),
+            command: body?.command !== undefined ? String(body.command) : undefined,
+            args: Array.isArray(body?.args) ? body.args.map((a: unknown) => String(a)) : undefined,
+            env: (body?.env as Record<string, string>) ?? undefined,
+            url: body?.url !== undefined ? String(body.url) : undefined,
+          }))
+        } catch (err) {
+          writeJson(res, 400, { code: 'ADD_SERVER_ERROR', message: err instanceof Error ? err.message : String(err) })
+        }
+        return
+      }
+      if (!guard(req, res, 'GET')) return
+      writeJson(res, 200, engine.listServers())
       return
     }
     if (head === 'servers' && parts.length === 3 && parts[2] === 'test') {
@@ -275,6 +299,30 @@ export function makeRoutes(deps: AdwRoutesDeps): WebRoute[] {
         return
       }
       notFound(res)
+      return
+    }
+
+    // ── MinerU 文档解析 ─────────────────────────────────────────
+    if (head === 'mineru' && parts.length === 2 && parts[1] === 'health') {
+      if (!guard(req, res, 'GET')) return
+      const url = deps.getMineruUrl()
+      if (url === '') { writeJson(res, 200, {configured: false, healthy: false, error: 'not configured'}); return }
+      const probe = new MinerUClient(url)
+      const health = await probe.healthCheck()
+      writeJson(res, 200, {configured: true, baseUrl: url, ...health})
+      return
+    }
+    if (head === 'mineru' && parts.length === 2 && parts[1] === 'parse') {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody(req)
+      const input = str(body, 'input')
+      if (input === undefined || input === '') { writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'field "input" is required' }); return }
+      const backend = str(body, 'backend')
+      try {
+        writeJson(res, 200, await parseDocument(engine, deps.getMineruUrl(), input, backend !== undefined ? {backend} : undefined))
+      } catch (err) {
+        writeJson(res, 500, { code: 'PARSE_ERROR', message: err instanceof Error ? err.message : String(err) })
+      }
       return
     }
 

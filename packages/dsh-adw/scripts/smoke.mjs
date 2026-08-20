@@ -35,8 +35,8 @@ assert.equal(registered.routes[0].path, '/api/dsh-adw')
 assert.equal(registered.routes[0].kind, 'prefix')
 console.log('  ok - /api/dsh-adw prefix route registered')
 
-assert.deepEqual(registered.tools.map(t => t.name).sort(), ['adw_fetch_requirement', 'adw_list_requirements', 'adw_search_requirements'])
-console.log('  ok - 3 agent tools registered')
+assert.deepEqual(registered.tools.map(t => t.name).sort(), ['adw_fetch_requirement', 'adw_list_requirements', 'adw_parse_document', 'adw_search_requirements'])
+console.log('  ok - 4 agent tools registered')
 
 assert.equal(registered.sections.length, 1)
 assert.equal(registered.sections[0].name, 'plugin:dsh-adw')
@@ -118,6 +118,65 @@ const handler = registered.routes[0].handler
   assert.equal(res.statusCode, 200)
   assert.equal(JSON.parse(res.body).success, false)
   console.log('  ok - DELETE /servers/ghost → success:false')
+}
+
+// ── 自定义 MCP 服务器管理（stdio + url 两种形态） ─────────────────────
+{
+  // POST /servers — stdio 形态
+  const resAdd = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/servers', '127.0.0.1',
+    JSON.stringify({ name: 'smoke-stdio', command: 'npx', args: ['-y', 'some-mcp'], env: { K: 'V' } })), resAdd)
+  assert.equal(resAdd.statusCode, 200)
+  assert.equal(JSON.parse(resAdd.body).name, 'smoke-stdio')
+  console.log('  ok - POST /servers stdio → 200')
+
+  // POST /servers — url 形态（http 远程服务器）
+  const resUrl = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/servers', '127.0.0.1',
+    JSON.stringify({ name: 'smoke-http', url: 'https://example.com/mcp' })), resUrl)
+  assert.equal(resUrl.statusCode, 200)
+  assert.equal(JSON.parse(resUrl.body).type, 'http')
+  console.log('  ok - POST /servers url → 200 type:http')
+
+  // POST /servers — url 与 command 同时缺失 → 400
+  const resBad = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/servers', '127.0.0.1',
+    JSON.stringify({ name: 'smoke-bad' })), resBad)
+  assert.equal(resBad.statusCode, 400)
+  console.log('  ok - POST /servers without command/url → 400')
+
+  // GET /servers — 列表包含两个新条目
+  const resList = makeRes()
+  await handler(makeReq('GET', '/api/dsh-adw/servers'), resList)
+  assert.equal(resList.statusCode, 200)
+  const names = JSON.parse(resList.body).map(s => s.name)
+  assert.ok(names.includes('smoke-stdio') && names.includes('smoke-http'))
+  console.log('  ok - GET /servers lists custom entries')
+}
+
+// ── MinerU 路由（未配置时的降级响应） ────────────────────────────────
+{
+  const resHealth = makeRes()
+  await handler(makeReq('GET', '/api/dsh-adw/mineru/health'), resHealth)
+  assert.equal(resHealth.statusCode, 200)
+  const health = JSON.parse(resHealth.body)
+  assert.equal(health.configured, false)
+  assert.equal(health.healthy, false)
+  console.log('  ok - GET /mineru/health unconfigured → configured:false')
+
+  const resParse = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/mineru/parse', '127.0.0.1',
+    JSON.stringify({ input: 'whatever.pdf' })), resParse)
+  assert.equal(resParse.statusCode, 200)
+  const parsed = JSON.parse(resParse.body)
+  assert.equal(parsed.success, false)
+  assert.ok(parsed.error.includes('not configured'))
+  console.log('  ok - POST /mineru/parse unconfigured → success:false')
+
+  const resNoInput = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/mineru/parse', '127.0.0.1', '{}'), resNoInput)
+  assert.equal(resNoInput.statusCode, 400)
+  console.log('  ok - POST /mineru/parse without input → 400')
 }
 
 // 数据目录已就位（存储懒写盘：首次变更才落 requirements.json）

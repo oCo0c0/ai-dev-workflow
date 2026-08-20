@@ -6,6 +6,7 @@
  */
 
 import type {
+  MCPServerConfig,
   Requirement,
   RequirementSourceEntry,
   SavedRequirement,
@@ -122,4 +123,19 @@ export function testServer(name: string): Promise<{ ok: boolean; message: string
 /** DELETE /servers/:name — remove one configured source server. */
 export function removeServer(name: string): Promise<{ success: boolean }> {
   return call(`/servers/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
+/** GET /servers — all configured MCP servers (catalog-installed + custom). */
+export function listServers(): Promise<MCPServerConfig[]> {
+  return call('/servers')
+}
+
+/** POST /servers — add one custom MCP server (stdio command/args or url). */
+export function addServer(config: {name: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string}): Promise<MCPServerConfig> {
+  return call('/servers', { method: 'POST', body: JSON.stringify(config) })
+}
+
+/** GET /mineru/health — MinerU service reachability probe. */
+export function mineruHealth(): Promise<{configured: boolean; healthy: boolean; baseUrl?: string; latency?: number; error?: string}> {
+  return call('/mineru/health')
 }

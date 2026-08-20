@@ -265,8 +265,8 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
           <section className="adw-section">
             <div className="adw-sectionTitle">需求源设置</div>
             <div className="adw-sectionBody">
-              <div className="adw-hint">ONES / GitHub 各自独立配置，凭据保存在插件自管文件 ~/.dsh/dsh-adw/mcp-servers.json，修改即时生效，不读写任何其它工具的配置。</div>
-              <SourceConfigBody sources={sources} onChanged={() => { void reload(true) }} />
+              <div className="adw-hint">ONES / GitHub / 自定义 MCP 各自独立配置（MCP 存 ~/.dsh/dsh-adw/mcp-servers.json，MinerU 地址存设置页），修改即时生效，不读写任何其它工具的配置。</div>
+              <SourceConfigBody sources={sources} onChanged={() => { void reload(true) }} mineru={{scope: controller.getSettingsScope()}} />
             </div>
           </section>
         )}

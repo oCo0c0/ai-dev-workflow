@@ -86,14 +86,16 @@ function validateMcpEnv(env: unknown): Record<string, string> {
 export interface MCPServerConfig {
     /** 服务器名称，作为配置中的唯一标识 */
     name: string;
-    /** 服务器运行时类型（由系统根据命令自动推断：node/python/docker/custom） */
+    /** 服务器运行时类型（由系统根据命令自动推断：node/python/docker/custom，或 url 型的 http/sse） */
     type: string;
-    /** 启动服务器的可执行命令 */
+    /** 启动服务器的可执行命令（stdio 型；与 url 二选一） */
     command: string;
     /** 传递给命令的参数数组 */
     args: string[];
     /** 环境变量键值对 */
     env: Record<string, string>;
+    /** 远程服务器地址（http/sse 型；与 command 二选一） */
+    url?: string;
     /** 服务器是否启用 */
     enabled: boolean;
     /** 服务器连接状态（运行时动态值，非持久化） */
@@ -109,13 +111,63 @@ export interface MCPServerConfig {
 interface McpServersFile {
     /** MCP 服务器配置映射表，key 为服务器名称 */
     mcpServers?: Record<string, {
-        /** 启动命令 */
-        command: string;
+        /** 启动命令（stdio 型） */
+        command?: string;
         /** 命令参数（可选） */
         args?: string[];
         /** 环境变量（可选） */
         env?: Record<string, string>;
+        /** 远程服务器地址（http/sse 型，与 command 二选一） */
+        url?: string;
     }>;
+}
+
+/**
+ * 校验远程 MCP 服务器地址：仅允许 http/https 绝对地址。
+ */
+function validateMcpUrl(url: string): void {
+    let parsed: URL;
+    try {
+        parsed = new URL(url);
+    } catch {
+        throw new Error('MCP Server url must be an absolute http(s) URL');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('MCP Server url must be an absolute http(s) URL');
+    }
+}
+
+/** 存储条目（文件内形态）。command（stdio）与 url（http/sse）二选一。 */
+type StoredServer = {command?: string; args?: string[]; env?: Record<string, string>; url?: string};
+
+/** 归一化并校验：url 型不校验 command；stdio 型 command 必填。 */
+function toStored(name: string, config: {command?: string; args?: string[]; env?: Record<string, string>; url?: string}): StoredServer {
+    const env = validateMcpEnv(config.env);
+    if (config.url !== undefined && config.url.trim() !== '') {
+        validateMcpUrl(config.url.trim());
+        const stored: StoredServer = {url: config.url.trim()};
+        if (Object.keys(env).length > 0) stored.env = env;
+        return stored;
+    }
+    if (config.command === undefined || config.command.trim() === '') {
+        throw new Error(`MCP Server "${name}" needs either command (stdio) or url (http/sse)`);
+    }
+    validateMcpCommand(config.command);
+    const args = validateMcpArgs(config.args);
+    const stored: StoredServer = {command: config.command};
+    if (args.length > 0) stored.args = args;
+    if (Object.keys(env).length > 0) stored.env = env;
+    return stored;
+}
+
+/** 存储形态 → 完整配置（含类型推断）。 */
+function fromStored(name: string, stored: StoredServer): MCPServerConfig {
+    if (stored.url !== undefined && stored.url.trim() !== '') {
+        return {name, type: 'http', command: '', args: [], env: stored.env ?? {}, url: stored.url.trim(), enabled: true, status: 'disconnected'};
+    }
+    const command = stored.command ?? '';
+    const args = stored.args ?? [];
+    return {name, type: inferType(command, args), command, args, env: stored.env ?? {}, enabled: true, status: 'disconnected'};
 }
 
 /**
@@ -202,21 +254,7 @@ export class MCPConfigService {
      */
     list(): MCPServerConfig[] {
         const servers = this.loadSettings().mcpServers ?? {};
-        const configs: MCPServerConfig[] = [];
-
-        for (const [name, config] of Object.entries(servers)) {
-            configs.push({
-                name,
-                type: this.inferType(config.command, config.args),
-                command: config.command,
-                args: config.args ?? [],
-                env: config.env ?? {},
-                enabled: true,
-                status: 'disconnected',
-            });
-        }
-
-        return configs;
+        return Object.entries(servers).map(([name, stored]) => fromStored(name, stored));
     }
 
     /**
@@ -226,20 +264,11 @@ export class MCPConfigService {
      * @returns MCPServerConfig | undefined 找到则返回配置，未找到返回 undefined
      */
     get(name: string): MCPServerConfig | undefined {
-        const config = (this.loadSettings().mcpServers ?? {})[name];
-        if (!config) {
+        const stored = (this.loadSettings().mcpServers ?? {})[name];
+        if (!stored) {
             return undefined;
         }
-
-        return {
-            name,
-            type: this.inferType(config.command, config.args),
-            command: config.command,
-            args: config.args ?? [],
-            env: config.env ?? {},
-            enabled: true,
-            status: 'disconnected',
-        };
+        return fromStored(name, stored);
     }
 
     /**
@@ -257,9 +286,7 @@ export class MCPConfigService {
             throw new Error('MCP Server name is required');
         }
 
-        validateMcpCommand(config.command);
-        const validatedArgs = validateMcpArgs(config.args);
-        const validatedEnv = validateMcpEnv(config.env);
+        const stored = toStored(config.name, config);
 
         const settings = this.loadSettings();
         if (!settings.mcpServers) {
@@ -271,22 +298,10 @@ export class MCPConfigService {
             throw new Error(`MCP Server "${config.name}" already exists`);
         }
 
-        // 写入配置：空数组和空对象不写入文件，保持配置文件简洁
-        settings.mcpServers[config.name] = {
-            command: config.command,
-            args: validatedArgs.length > 0 ? validatedArgs : undefined,
-            env: Object.keys(validatedEnv).length > 0 ? validatedEnv : undefined,
-        };
-
+        settings.mcpServers[config.name] = stored;
         this.saveSettings(settings);
 
-        return {
-            ...config,
-            args: validatedArgs,
-            env: validatedEnv,
-            type: this.inferType(config.command, validatedArgs),
-            status: 'disconnected',
-        };
+        return fromStored(config.name, stored);
     }
 
     /**
@@ -312,33 +327,14 @@ export class MCPConfigService {
 
         const existing = settings.mcpServers[name];
 
-        // 合并更新：未指定的字段使用已有值，未定义的已有字段使用空默认值
-        const updatedCommand = config.command ?? existing.command;
-        const updatedArgs = config.args ?? existing.args ?? [];
-        const updatedEnv = config.env ?? existing.env ?? {};
+        // 合并更新：未指定的字段使用已有值（url 与 command 二选一，切换时以新值为准）
+        const merged = {command: existing.command, args: existing.args, env: existing.env, url: existing.url, ...config};
+        const stored = toStored(name, merged);
 
-        validateMcpCommand(updatedCommand);
-        const validatedArgs = validateMcpArgs(updatedArgs);
-        const validatedEnv = validateMcpEnv(updatedEnv);
-
-        // 写入更新后的配置
-        settings.mcpServers[name] = {
-            command: updatedCommand,
-            args: validatedArgs.length > 0 ? validatedArgs : undefined,
-            env: Object.keys(validatedEnv).length > 0 ? validatedEnv : undefined,
-        };
-
+        settings.mcpServers[name] = stored;
         this.saveSettings(settings);
 
-        return {
-            name,
-            type: this.inferType(updatedCommand, validatedArgs),
-            command: updatedCommand,
-            args: validatedArgs,
-            env: validatedEnv,
-            enabled: config.enabled ?? true,
-            status: 'disconnected',
-        };
+        return fromStored(name, stored);
     }
 
     /**
@@ -380,6 +376,22 @@ export class MCPConfigService {
         const config = this.get(name);
         if (!config) {
             return Promise.resolve({status: 'error', message: `MCP Server "${name}" not found`});
+        }
+
+        // url 型（http/sse）：HTTP 可达性探测（任何非网络错误的响应都算可达，
+        // 端点对 GET 返回 4xx/405 是正常的——真正的协议握手发生在桥接层连接时）
+        if (config.url !== undefined) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            return fetch(config.url, {method: 'GET', signal: controller.signal, headers: config.env})
+                .then(() => {
+                    clearTimeout(timer);
+                    return {status: 'connected' as const, message: 'URL reachable'};
+                })
+                .catch((err: unknown) => {
+                    clearTimeout(timer);
+                    return {status: 'error' as const, message: `URL unreachable: ${getErrorMessage(err)}`};
+                });
         }
 
         return new Promise((resolve) => {
@@ -448,34 +460,24 @@ export class MCPConfigService {
     getSettingsFile(): string {
         return this.settingsFile;
     }
+}
 
-    /**
-     * 根据命令和参数推断 MCP 服务器的运行时类型
-     *
-     * 通过检查命令和参数中是否包含特定关键字来判断服务器类型：
-     * - 包含 npx/node/.js → 'node'
-     * - 包含 python/.py → 'python'
-     * - 包含 docker → 'docker'
-     * - 其他 → 'custom'
-     *
-     * @param command - 启动命令
-     * @param args - 命令参数（可选）
-     * @returns string 推断出的运行时类型标识
-     */
-    private inferType(command: string, args?: string[]): string {
-        // 将命令和参数拼接为小写字符串进行关键字匹配
-        const allParts = [command, ...(args ?? [])].join(' ').toLowerCase();
+/**
+ * 根据命令和参数推断 MCP 服务器的运行时类型（stdio 型）。
+ * npx/node/.js → node；python/.py → python；docker → docker；其他 → custom。
+ */
+function inferType(command: string, args?: string[]): string {
+    const allParts = [command, ...(args ?? [])].join(' ').toLowerCase();
 
-        if (allParts.includes('npx') || allParts.includes('node') || allParts.includes('.js')) {
-            return 'node';
-        }
-        if (allParts.includes('python') || allParts.includes('.py')) {
-            return 'python';
-        }
-        if (allParts.includes('docker')) {
-            return 'docker';
-        }
-
-        return 'custom';
+    if (allParts.includes('npx') || allParts.includes('node') || allParts.includes('.js')) {
+        return 'node';
     }
+    if (allParts.includes('python') || allParts.includes('.py')) {
+        return 'python';
+    }
+    if (allParts.includes('docker')) {
+        return 'docker';
+    }
+
+    return 'custom';
 }

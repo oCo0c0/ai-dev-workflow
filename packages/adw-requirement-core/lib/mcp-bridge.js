@@ -11,9 +11,43 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { getErrorMessage } from './error-utils.js';
 import { resolveAdapter, getAdapter, listCatalogAdapters } from './requirement-sources/index.js';
+/** Windows 下需要经由 cmd /c 拉起的脚本型命令（spawn 无 shell 时解析不了 .cmd） */
+const WINDOWS_SCRIPT_COMMANDS = new Set(['npx', 'npm', 'pnpm', 'yarn', 'bun', 'bunx', 'deno', 'uvx', 'uv', 'node', 'python', 'python3', 'pip']);
+/**
+ * 为 stdio 型配置构建传输层（Windows 归一化：脚本命令包 cmd /c）。
+ */
+function buildStdioTransport(config) {
+    const isWindows = process.platform === 'win32';
+    const bare = config.command.toLowerCase();
+    const needsShellWrapper = isWindows && (WINDOWS_SCRIPT_COMMANDS.has(bare) || bare.endsWith('.cmd') === false && config.command.includes('/'));
+    const command = needsShellWrapper ? 'cmd' : config.command;
+    const args = needsShellWrapper ? ['/c', config.command, ...config.args] : config.args;
+    return new StdioClientTransport({
+        command,
+        args,
+        env: { ...process.env, ...config.env },
+    });
+}
+/**
+ * 为 url 型配置构建传输层：优先 Streamable HTTP，失败回退 SSE（旧服务器）。
+ */
+async function buildHttpTransport(config) {
+    const url = new URL(config.url);
+    const headers = { ...config.env };
+    try {
+        const transport = new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+        await transport.start();
+        return transport;
+    }
+    catch {
+        return await Promise.resolve(new SSEClientTransport(url, { requestInit: { headers } }));
+    }
+}
 /** 兼容历史默认服务器名（未配置时用于报错提示） */
 const DEFAULT_SERVER_NAME = 'ones-api';
 /**
@@ -115,12 +149,10 @@ export class MCPBridgeService {
             if (!config) {
                 throw new Error(`MCP Server "${serverName}" is not configured. Please add it in MCP Management.`);
             }
-            // 基于标准输入输出的传输层，合并当前进程环境变量与服务器自定义环境变量
-            const transport = new StdioClientTransport({
-                command: config.command,
-                args: config.args,
-                env: { ...process.env, ...config.env },
-            });
+            // 传输层：url 型走 Streamable HTTP（SSE 兜底）；stdio 型走进程拉起
+            const transport = config.url !== undefined
+                ? await buildHttpTransport(config)
+                : buildStdioTransport(config);
             const client = new Client({ name: 'ai-dev-workbench', version: '0.1.0' }, { capabilities: {} });
             await client.connect(transport);
             // 适配器路由：显式绑定 > 自动认领 > generic
