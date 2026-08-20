@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
+  Attachment,
   Requirement,
   RequirementSourceEntry,
   SavedRequirement,
@@ -368,8 +369,35 @@ function DetailPage(props: {
   const { req, running, services, onRun, onRefresh, onDelete } = props
   const [dialogOpen, setDialogOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /** Per-attachment MinerU parse state, keyed by attachment url. */
+  const [parsed, setParsed] = useState<Record<string, { status: 'loading' | 'done' | 'error'; markdown?: string; error?: string }>>({})
   const last = req.executions[req.executions.length - 1]
   const isRunning = running || (last !== undefined && last.endedAt === undefined)
+
+  /** MinerU input dialect for one attachment: local rewritten image →
+   * adw-image ref; anything else (http url) passes through as-is. */
+  const parseInputFor = (url: string): string => {
+    const m = url.match(/^\/api\/dsh-adw\/requirements\/([^/]+)\/images\/(.+)$/)
+    return m !== null ? `adw-image://${m[1]}/${m[2]}` : url
+  }
+
+  /** Parse one attachment and splice the result under its row. */
+  const doParse = (attachment: Attachment): void => {
+    const key = attachment.url
+    setParsed(prev => ({ ...prev, [key]: { status: 'loading' } }))
+    void api.parseDocument(parseInputFor(key))
+      .then(result => {
+        setParsed(prev => ({
+          ...prev,
+          [key]: result.success
+            ? { status: 'done', markdown: result.markdown }
+            : { status: 'error', error: result.error },
+        }))
+      })
+      .catch(err => {
+        setParsed(prev => ({ ...prev, [key]: { status: 'error', error: err instanceof Error ? err.message : String(err) } }))
+      })
+  }
 
   return (
     <div className="adw-detail">
@@ -422,7 +450,29 @@ function DetailPage(props: {
         <section className="adw-section">
           <div className="adw-sectionTitle">附件</div>
           <div className="adw-sectionBody">
-            {req.attachments.map((a, i) => <a key={i} className="adw-link" href={a.url} target="_blank" rel="noreferrer">{a.name}</a>)}
+            {req.attachments.map((a, i) => {
+              const st = parsed[a.url]
+              return (
+                <div key={i} className="adw-attItem">
+                  <div className="adw-attRow">
+                    <a className="adw-link" href={a.url} target="_blank" rel="noreferrer">{a.name}</a>
+                    <button
+                      type="button" className="adw-btn adw-btnSm"
+                      disabled={st?.status === 'loading'}
+                      title="通过 MinerU 解析为 Markdown（需在 设置 → 插件 → 需求源 中配置 MinerU 服务）"
+                      onClick={() => doParse(a)}
+                    >{st?.status === 'loading' ? '解析中…' : st?.status === 'done' ? '重新解析' : '解析'}</button>
+                  </div>
+                  {st?.status === 'done' && (
+                    <div className="adw-parseResult">
+                      <div className="adw-parseHead">附件解析结果（MinerU）</div>
+                      <div className="adw-desc">{(st.markdown ?? '').trim() !== '' ? renderRichText(st.markdown ?? '') : '（无文本内容）'}</div>
+                    </div>
+                  )}
+                  {st?.status === 'error' && <div className="adw-errorText">解析失败：{st.error}</div>}
+                </div>
+              )
+            })}
           </div>
         </section>
       )}

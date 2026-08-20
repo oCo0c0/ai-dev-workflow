@@ -172,7 +172,7 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-srcCmdPreview {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%;
 }
-.adw-envArea { min-height: 54px; resize: vertical; font-family: var(--dsw-alias-font-mono, monospace); font-size: 12px; }
+.adw-envArea { min-height: 34px; max-height: 120px; resize: vertical; font-family: var(--dsw-alias-font-mono, monospace); font-size: 12px; line-height: 1.4; }
 .adw-srcList { display: flex; flex-direction: column; gap: 10px; }
 .adw-srcRow {
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px;
@@ -190,6 +190,17 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 /* ── 首次运行引导 ─────────────────────────────────────────── */
 .adw-firstRun { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 48px 16px; text-align: center; }
 .adw-firstRunTitle { font-size: 14px; font-weight: 600; }
+
+/* ── 附件解析（详情页附件行内联） ─────────────────────────── */
+.adw-attItem { display: flex; flex-direction: column; gap: 6px; }
+.adw-attRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adw-parseResult {
+  border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2); padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.adw-parseHead { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
+.adw-parseResult .adw-desc { max-height: 260px; font-size: 12.5px; }
 `
 
 /**

@@ -438,6 +438,9 @@ function addServer(config) {
 function mineruHealth() {
   return call("/mineru/health");
 }
+function parseDocument(input) {
+  return call("/mineru/parse", { method: "POST", body: JSON.stringify({ input }) });
+}
 
 // src/client/Panel.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
@@ -707,8 +710,25 @@ function DetailPage(props) {
   const { req, running, services, onRun, onRefresh, onDelete } = props;
   const [dialogOpen, setDialogOpen] = (0, import_react.useState)(false);
   const [confirmDelete, setConfirmDelete] = (0, import_react.useState)(false);
+  const [parsed, setParsed] = (0, import_react.useState)({});
   const last = req.executions[req.executions.length - 1];
   const isRunning = running || last !== void 0 && last.endedAt === void 0;
+  const parseInputFor = (url) => {
+    const m = url.match(/^\/api\/dsh-adw\/requirements\/([^/]+)\/images\/(.+)$/);
+    return m !== null ? `adw-image://${m[1]}/${m[2]}` : url;
+  };
+  const doParse = (attachment) => {
+    const key = attachment.url;
+    setParsed((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    void parseDocument(parseInputFor(key)).then((result) => {
+      setParsed((prev) => ({
+        ...prev,
+        [key]: result.success ? { status: "done", markdown: result.markdown } : { status: "error", error: result.error }
+      }));
+    }).catch((err) => {
+      setParsed((prev) => ({ ...prev, [key]: { status: "error", error: err instanceof Error ? err.message : String(err) } }));
+    });
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-detail", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-detailHead", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
@@ -761,7 +781,33 @@ function DetailPage(props) {
     ] }),
     req.attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "adw-section", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-sectionTitle", children: "\u9644\u4EF6" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-sectionBody", children: req.attachments.map((a, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "adw-link", href: a.url, target: "_blank", rel: "noreferrer", children: a.name }, i)) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-sectionBody", children: req.attachments.map((a, i) => {
+        const st = parsed[a.url];
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-attItem", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-attRow", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "adw-link", href: a.url, target: "_blank", rel: "noreferrer", children: a.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "adw-btn adw-btnSm",
+                disabled: st?.status === "loading",
+                title: "\u901A\u8FC7 MinerU \u89E3\u6790\u4E3A Markdown\uFF08\u9700\u5728 \u8BBE\u7F6E \u2192 \u63D2\u4EF6 \u2192 \u9700\u6C42\u6E90 \u4E2D\u914D\u7F6E MinerU \u670D\u52A1\uFF09",
+                onClick: () => doParse(a),
+                children: st?.status === "loading" ? "\u89E3\u6790\u4E2D\u2026" : st?.status === "done" ? "\u91CD\u65B0\u89E3\u6790" : "\u89E3\u6790"
+              }
+            )
+          ] }),
+          st?.status === "done" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-parseResult", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-parseHead", children: "\u9644\u4EF6\u89E3\u6790\u7ED3\u679C\uFF08MinerU\uFF09" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-desc", children: (st.markdown ?? "").trim() !== "" ? renderRichText(st.markdown ?? "") : "\uFF08\u65E0\u6587\u672C\u5185\u5BB9\uFF09" })
+          ] }),
+          st?.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-errorText", children: [
+            "\u89E3\u6790\u5931\u8D25\uFF1A",
+            st.error
+          ] })
+        ] }, i);
+      }) })
     ] }),
     req.relatedIssues.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "adw-section", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-sectionTitle", children: "\u5173\u8054\u95EE\u9898" }),
@@ -1530,7 +1576,7 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-srcCmdPreview {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%;
 }
-.adw-envArea { min-height: 54px; resize: vertical; font-family: var(--dsw-alias-font-mono, monospace); font-size: 12px; }
+.adw-envArea { min-height: 34px; max-height: 120px; resize: vertical; font-family: var(--dsw-alias-font-mono, monospace); font-size: 12px; line-height: 1.4; }
 .adw-srcList { display: flex; flex-direction: column; gap: 10px; }
 .adw-srcRow {
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px;
@@ -1548,6 +1594,17 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 /* \u2500\u2500 \u9996\u6B21\u8FD0\u884C\u5F15\u5BFC \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .adw-firstRun { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 48px 16px; text-align: center; }
 .adw-firstRunTitle { font-size: 14px; font-weight: 600; }
+
+/* \u2500\u2500 \u9644\u4EF6\u89E3\u6790\uFF08\u8BE6\u60C5\u9875\u9644\u4EF6\u884C\u5185\u8054\uFF09 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.adw-attItem { display: flex; flex-direction: column; gap: 6px; }
+.adw-attRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adw-parseResult {
+  border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2); padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.adw-parseHead { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
+.adw-parseResult .adw-desc { max-height: 260px; font-size: 12.5px; }
 `;
 function ensureStyles() {
   if (typeof document === "undefined") return () => {

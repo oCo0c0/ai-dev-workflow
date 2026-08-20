@@ -8,6 +8,7 @@
 - **标准 MCP 配置方言**：自定义 MCP 服务器支持两种形态——本地 stdio（`npx` / `python` / `docker` / 任意可执行；Windows 自动 `cmd /c` 归一化，npx 不再 ENOENT）与远程 http(s) URL（Streamable HTTP 优先、SSE 自动回退；env 映射为请求头可放 token）；与 Claude/Cursor 的 `mcpServers` 片段直接兼容，粘进来即可用；
 - **官方设置页专属 tab**：设置 → 插件 →「需求源」tab（官方 `settings.plugins.tab` 槽位）——**全部配置集中于此**：ONES / GitHub 源、自定义 MCP（stdio / http url）、MinerU 服务地址；需求工作台面板本身**没有任何配置入口**，只做拉取与开发；
 - **附件图片本地化**：拉取时自动下载需求内图片（wiki token / 富文本内嵌 / 直连三段策略），描述与附件改写为本地地址（`/api/dsh-adw/requirements/<id>/images/<file>`，仅本机回环可访问），面板直接内嵌展示，不回源泄露地址；
+- **附件就地解析**：需求详情的附件栏每个附件带「解析」按钮——MinerU 解析结果（Markdown）直接拼在该附件行下方展示，配置一次服务处处可用；
 - **MinerU 文档解析**：配置 MinerU 服务地址后，`adw_parse_document` 工具把 PDF / Word / PPT / Excel / 截图解析为 Markdown（OCR、表格、公式、版面分析）——输入支持本地绝对路径、http(s) URL、以及已保存需求的附件引用 `adw-image://<需求id>/<文件名>`，正好补上「DSH 无视觉能力 + 需求附件是 PRD 截图」的场景；
 - **选择工作区执行开发**：需求详情点「执行开发」→ 选工作区（可钉 agent 预设 / 权限）→ 预览并编辑开发 Prompt → 驱动**真实 DSH 会话**执行；执行状态回写需求卡片，可跳转会话查看转录；刷新/重启后自动对账补写结局；
 - **Agent 自助工具**：任何会话里的 agent 可调用 `adw_fetch_requirement` / `adw_list_requirements` / `adw_search_requirements` / `adw_parse_document`——用户说「拉取 CWXT-130341 并开发」，agent 自己取需求文档开工；

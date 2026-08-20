@@ -139,3 +139,8 @@ export function addServer(config: {name: string; command?: string; args?: string
 export function mineruHealth(): Promise<{configured: boolean; healthy: boolean; baseUrl?: string; latency?: number; error?: string}> {
   return call('/mineru/health')
 }
+
+/** POST /mineru/parse — one document (path / URL / adw-image ref) → Markdown. */
+export function parseDocument(input: string): Promise<{ success: boolean; markdown?: string; target?: string; error?: string }> {
+  return call('/mineru/parse', { method: 'POST', body: JSON.stringify({ input }) })
+}
