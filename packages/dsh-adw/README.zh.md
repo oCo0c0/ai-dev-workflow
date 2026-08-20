@@ -6,7 +6,7 @@
 - **需求文档自动获取**：从需求源（ONES / GitHub Issues / 自定义 MCP）按需求号 / issue key / 链接拉取需求详情（描述、验收标准、附件），**无需手动录入**；
 - **需求源完全自管**：ONES / GitHub 各自独立配置，凭据保存在插件自己的文件 `~/.dsh/dsh-adw/mcp-servers.json`（修改即时生效），**不读写任何其它工具的配置**（`~/.claude` 等），互不影响；
 - **标准 MCP 配置方言**：自定义 MCP 服务器支持两种形态——本地 stdio（`npx` / `python` / `docker` / 任意可执行；Windows 自动 `cmd /c` 归一化，npx 不再 ENOENT）与远程 http(s) URL（Streamable HTTP 优先、SSE 自动回退；env 映射为请求头可放 token）；与 Claude/Cursor 的 `mcpServers` 片段直接兼容，粘进来即可用；
-- **官方设置页配置卡**：设置 → 插件 →「adw 需求工作台」卡片（官方 `settings.plugin.item` 槽位，按 `dsh-adw` 命名空间配对）——源配置、自定义 MCP、MinerU 地址一站式管理；面板「源」页内嵌同一份配置组件作兜底（无设置面环境仍有入口）；
+- **官方设置页专属 tab**：设置 → 插件 →「需求源」tab（官方 `settings.plugins.tab` 槽位）——**全部配置集中于此**：ONES / GitHub 源、自定义 MCP（stdio / http url）、MinerU 服务地址；需求工作台面板本身**没有任何配置入口**，只做拉取与开发；
 - **附件图片本地化**：拉取时自动下载需求内图片（wiki token / 富文本内嵌 / 直连三段策略），描述与附件改写为本地地址（`/api/dsh-adw/requirements/<id>/images/<file>`，仅本机回环可访问），面板直接内嵌展示，不回源泄露地址；
 - **MinerU 文档解析**：配置 MinerU 服务地址后，`adw_parse_document` 工具把 PDF / Word / PPT / Excel / 截图解析为 Markdown（OCR、表格、公式、版面分析）——输入支持本地绝对路径、http(s) URL、以及已保存需求的附件引用 `adw-image://<需求id>/<文件名>`，正好补上「DSH 无视觉能力 + 需求附件是 PRD 截图」的场景；
 - **选择工作区执行开发**：需求详情点「执行开发」→ 选工作区（可钉 agent 预设 / 权限）→ 预览并编辑开发 Prompt → 驱动**真实 DSH 会话**执行；执行状态回写需求卡片，可跳转会话查看转录；刷新/重启后自动对账补写结局；
@@ -58,7 +58,7 @@ node scripts/verify-install.mjs [port]    # 默认 3080；检查源目录/需求
 脚本通过后，人工检查浏览器（刷新页面）：
 
 1. 侧边栏「新会话」下方出现「需求工作台」→ 面板顶栏选源、输入需求号（如 `CWXT-130341`）点「拉取」→ 详情页「执行开发」→ 选工作区 → 确认执行 → 会话真实跑完、卡片回写「已完成/已失败」；
-2. 设置 → 插件 →「adw 需求工作台」卡片可见，与官方 Bash/Agent Loop/Web Search 卡并排；卡片内可添加自定义 MCP（stdio/url）、配置 MinerU 地址并健康检查；
+2. 设置 → 插件 →「需求源」tab 可见，与官方「可配置插件」tab 并排；tab 内可配置 ONES / GitHub 源、添加自定义 MCP（stdio/url）、配置 MinerU 地址并健康检查；需求工作台面板顶栏无「源」按钮；
 3. 任意会话输入「列出已保存的需求」→ agent 调用 `adw_list_requirements`；
 4. 配置 MinerU 后会话输入「用 MinerU 解析 xx.pdf」→ agent 调用 `adw_parse_document`；
 5. 会话里 agent 知道「需求工作台」的存在（公告段 `plugin:dsh-adw`）。

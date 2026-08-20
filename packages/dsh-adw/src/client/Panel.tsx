@@ -16,7 +16,6 @@ import type {
 import * as api from './api.ts'
 import type { ExecutionService, ExecutionEvent } from './execution.ts'
 import type { PanelController } from './controller.ts'
-import { SourceConfigBody } from './source-config.tsx'
 
 /** Workspace picker option. */
 export interface WorkspaceOption {
@@ -49,7 +48,6 @@ type View =
   | { kind: 'list' }
   | { kind: 'detail'; id: string }
   | { kind: 'search'; query: string; results: Requirement[] }
-  | { kind: 'sources' }
 
 /** Execute-target selection inside the dialog. */
 interface ExecuteTarget {
@@ -214,12 +212,6 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
           )}
           <span className="adw-title">需求工作台</span>
           <span className="adw-headerSpacer" />
-          <button
-            type="button"
-            className={`adw-btn adw-btnSm${view.kind === 'sources' ? ' adw-btnActive' : ''}`}
-            title="需求源设置（ONES / GitHub 独立配置）"
-            onClick={() => setView(view.kind === 'sources' ? { kind: 'list' } : { kind: 'sources' })}
-          >源</button>
           <button type="button" className="adw-btn adw-btnSm" disabled={busy !== ''} onClick={() => void reload(true)} title="刷新列表">⟳</button>
           {controller.isOpen() && (
             <button type="button" className="adw-back" onClick={() => controller.close()}>返回聊天</button>
@@ -260,15 +252,6 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
             results={view.results}
             onFetch={value => void doFetch(value)}
           />
-        )}
-        {view.kind === 'sources' && (
-          <section className="adw-section">
-            <div className="adw-sectionTitle">需求源设置</div>
-            <div className="adw-sectionBody">
-              <div className="adw-hint">ONES / GitHub / 自定义 MCP 各自独立配置（MCP 存 ~/.dsh/dsh-adw/mcp-servers.json，MinerU 地址存设置页），修改即时生效，不读写任何其它工具的配置。</div>
-              <SourceConfigBody sources={sources} onChanged={() => { void reload(true) }} mineru={{scope: controller.getSettingsScope()}} />
-            </div>
-          </section>
         )}
         {view.kind === 'detail' && detail !== undefined && (
           <DetailPage
@@ -312,7 +295,7 @@ function ListPage(props: {
     return (
       <div className="adw-firstRun">
         <div className="adw-firstRunTitle">从配置一个需求源开始</div>
-        <div className="adw-hint">点击顶栏「源」按钮配置 ONES / GitHub 需求源；</div>
+        <div className="adw-hint">打开 设置 → 插件 →「需求源」配置 ONES / GitHub / 自定义 MCP；</div>
         <div className="adw-hint">配置完成后回到这里，在上方输入需求号 / issue key / 链接拉取需求。</div>
       </div>
     )
