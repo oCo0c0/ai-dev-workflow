@@ -201,7 +201,9 @@ export class MinerUClient {
     mergeOptions(options) {
         return {
             langList: options?.langList ?? ['ch'],
-            backend: options?.backend ?? 'hybrid-auto-engine',
+            // pipeline = 纯 CPU 经典管线，任何部署都能跑；vlm/hybrid 系需要 GPU
+            // device（CPU 服务器报 "Device string must not be empty"）——默认保守。
+            backend: options?.backend ?? 'pipeline',
             parseMethod: options?.parseMethod ?? 'auto',
             formulaEnable: options?.formulaEnable ?? true,
             tableEnable: options?.tableEnable ?? true,

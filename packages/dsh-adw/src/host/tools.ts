@@ -228,14 +228,15 @@ export function adwSearchTool(engine: RequirementEngine) {
 }
 
 /** The parse tool: one document (file / URL / requirement attachment) → Markdown via MinerU. */
-export function adwParseDocumentTool(engine: RequirementEngine, getMineruUrl: () => string) {
+export function adwParseDocumentTool(engine: RequirementEngine, getMineruUrl: () => string, getMineruBackend: () => string, getMineruLang: () => string[]) {
   return defineTool({
     name: 'adw_parse_document',
     description: 'Parse one document (PDF / Word / PPT / Excel / screenshot image) into Markdown through the configured MinerU service — OCR, tables, formulas and layout analysis; the right tool when a requirement or the user supplies a PRD/PDF/screenshot whose text content is needed. ' +
       'Input dialect: a local absolute path, an http(s) URL, or a saved-requirement attachment ref adw-image://<requirementId>/<filename>. Returns the extracted Markdown. Triggers: the user mentions parsing a document / reading a PDF or screenshot / extracting requirement-attachment content.',
     parameters: {
       input: { type: 'string', required: true, description: 'Document locator: absolute local path, http(s) URL, or adw-image://<requirementId>/<filename> (attachment of a saved requirement).' },
-      backend: { type: 'string', description: 'Optional MinerU backend: pipeline / vlm-auto-engine / vlm-http-client / hybrid-auto-engine (default) / hybrid-http-client.' },
+      backend: { type: 'string', description: 'Optional MinerU backend: pipeline (default, pure CPU) / vlm-auto-engine / vlm-http-client / hybrid-auto-engine / hybrid-http-client. Omit to use the user-configured default; GPU backends auto-fall back to pipeline when no device is available.' },
+      langList: { type: 'array', items: { type: 'string' }, description: 'Optional OCR language list (e.g. ["ch"], ["en"], ["ch","en"]). Omit to use the user-configured default.' },
     },
     output: {
       schema: {
@@ -253,7 +254,7 @@ export function adwParseDocumentTool(engine: RequirementEngine, getMineruUrl: ()
           : `parsed ${value.target ?? 'document'} → ${value.markdown?.length ?? 0} chars of Markdown`),
     },
     async execute(args): Promise<{ markdown: string; error?: string; target?: string }> {
-      const result = await parseDocument(engine, getMineruUrl(), args.input, {backend: args.backend})
+      const result = await parseDocument(engine, getMineruUrl(), args.input, {backend: args.backend, langList: args.langList}, {backend: getMineruBackend(), langList: getMineruLang()})
       if (!result.success) return { markdown: '', error: result.error}
       return { markdown: result.markdown ?? '', target: result.target }
     },

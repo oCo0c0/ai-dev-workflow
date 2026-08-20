@@ -58,22 +58,38 @@ export interface ParseRequestOptions {
     langList?: string[]
 }
 
-/** Validate caller options into MinerUParseOptions. */
-export function toParseOptions(options: ParseRequestOptions | undefined): MinerUParseOptions {
+/** Validate caller options into MinerUParseOptions (defaultBackend wins when caller omits). */
+/** User-configured defaults injected from the settings namespace. */
+export interface MineruDefaults {
+    /** Default backend ('pipeline' = pure CPU, works everywhere). */
+    backend?: string
+    /** Default OCR language list (['ch']). */
+    langList?: string[]
+}
+
+export function toParseOptions(options: ParseRequestOptions | undefined, defaults: MineruDefaults = {}): MinerUParseOptions {
     const backend = options?.backend !== undefined && options.backend !== ''
         ? options.backend
-        : 'hybrid-auto-engine'
+        : defaults.backend ?? 'pipeline'
     if (!(MINERU_BACKENDS as readonly string[]).includes(backend)) {
         throw new Error(`unknown backend "${options?.backend}" (use: ${MINERU_BACKENDS.join(' / ')})`)
     }
     return {
         backend: backend as MinerUBackend,
-        langList: options?.langList !== undefined && options.langList.length > 0 ? options.langList : ['ch'],
+        langList: options?.langList !== undefined && options.langList.length > 0
+            ? options.langList
+            : defaults.langList ?? ['ch'],
     }
 }
 
 /**
  * Parse one document through the configured MinerU service.
+ *
+ * Auto-fallback: the vlm-* / hybrid-* backends need a configured GPU device
+ * server-side; on CPU-only deployments they fail with "Device string must
+ * not be empty". When that happens the parse retries once on `pipeline`
+ * (pure-CPU, works everywhere) so a wrong default never dead-ends the user.
+ *
  * @returns the MinerU result (success=false + error on any failure).
  */
 export async function parseDocument(
@@ -81,17 +97,23 @@ export async function parseDocument(
     mineruUrl: string,
     input: string,
     options?: ParseRequestOptions,
+    defaults: MineruDefaults = {},
 ): Promise<{ success: boolean; markdown?: string; error?: string; target?: string }> {
     const target = resolveParseTarget(engine, input)
     if ('error' in target) return {success: false, error: target.error}
     const client = new MinerUClient(mineruUrl)
     if (!client.isConfigured()) {
-        return {success: false, error: 'MinerU service is not configured — set the service URL in the settings card (设置 → 插件 → adw) or the panel「源」page'}
+        return {success: false, error: 'MinerU 服务未配置——请在 设置 → 插件 → 需求源 中填写服务地址'}
     }
-    const parseOptions = toParseOptions(options)
-    const result = target.kind === 'url'
-        ? await client.parseUrl(target.url, parseOptions)
-        : await client.parseFile(target.path, parseOptions)
+    const parseOptions = toParseOptions(options, defaults)
+    const run = (opts: MinerUParseOptions) => target.kind === 'url'
+        ? client.parseUrl(target.url, opts)
+        : client.parseFile(target.path, opts)
+    let result = await run(parseOptions)
+    // 设备缺失（CPU 服务器跑 VLM 系后端）→ 自动回退 pipeline 重试一次
+    if (!result.success && /device/i.test(result.error ?? '') && parseOptions.backend !== 'pipeline') {
+        result = await run({...parseOptions, backend: 'pipeline'})
+    }
     if (!result.success) return {success: false, error: result.error ?? 'parse failed'}
     const markdown = result.markdown ?? ''
     if (markdown === '') return {success: false, error: 'MinerU returned no markdown content'}

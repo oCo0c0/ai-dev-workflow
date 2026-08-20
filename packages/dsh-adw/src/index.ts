@@ -62,6 +62,10 @@ export interface Config {
   defaultServerName?: string
   /** MinerU document-parse service base URL (e.g. http://127.0.0.1:8000); empty = disabled. */
   mineruUrl?: string
+  /** MinerU parse backend (default pipeline = pure CPU, works everywhere; vlm/hybrid need a GPU device server-side). */
+  mineruBackend?: string
+  /** MinerU OCR languages, comma-separated (default 'ch'; e.g. 'ch,en' / 'japan'). */
+  mineruLang?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -70,6 +74,8 @@ export const Config: z<Config> = z.object({
   devPromptTemplate: z.string().default(DEFAULT_DEV_PROMPT_TEMPLATE),
   defaultServerName: z.string().default(''),
   mineruUrl: z.string().default(''),
+  mineruBackend: z.string().default('pipeline'),
+  mineruLang: z.string().default('ch'),
 })
 
 /** Order of the announcement section within the tool-guidance band. */
@@ -88,6 +94,8 @@ interface ResolvedConfig {
   devPromptTemplate: string
   defaultServerName: string
   mineruUrl: string
+  mineruBackend: string
+  mineruLang: string[]
 }
 
 /**
@@ -104,13 +112,17 @@ function applyImpl(ctx: Context, config?: Config): void {
   const resolve = (): ResolvedConfig => {
     const value = current()
     const template = value.devPromptTemplate
-    return {
+    const resolved: ResolvedConfig = {
       enabled: value.enabled ?? true,
       announceToAgent: value.announceToAgent ?? true,
       devPromptTemplate: template !== undefined && template.trim() !== '' ? template : DEFAULT_DEV_PROMPT_TEMPLATE,
       defaultServerName: value.defaultServerName ?? '',
       mineruUrl: value.mineruUrl ?? '',
+      mineruBackend: value.mineruBackend !== undefined && value.mineruBackend.trim() !== '' ? value.mineruBackend : 'pipeline',
+      mineruLang: (value.mineruLang ?? '').split(/[,，\s]+/).map(s => s.trim()).filter(s => s !== ''),
     }
+    if (resolved.mineruLang.length === 0) resolved.mineruLang = ['ch']
+    return resolved
   }
 
   // dsh home: the same root the profiles live under (DSH_HOME wins when set).
@@ -136,12 +148,14 @@ function applyImpl(ctx: Context, config?: Config): void {
       engine,
       getDevPromptTemplate: () => resolve().devPromptTemplate,
       getMineruUrl: () => resolve().mineruUrl,
+      getMineruBackend: () => resolve().mineruBackend,
+      getMineruLang: () => resolve().mineruLang,
     })
     disposeRoutes = ctx.effect(() => {
       const disposers = routes.map(route => ctx.webServer.register(route))
       return () => { for (const dispose of disposers) dispose() }
     }, 'dsh-adw: routes')
-    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine), adwParseDocumentTool(engine, () => resolve().mineruUrl)]
+    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine), adwParseDocumentTool(engine, () => resolve().mineruUrl, () => resolve().mineruBackend, () => resolve().mineruLang)]
     disposeTools = ctx.effect(() => {
       const disposers = tools.map(tool => ctx.tools.register(tool))
       return () => { for (const dispose of disposers) dispose() }

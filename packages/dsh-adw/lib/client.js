@@ -1145,16 +1145,39 @@ function SourceConfigBody(props) {
     props.mineru !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(MineruConfigRow, { scope: props.mineru.scope })
   ] });
 }
+var MINERU_BACKEND_OPTIONS = [
+  { value: "pipeline", label: "\u7ECF\u5178\u7BA1\u7EBF\uFF08\u7EAF CPU\uFF0C\u517C\u5BB9\u6240\u6709\u90E8\u7F72\uFF09" },
+  { value: "vlm-auto-engine", label: "VLM \u5F15\u64CE\uFF08\u9700 GPU\uFF09" },
+  { value: "vlm-http-client", label: "VLM \u8FDC\u7A0B\u670D\u52A1" },
+  { value: "hybrid-auto-engine", label: "\u6DF7\u5408\u5F15\u64CE\uFF08\u9700 GPU\uFF09" },
+  { value: "hybrid-http-client", label: "\u6DF7\u5408\u8FDC\u7A0B\u670D\u52A1" }
+];
+var MINERU_LANG_OPTIONS = [
+  { value: "ch", label: "\u7B80\u4F53\u4E2D\u6587" },
+  { value: "en", label: "\u82F1\u8BED" },
+  { value: "japan", label: "\u65E5\u8BED" },
+  { value: "korean", label: "\u97E9\u8BED" },
+  { value: "chinese_cht", label: "\u7E41\u4F53\u4E2D\u6587" },
+  { value: "latin", label: "\u62C9\u4E01\u6587" },
+  { value: "arabic", label: "\u963F\u62C9\u4F2F\u6587" },
+  { value: "east_slavic", label: "\u4E1C\u65AF\u62C9\u592B\u6587" },
+  { value: "cyrillic", label: "\u897F\u91CC\u5C14\u6587" },
+  { value: "devanagari", label: "\u5929\u57CE\u6587" }
+];
 function MineruConfigRow(props) {
   const { scope } = props;
   const [url, setUrl] = (0, import_react2.useState)("");
   const [editable, setEditable] = (0, import_react2.useState)("");
+  const [backend, setBackend] = (0, import_react2.useState)("pipeline");
+  const [lang, setLang] = (0, import_react2.useState)("ch");
   const [busy, setBusy] = (0, import_react2.useState)(false);
   const [note, setNote] = (0, import_react2.useState)("");
   (0, import_react2.useEffect)(() => {
     if (scope === void 0) {
       setUrl("");
       setEditable("");
+      setBackend("pipeline");
+      setLang("ch");
       return;
     }
     const sync = () => {
@@ -1162,6 +1185,10 @@ function MineruConfigRow(props) {
       const value = typeof snapshot.value?.mineruUrl === "string" ? snapshot.value.mineruUrl : "";
       setUrl(value);
       setEditable(value);
+      const b = typeof snapshot.value?.mineruBackend === "string" && snapshot.value.mineruBackend !== "" ? snapshot.value.mineruBackend : "pipeline";
+      setBackend(MINERU_BACKEND_OPTIONS.some((o) => o.value === b) ? b : "pipeline");
+      const l = typeof snapshot.value?.mineruLang === "string" && snapshot.value.mineruLang !== "" ? snapshot.value.mineruLang.split(/[,，\s]+/)[0] : "ch";
+      setLang(MINERU_LANG_OPTIONS.some((o) => o.value === l) ? l : "ch");
     };
     sync();
     return scope.subscribe(sync);
@@ -1174,6 +1201,18 @@ function MineruConfigRow(props) {
     }).catch(() => {
     });
   }, [scope]);
+  const applyNow = (field, value) => {
+    void (async () => {
+      setNote("");
+      try {
+        if (scope === void 0) throw new Error("\u8BBE\u7F6E\u670D\u52A1\u4E0D\u53EF\u7528\uFF1A\u8BF7\u5728\u8BBE\u7F6E\u9875\u300C\u63D2\u4EF6\u300D\u5206\u7EC4\u4E2D\u914D\u7F6E");
+        await scope.set(field, value);
+        setNote("\u5DF2\u4FDD\u5B58");
+      } catch (err) {
+        setNote(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  };
   const save = () => {
     void (async () => {
       setBusy(true);
@@ -1209,19 +1248,53 @@ function MineruConfigRow(props) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-hint", children: "PDF / Word / \u622A\u56FE \u2192 Markdown\uFF08adw_parse_document \u5DE5\u5177\u4E0E\u9644\u4EF6\u89E3\u6790\u7528\uFF09" }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-badge", children: url !== "" ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-srcFormGrid", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u670D\u52A1\u5730\u5740" }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-        "input",
-        {
-          className: "adw-input",
-          value: editable,
-          disabled: scope === void 0,
-          onChange: (e) => setEditable(e.target.value),
-          placeholder: "http://127.0.0.1:8000"
-        }
-      )
-    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcFormGrid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u670D\u52A1\u5730\u5740" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "input",
+          {
+            className: "adw-input",
+            value: editable,
+            disabled: scope === void 0,
+            onChange: (e) => setEditable(e.target.value),
+            placeholder: "http://127.0.0.1:8000"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u89E3\u6790\u540E\u7AEF" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "select",
+          {
+            className: "adw-select",
+            value: backend,
+            disabled: scope === void 0,
+            onChange: (e) => {
+              setBackend(e.target.value);
+              applyNow("mineruBackend", e.target.value);
+            },
+            children: MINERU_BACKEND_OPTIONS.map((o) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: o.value, children: o.label }, o.value))
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u8BC6\u522B\u8BED\u8A00" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "select",
+          {
+            className: "adw-select",
+            value: lang,
+            disabled: scope === void 0,
+            onChange: (e) => {
+              setLang(e.target.value);
+              applyNow("mineruLang", e.target.value);
+            },
+            children: MINERU_LANG_OPTIONS.map((o) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: o.value, children: o.label }, o.value))
+          }
+        )
+      ] })
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcFormActions", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "adw-btn adw-btnPrimary adw-btnSm", disabled: busy || scope === void 0, onClick: save, children: busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58" }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", disabled: busy, onClick: probe, children: "\u5065\u5EB7\u68C0\u67E5" }),

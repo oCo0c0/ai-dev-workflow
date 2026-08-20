@@ -170,7 +170,7 @@ const handler = registered.routes[0].handler
   assert.equal(resParse.statusCode, 200)
   const parsed = JSON.parse(resParse.body)
   assert.equal(parsed.success, false)
-  assert.ok(parsed.error.includes('not configured'))
+  assert.ok(parsed.error.includes('未配置'))
   console.log('  ok - POST /mineru/parse unconfigured → success:false')
 
   const resNoInput = makeRes()

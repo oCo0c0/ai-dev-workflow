@@ -67,6 +67,10 @@ export interface AdwRoutesDeps {
   getDevPromptTemplate: () => string
   /** Live config source: the MinerU service base URL ('' = not configured). */
   getMineruUrl: () => string
+  /** Live config source: the default MinerU backend ('pipeline' by default). */
+  getMineruBackend: () => string
+  /** Live config source: the default OCR language list (['ch'] by default). */
+  getMineruLang: () => string[]
 }
 
 /**
@@ -319,7 +323,7 @@ export function makeRoutes(deps: AdwRoutesDeps): WebRoute[] {
       if (input === undefined || input === '') { writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'field "input" is required' }); return }
       const backend = str(body, 'backend')
       try {
-        writeJson(res, 200, await parseDocument(engine, deps.getMineruUrl(), input, backend !== undefined ? {backend} : undefined))
+        writeJson(res, 200, await parseDocument(engine, deps.getMineruUrl(), input, backend !== undefined ? {backend} : undefined, {backend: deps.getMineruBackend(), langList: deps.getMineruLang()}))
       } catch (err) {
         writeJson(res, 500, { code: 'PARSE_ERROR', message: err instanceof Error ? err.message : String(err) })
       }

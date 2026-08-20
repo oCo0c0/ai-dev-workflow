@@ -21022,7 +21022,9 @@ var MinerUClient = class _MinerUClient {
   mergeOptions(options) {
     return {
       langList: options?.langList ?? ["ch"],
-      backend: options?.backend ?? "hybrid-auto-engine",
+      // pipeline = 纯 CPU 经典管线，任何部署都能跑；vlm/hybrid 系需要 GPU
+      // device（CPU 服务器报 "Device string must not be empty"）——默认保守。
+      backend: options?.backend ?? "pipeline",
       parseMethod: options?.parseMethod ?? "auto",
       formulaEnable: options?.formulaEnable ?? true,
       tableEnable: options?.tableEnable ?? true,
@@ -21212,25 +21214,29 @@ function resolveParseTarget(engine, input) {
   }
   return { kind: "file", path: value };
 }
-function toParseOptions(options) {
-  const backend = options?.backend !== void 0 && options.backend !== "" ? options.backend : "hybrid-auto-engine";
+function toParseOptions(options, defaults = {}) {
+  const backend = options?.backend !== void 0 && options.backend !== "" ? options.backend : defaults.backend ?? "pipeline";
   if (!MINERU_BACKENDS.includes(backend)) {
     throw new Error(`unknown backend "${options?.backend}" (use: ${MINERU_BACKENDS.join(" / ")})`);
   }
   return {
     backend,
-    langList: options?.langList !== void 0 && options.langList.length > 0 ? options.langList : ["ch"]
+    langList: options?.langList !== void 0 && options.langList.length > 0 ? options.langList : defaults.langList ?? ["ch"]
   };
 }
-async function parseDocument(engine, mineruUrl, input, options) {
+async function parseDocument(engine, mineruUrl, input, options, defaults = {}) {
   const target = resolveParseTarget(engine, input);
   if ("error" in target) return { success: false, error: target.error };
   const client = new MinerUClient(mineruUrl);
   if (!client.isConfigured()) {
-    return { success: false, error: "MinerU service is not configured \u2014 set the service URL in the settings card (\u8BBE\u7F6E \u2192 \u63D2\u4EF6 \u2192 adw) or the panel\u300C\u6E90\u300Dpage" };
+    return { success: false, error: "MinerU \u670D\u52A1\u672A\u914D\u7F6E\u2014\u2014\u8BF7\u5728 \u8BBE\u7F6E \u2192 \u63D2\u4EF6 \u2192 \u9700\u6C42\u6E90 \u4E2D\u586B\u5199\u670D\u52A1\u5730\u5740" };
   }
-  const parseOptions = toParseOptions(options);
-  const result = target.kind === "url" ? await client.parseUrl(target.url, parseOptions) : await client.parseFile(target.path, parseOptions);
+  const parseOptions = toParseOptions(options, defaults);
+  const run = (opts) => target.kind === "url" ? client.parseUrl(target.url, opts) : client.parseFile(target.path, opts);
+  let result = await run(parseOptions);
+  if (!result.success && /device/i.test(result.error ?? "") && parseOptions.backend !== "pipeline") {
+    result = await run({ ...parseOptions, backend: "pipeline" });
+  }
   if (!result.success) return { success: false, error: result.error ?? "parse failed" };
   const markdown = result.markdown ?? "";
   if (markdown === "") return { success: false, error: "MinerU returned no markdown content" };
@@ -21534,7 +21540,7 @@ function makeRoutes(deps) {
       }
       const backend = str(body, "backend");
       try {
-        writeJson(res, 200, await parseDocument(engine, deps.getMineruUrl(), input, backend !== void 0 ? { backend } : void 0));
+        writeJson(res, 200, await parseDocument(engine, deps.getMineruUrl(), input, backend !== void 0 ? { backend } : void 0, { backend: deps.getMineruBackend(), langList: deps.getMineruLang() }));
       } catch (err) {
         writeJson(res, 500, { code: "PARSE_ERROR", message: err instanceof Error ? err.message : String(err) });
       }
@@ -21712,13 +21718,14 @@ function adwSearchTool(engine) {
     }
   });
 }
-function adwParseDocumentTool(engine, getMineruUrl) {
+function adwParseDocumentTool(engine, getMineruUrl, getMineruBackend, getMineruLang) {
   return defineTool({
     name: "adw_parse_document",
     description: "Parse one document (PDF / Word / PPT / Excel / screenshot image) into Markdown through the configured MinerU service \u2014 OCR, tables, formulas and layout analysis; the right tool when a requirement or the user supplies a PRD/PDF/screenshot whose text content is needed. Input dialect: a local absolute path, an http(s) URL, or a saved-requirement attachment ref adw-image://<requirementId>/<filename>. Returns the extracted Markdown. Triggers: the user mentions parsing a document / reading a PDF or screenshot / extracting requirement-attachment content.",
     parameters: {
       input: { type: "string", required: true, description: "Document locator: absolute local path, http(s) URL, or adw-image://<requirementId>/<filename> (attachment of a saved requirement)." },
-      backend: { type: "string", description: "Optional MinerU backend: pipeline / vlm-auto-engine / vlm-http-client / hybrid-auto-engine (default) / hybrid-http-client." }
+      backend: { type: "string", description: "Optional MinerU backend: pipeline (default, pure CPU) / vlm-auto-engine / vlm-http-client / hybrid-auto-engine / hybrid-http-client. Omit to use the user-configured default; GPU backends auto-fall back to pipeline when no device is available." },
+      langList: { type: "array", items: { type: "string" }, description: 'Optional OCR language list (e.g. ["ch"], ["en"], ["ch","en"]). Omit to use the user-configured default.' }
     },
     output: {
       schema: {
@@ -21733,7 +21740,7 @@ function adwParseDocumentTool(engine, getMineruUrl) {
       render: (_args, value) => text(value.error !== void 0 ? `parse failed: ${value.error}` : `parsed ${value.target ?? "document"} \u2192 ${value.markdown?.length ?? 0} chars of Markdown`)
     },
     async execute(args) {
-      const result = await parseDocument(engine, getMineruUrl(), args.input, { backend: args.backend });
+      const result = await parseDocument(engine, getMineruUrl(), args.input, { backend: args.backend, langList: args.langList }, { backend: getMineruBackend(), langList: getMineruLang() });
       if (!result.success) return { markdown: "", error: result.error };
       return { markdown: result.markdown ?? "", target: result.target };
     }
@@ -21781,7 +21788,9 @@ var Config = z.object({
   announceToAgent: z.boolean().default(true),
   devPromptTemplate: z.string().default(DEFAULT_DEV_PROMPT_TEMPLATE),
   defaultServerName: z.string().default(""),
-  mineruUrl: z.string().default("")
+  mineruUrl: z.string().default(""),
+  mineruBackend: z.string().default("pipeline"),
+  mineruLang: z.string().default("ch")
 });
 var SECTION_ORDER = 160;
 var ADW_GUIDANCE = "\u672C\u673A\u5DF2\u5B89\u88C5 dsh-adw \u63D2\u4EF6\uFF08adw \u9700\u6C42\u5DE5\u4F5C\u53F0\uFF09\uFF1A\u4FA7\u8FB9\u680F\u300C\u9700\u6C42\u5DE5\u4F5C\u53F0\u300D\u5165\u53E3\uFF1B\u5728 adw \u4ED3\u5E93\uFF08packages/dsh-adw + packages/adw-requirement-core\uFF09\u7EF4\u62A4\u3002\u80FD\u529B\uFF1A\u4ECE\u9700\u6C42\u6E90\uFF08ONES / GitHub Issues / \u81EA\u5B9A\u4E49 MCP\uFF0C\u652F\u6301 stdio\uFF08npx/python/docker \u7B49\uFF09\u4E0E\u8FDC\u7A0B http(s) \u4E24\u79CD\u5F62\u6001\uFF1B\u914D\u7F6E\u7531\u63D2\u4EF6\u81EA\u7BA1\uFF0C\u5B58 ~/.dsh/dsh-adw/mcp-servers.json\uFF0C\u7528\u6237\u5728\u8BBE\u7F6E\u9875\u300C\u63D2\u4EF6\u300D\u5206\u7EC4\u4E2D\u914D\u7F6E\uFF0C\u4E0E\u5176\u5B83\u5DE5\u5177\u4E92\u4E0D\u5F71\u54CD\uFF09\u62C9\u53D6\u9700\u6C42\u6587\u6863\u2014\u2014adw_fetch_requirement \u6309\u94FE\u63A5/\u7F16\u53F7/issue key \u62C9\u53D6\u5E76\u4FDD\u5B58\u3001adw_list_requirements \u5217\u5DF2\u4FDD\u5B58\u9700\u6C42\uFF08\u542B\u6267\u884C\u72B6\u6001\uFF09\u3001adw_search_requirements \u6E90\u5185\u641C\u7D22\uFF1B\u5DF2\u914D\u7F6E MinerU \u670D\u52A1\u65F6 adw_parse_document \u53EF\u5C06 PDF/Word/\u622A\u56FE\u7B49\u6587\u6863\u6216\u9700\u6C42\u9644\u4EF6\uFF08adw-image://\u9700\u6C42id/\u6587\u4EF6\u540D\uFF09\u89E3\u6790\u4E3A Markdown\uFF08OCR/\u8868\u683C/\u516C\u5F0F\uFF09\uFF1B\u9700\u6C42\u4FDD\u5B58\u5728 ~/.dsh/dsh-adw/\uFF1B\u7528\u6237\u53EF\u5728 GUI \u4E2D\u9009\u62E9\u5DE5\u4F5C\u533A\u5BF9\u9700\u6C42\u6267\u884C\u5F00\u53D1\uFF08\u771F\u5B9E dsh \u4F1A\u8BDD\uFF0C\u6267\u884C\u8BB0\u5F55\u56DE\u5199\u9700\u6C42\uFF09\u3002\u9650\u5236\uFF1A\u63D2\u4EF6\u8DEF\u7531\u4EC5\u672C\u673A\u56DE\u73AF\u53EF\u7528\uFF1B\u62C9\u53D6\u6D88\u8017\u5916\u90E8\u7CFB\u7EDF\u914D\u989D\uFF1B\u6587\u6863\u89E3\u6790\u4F1A\u628A\u6587\u4EF6\u5185\u5BB9\u53D1\u9001\u5230\u7528\u6237\u914D\u7F6E\u7684 MinerU \u670D\u52A1\u3002\u7528\u6237\u63D0\u5230\u300C\u9700\u6C42 / \u62C9\u9700\u6C42 / \u9700\u6C42\u5DE5\u4F5C\u53F0 / CWXT-xxx / issue / \u89E3\u6790\u6587\u6863\u300D\u65F6\u5373\u6307\u672C\u63D2\u4EF6\uFF0C\u8BF7\u636E\u6B64\u534F\u4F5C\u3002";
@@ -21791,13 +21800,17 @@ function applyImpl(ctx, config2) {
   const resolve = () => {
     const value = current();
     const template = value.devPromptTemplate;
-    return {
+    const resolved = {
       enabled: value.enabled ?? true,
       announceToAgent: value.announceToAgent ?? true,
       devPromptTemplate: template !== void 0 && template.trim() !== "" ? template : DEFAULT_DEV_PROMPT_TEMPLATE,
       defaultServerName: value.defaultServerName ?? "",
-      mineruUrl: value.mineruUrl ?? ""
+      mineruUrl: value.mineruUrl ?? "",
+      mineruBackend: value.mineruBackend !== void 0 && value.mineruBackend.trim() !== "" ? value.mineruBackend : "pipeline",
+      mineruLang: (value.mineruLang ?? "").split(/[,，\s]+/).map((s) => s.trim()).filter((s) => s !== "")
     };
+    if (resolved.mineruLang.length === 0) resolved.mineruLang = ["ch"];
+    return resolved;
   };
   const dshHome = process.env.DSH_HOME ?? join2(homedir(), ".dsh");
   const engine = new RequirementEngine({
@@ -21828,7 +21841,9 @@ function applyImpl(ctx, config2) {
     const routes = makeRoutes({
       engine,
       getDevPromptTemplate: () => resolve().devPromptTemplate,
-      getMineruUrl: () => resolve().mineruUrl
+      getMineruUrl: () => resolve().mineruUrl,
+      getMineruBackend: () => resolve().mineruBackend,
+      getMineruLang: () => resolve().mineruLang
     });
     disposeRoutes = ctx.effect(() => {
       const disposers = routes.map((route) => ctx.webServer.register(route));
@@ -21836,7 +21851,7 @@ function applyImpl(ctx, config2) {
         for (const dispose of disposers) dispose();
       };
     }, "dsh-adw: routes");
-    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine), adwParseDocumentTool(engine, () => resolve().mineruUrl)];
+    const tools = [adwFetchTool(engine), adwListTool(engine), adwSearchTool(engine), adwParseDocumentTool(engine, () => resolve().mineruUrl, () => resolve().mineruBackend, () => resolve().mineruLang)];
     disposeTools = ctx.effect(() => {
       const disposers = tools.map((tool) => ctx.tools.register(tool));
       return () => {

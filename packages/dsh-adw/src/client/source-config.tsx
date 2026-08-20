@@ -1,9 +1,9 @@
 /**
  * Shared requirement-source configuration body: catalog sources (ONES /
- * GitHub) + custom MCP servers (stdio command or remote url), applied
- * immediately through /api/dsh-adw. Rendered by BOTH surfaces — the
- * official settings-page plugin card (`settings.plugin.item`) and the
- * panel's own「源」view (always available, keeping the plugin standalone).
+ * GitHub) + custom MCP servers (stdio command or remote url) + MinerU row
+ * (URL / backend / language), applied immediately through /api/dsh-adw and
+ * the 'dsh-adw' settings scope. Rendered by the official settings-page tab
+ * (设置 → 插件 → 需求源).
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -123,19 +123,43 @@ export function SourceConfigBody(props: { sources: RequirementSourceEntry[]; onC
   )
 }
 
-/** MinerU service row: URL bound to the 'dsh-adw' settings namespace + health probe. */
+/** MinerU backend options (must match the host whitelist MINERU_BACKENDS). */
+const MINERU_BACKEND_OPTIONS: { value: string; label: string }[] = [
+  { value: 'pipeline', label: '经典管线（纯 CPU，兼容所有部署）' },
+  { value: 'vlm-auto-engine', label: 'VLM 引擎（需 GPU）' },
+  { value: 'vlm-http-client', label: 'VLM 远程服务' },
+  { value: 'hybrid-auto-engine', label: '混合引擎（需 GPU）' },
+  { value: 'hybrid-http-client', label: '混合远程服务' },
+]
+
+/** OCR language options (MinerU langList dialect). */
+const MINERU_LANG_OPTIONS: { value: string; label: string }[] = [
+  { value: 'ch', label: '简体中文' },
+  { value: 'en', label: '英语' },
+  { value: 'japan', label: '日语' },
+  { value: 'korean', label: '韩语' },
+  { value: 'chinese_cht', label: '繁体中文' },
+  { value: 'latin', label: '拉丁文' },
+  { value: 'arabic', label: '阿拉伯文' },
+  { value: 'east_slavic', label: '东斯拉夫文' },
+  { value: 'cyrillic', label: '西里尔文' },
+  { value: 'devanagari', label: '天城文' },
+]
+
+/** MinerU service row: URL/backend/lang bound to the 'dsh-adw' settings namespace + health probe. */
 function MineruConfigRow(props: { scope: SettingsScope<Record<string, unknown>> | undefined }): React.JSX.Element {
   const { scope } = props
   const [url, setUrl] = useState('')
   const [editable, setEditable] = useState('')
+  const [backend, setBackend] = useState('pipeline')
+  const [lang, setLang] = useState('ch')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
-  // Track the scope snapshot (resolved mineruUrl + writability).
+  // Track the scope snapshot (resolved mineruUrl/backend/lang + writability).
   useEffect(() => {
     if (scope === undefined) {
-      setUrl('')
-      setEditable('')
+      setUrl(''); setEditable(''); setBackend('pipeline'); setLang('ch')
       return
     }
     const sync = (): void => {
@@ -143,6 +167,10 @@ function MineruConfigRow(props: { scope: SettingsScope<Record<string, unknown>> 
       const value = typeof snapshot.value?.mineruUrl === 'string' ? snapshot.value.mineruUrl : ''
       setUrl(value)
       setEditable(value)
+      const b = typeof snapshot.value?.mineruBackend === 'string' && snapshot.value.mineruBackend !== '' ? snapshot.value.mineruBackend : 'pipeline'
+      setBackend(MINERU_BACKEND_OPTIONS.some(o => o.value === b) ? b : 'pipeline')
+      const l = typeof snapshot.value?.mineruLang === 'string' && snapshot.value.mineruLang !== '' ? snapshot.value.mineruLang.split(/[,，\s]+/)[0] : 'ch'
+      setLang(MINERU_LANG_OPTIONS.some(o => o.value === l) ? l : 'ch')
     }
     sync()
     return scope.subscribe(sync)
@@ -156,6 +184,20 @@ function MineruConfigRow(props: { scope: SettingsScope<Record<string, unknown>> 
       setEditable(health.baseUrl ?? '')
     }).catch(() => { /* host unreachable — row stays empty */ })
   }, [scope])
+
+  /** Immediate-apply helper for the two selects (no save button needed). */
+  const applyNow = (field: 'mineruBackend' | 'mineruLang', value: string): void => {
+    void (async () => {
+      setNote('')
+      try {
+        if (scope === undefined) throw new Error('设置服务不可用：请在设置页「插件」分组中配置')
+        await scope.set(field, value)
+        setNote('已保存')
+      } catch (err) {
+        setNote(err instanceof Error ? err.message : String(err))
+      }
+    })()
+  }
 
   const save = (): void => {
     void (async () => {
@@ -202,6 +244,24 @@ function MineruConfigRow(props: { scope: SettingsScope<Record<string, unknown>> 
             className="adw-input" value={editable} disabled={scope === undefined}
             onChange={e => setEditable(e.target.value)} placeholder="http://127.0.0.1:8000"
           />
+        </label>
+        <label className="adw-field">
+          <span className="adw-fieldLabel">解析后端</span>
+          <select
+            className="adw-select" value={backend} disabled={scope === undefined}
+            onChange={e => { setBackend(e.target.value); applyNow('mineruBackend', e.target.value) }}
+          >
+            {MINERU_BACKEND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        <label className="adw-field">
+          <span className="adw-fieldLabel">识别语言</span>
+          <select
+            className="adw-select" value={lang} disabled={scope === undefined}
+            onChange={e => { setLang(e.target.value); applyNow('mineruLang', e.target.value) }}
+          >
+            {MINERU_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
         </label>
       </div>
       <div className="adw-srcFormActions">
