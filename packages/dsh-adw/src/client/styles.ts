@@ -183,9 +183,13 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-srcRowHead strong { font-size: 13px; }
 .adw-srcSpacer { flex: 1; }
 .adw-srcForm { display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed var(--dsw-alias-separator-primary); padding-top: 8px; }
-/* dsh-ssh HostFormDialog 同款自适应列：窄则单列、宽则双列 */
-.adw-srcFormGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; }
-.adw-srcFormActions { display: flex; gap: 8px; align-items: center; }
+/* 紧凑对齐表单：左侧标签列 + 右侧定宽控件列（340px、30px 高），所有行共享同一基线 */
+.adw-formGrid { display: grid; grid-template-columns: max-content minmax(0, 340px); gap: 8px 14px; align-items: start; }
+.adw-formLabel { font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-secondary); line-height: 30px; white-space: nowrap; }
+.adw-formCtrl { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.adw-formCtrl .adw-input, .adw-formCtrl .adw-select { flex: none; width: 100%; height: 30px; box-sizing: border-box; padding: 4px 9px; }
+.adw-formCtrl .adw-textarea { width: 100%; box-sizing: border-box; }
+.adw-formActions { grid-column: 2; display: flex; gap: 8px; align-items: center; min-width: 0; flex-wrap: wrap; }
 
 /* ── 首次运行引导 ─────────────────────────────────────────── */
 .adw-firstRun { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 48px 16px; text-align: center; }

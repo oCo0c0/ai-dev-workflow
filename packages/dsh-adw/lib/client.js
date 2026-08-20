@@ -1094,27 +1094,26 @@ function SourceConfigBody(props) {
             setNote(void 0);
           }, children: expanded ? "\u6536\u8D77" : "\u914D\u7F6E" })
         ] }),
-        expanded && source.installTemplate !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcForm", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-srcFormGrid", children: source.installTemplate.envSpecs.map((spec) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "adw-fieldLabel", children: [
+        expanded && source.installTemplate !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-srcForm", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-formGrid", children: [
+          source.installTemplate.envSpecs.map((spec) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_react2.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "adw-formLabel", children: [
               spec.label,
-              spec.required ? " *" : "",
-              spec.hint !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "adw-hint", children: [
-                " \u2014 ",
-                spec.hint
-              ] }) : null
+              spec.required ? " *" : ""
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              "input",
-              {
-                className: "adw-input",
-                type: spec.secret ? "password" : "text",
-                value: env[spec.key] ?? "",
-                onChange: (e) => setEnv((prev) => ({ ...prev, [spec.key]: e.target.value }))
-              }
-            )
-          ] }, spec.key)) }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcFormActions", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-formCtrl", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "input",
+                {
+                  className: "adw-input",
+                  type: spec.secret ? "password" : "text",
+                  value: env[spec.key] ?? "",
+                  onChange: (e) => setEnv((prev) => ({ ...prev, [spec.key]: e.target.value }))
+                }
+              ),
+              spec.hint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-hint", children: spec.hint })
+            ] })
+          ] }, spec.key)),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-formActions", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               "button",
               {
@@ -1136,7 +1135,7 @@ function SourceConfigBody(props) {
               setEnv({});
             }, children: "\u53D6\u6D88" })
           ] })
-        ] }),
+        ] }) }),
         busy === key && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-hint", children: "\u5904\u7406\u4E2D\u2026" }),
         busy !== key && note !== void 0 && note.key === key && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-hint", children: note.text })
       ] }, key);
@@ -1248,60 +1247,54 @@ function MineruConfigRow(props) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-hint", children: "PDF / Word / \u622A\u56FE \u2192 Markdown\uFF08adw_parse_document \u5DE5\u5177\u4E0E\u9644\u4EF6\u89E3\u6790\u7528\uFF09" }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-badge", children: url !== "" ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcFormGrid", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u670D\u52A1\u5730\u5740" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-          "input",
-          {
-            className: "adw-input",
-            value: editable,
-            disabled: scope === void 0,
-            onChange: (e) => setEditable(e.target.value),
-            placeholder: "http://127.0.0.1:8000"
-          }
-        )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u89E3\u6790\u540E\u7AEF" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-          "select",
-          {
-            className: "adw-select",
-            value: backend,
-            disabled: scope === void 0,
-            onChange: (e) => {
-              setBackend(e.target.value);
-              applyNow("mineruBackend", e.target.value);
-            },
-            children: MINERU_BACKEND_OPTIONS.map((o) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: o.value, children: o.label }, o.value))
-          }
-        )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u8BC6\u522B\u8BED\u8A00" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-          "select",
-          {
-            className: "adw-select",
-            value: lang,
-            disabled: scope === void 0,
-            onChange: (e) => {
-              setLang(e.target.value);
-              applyNow("mineruLang", e.target.value);
-            },
-            children: MINERU_LANG_OPTIONS.map((o) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: o.value, children: o.label }, o.value))
-          }
-        )
-      ] })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcFormActions", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "adw-btn adw-btnPrimary adw-btnSm", disabled: busy || scope === void 0, onClick: save, children: busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58" }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", disabled: busy, onClick: probe, children: "\u5065\u5EB7\u68C0\u67E5" }),
-      scope === void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "adw-hint", children: [
-        "\u8BBE\u7F6E\u670D\u52A1\u4E0D\u53EF\u7528\uFF0C\u6B64\u5904\u53EA\u8BFB\uFF08\u5F53\u524D\u503C\uFF1A",
-        url === "" ? "\u672A\u914D\u7F6E" : url,
-        "\uFF09"
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-formGrid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "\u670D\u52A1\u5730\u5740" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        "input",
+        {
+          className: "adw-input",
+          value: editable,
+          disabled: scope === void 0,
+          onChange: (e) => setEditable(e.target.value),
+          placeholder: "http://127.0.0.1:8000"
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "\u89E3\u6790\u540E\u7AEF" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        "select",
+        {
+          className: "adw-select",
+          value: backend,
+          disabled: scope === void 0,
+          onChange: (e) => {
+            setBackend(e.target.value);
+            applyNow("mineruBackend", e.target.value);
+          },
+          children: MINERU_BACKEND_OPTIONS.map((o) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: o.value, children: o.label }, o.value))
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "\u8BC6\u522B\u8BED\u8A00" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        "select",
+        {
+          className: "adw-select",
+          value: lang,
+          disabled: scope === void 0,
+          onChange: (e) => {
+            setLang(e.target.value);
+            applyNow("mineruLang", e.target.value);
+          },
+          children: MINERU_LANG_OPTIONS.map((o) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: o.value, children: o.label }, o.value))
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-formActions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "adw-btn adw-btnPrimary adw-btnSm", disabled: busy || scope === void 0, onClick: save, children: busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", disabled: busy, onClick: probe, children: "\u5065\u5EB7\u68C0\u67E5" }),
+        scope === void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "adw-hint", children: [
+          "\u8BBE\u7F6E\u670D\u52A1\u4E0D\u53EF\u7528\uFF0C\u6B64\u5904\u53EA\u8BFB\uFF08\u5F53\u524D\u503C\uFF1A",
+          url === "" ? "\u672A\u914D\u7F6E" : url,
+          "\uFF09"
+        ] })
       ] })
     ] }),
     note !== "" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-hint", children: note })
@@ -1377,38 +1370,26 @@ function CustomServerSection(props) {
       }, children: open ? "\u6536\u8D77" : "\u6DFB\u52A0" })
     ] }),
     servers.map((server) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CustomServerRow, { server, busy, run, onChanged }, server.name)),
-    open && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcForm", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcFormGrid", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u540D\u79F0 *" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: name, onChange: (e) => setName(e.target.value), placeholder: "\u5982 my-mcp" })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u7C7B\u578B" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("select", { className: "adw-select", value: mode, onChange: (e) => setMode(e.target.value === "url" ? "url" : "stdio"), children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "stdio", children: "\u672C\u5730 stdio" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "url", children: "\u8FDC\u7A0B http(s)" })
-          ] })
-        ] }),
-        mode === "stdio" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u547D\u4EE4 *" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: command, onChange: (e) => setCommand(e.target.value), placeholder: "\u5982 npx \u6216 python" })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "\u53C2\u6570\uFF08\u7A7A\u683C\u5206\u9694\uFF09" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: args, onChange: (e) => setArgs(e.target.value), placeholder: "\u5982 -y some-mcp-server" })
-          ] })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: "URL *" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: url, onChange: (e) => setUrl(e.target.value), placeholder: "https://example.com/mcp" })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "adw-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-fieldLabel", children: mode === "url" ? "\u8BF7\u6C42\u5934\uFF08KEY=VALUE \u6BCF\u884C\u4E00\u4E2A\uFF09" : "\u73AF\u5883\u53D8\u91CF\uFF08KEY=VALUE \u6BCF\u884C\u4E00\u4E2A\uFF09" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "adw-textarea adw-envArea", value: env, onChange: (e) => setEnv(e.target.value), placeholder: mode === "url" ? "Authorization=Bearer xxx" : "API_KEY=xxx" })
-        ] })
+    open && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-srcForm", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-formGrid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "\u540D\u79F0 *" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: name, onChange: (e) => setName(e.target.value), placeholder: "\u5982 my-mcp" }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "\u7C7B\u578B" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("select", { className: "adw-select", value: mode, onChange: (e) => setMode(e.target.value === "url" ? "url" : "stdio"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "stdio", children: "\u672C\u5730 stdio" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "url", children: "\u8FDC\u7A0B http(s)" })
+      ] }) }),
+      mode === "stdio" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "\u547D\u4EE4 *" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: command, onChange: (e) => setCommand(e.target.value), placeholder: "\u5982 npx \u6216 python" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "\u53C2\u6570" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: args, onChange: (e) => setArgs(e.target.value), placeholder: "\u7A7A\u683C\u5206\u9694\uFF0C\u5982 -y some-mcp-server" }) })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: "URL *" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { className: "adw-input", value: url, onChange: (e) => setUrl(e.target.value), placeholder: "https://example.com/mcp" }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-srcFormActions", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "adw-formLabel", children: mode === "url" ? "\u8BF7\u6C42\u5934" : "\u73AF\u5883\u53D8\u91CF" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-formCtrl", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "adw-textarea adw-envArea", value: env, onChange: (e) => setEnv(e.target.value), placeholder: mode === "url" ? "KEY=VALUE \u6BCF\u884C\u4E00\u4E2A\uFF0C\u5982 Authorization=Bearer xxx" : "KEY=VALUE \u6BCF\u884C\u4E00\u4E2A\uFF0C\u5982 API_KEY=xxx" }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "adw-formActions", children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           "button",
           {
@@ -1452,7 +1433,7 @@ function CustomServerSection(props) {
           setEnv("");
         }, children: "\u53D6\u6D88" })
       ] })
-    ] }),
+    ] }) }),
     busy === "custom:add" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-hint", children: "\u5904\u7406\u4E2D\u2026" }),
     busy !== "custom:add" && note !== void 0 && note.key.startsWith("srv:") && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "adw-hint", children: note.text })
   ] });
@@ -1660,9 +1641,13 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-srcRowHead strong { font-size: 13px; }
 .adw-srcSpacer { flex: 1; }
 .adw-srcForm { display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed var(--dsw-alias-separator-primary); padding-top: 8px; }
-/* dsh-ssh HostFormDialog \u540C\u6B3E\u81EA\u9002\u5E94\u5217\uFF1A\u7A84\u5219\u5355\u5217\u3001\u5BBD\u5219\u53CC\u5217 */
-.adw-srcFormGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; }
-.adw-srcFormActions { display: flex; gap: 8px; align-items: center; }
+/* \u7D27\u51D1\u5BF9\u9F50\u8868\u5355\uFF1A\u5DE6\u4FA7\u6807\u7B7E\u5217 + \u53F3\u4FA7\u5B9A\u5BBD\u63A7\u4EF6\u5217\uFF08340px\u300130px \u9AD8\uFF09\uFF0C\u6240\u6709\u884C\u5171\u4EAB\u540C\u4E00\u57FA\u7EBF */
+.adw-formGrid { display: grid; grid-template-columns: max-content minmax(0, 340px); gap: 8px 14px; align-items: start; }
+.adw-formLabel { font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-secondary); line-height: 30px; white-space: nowrap; }
+.adw-formCtrl { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.adw-formCtrl .adw-input, .adw-formCtrl .adw-select { flex: none; width: 100%; height: 30px; box-sizing: border-box; padding: 4px 9px; }
+.adw-formCtrl .adw-textarea { width: 100%; box-sizing: border-box; }
+.adw-formActions { grid-column: 2; display: flex; gap: 8px; align-items: center; min-width: 0; flex-wrap: wrap; }
 
 /* \u2500\u2500 \u9996\u6B21\u8FD0\u884C\u5F15\u5BFC \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .adw-firstRun { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 48px 16px; text-align: center; }

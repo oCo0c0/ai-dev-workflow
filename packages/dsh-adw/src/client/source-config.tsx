@@ -6,7 +6,7 @@
  * (设置 → 插件 → 需求源).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MCPServerConfig, RequirementSourceEntry } from '@along/adw-requirement-core'
 import * as api from './api.ts'
@@ -77,38 +77,38 @@ export function SourceConfigBody(props: { sources: RequirementSourceEntry[]; onC
             </div>
             {expanded && source.installTemplate !== undefined && (
               <div className="adw-srcForm">
-                <div className="adw-srcFormGrid">
+                <div className="adw-formGrid">
                   {source.installTemplate.envSpecs.map(spec => (
-                    <label key={spec.key} className="adw-field">
-                      <span className="adw-fieldLabel">
-                        {spec.label}{spec.required ? ' *' : ''}
-                        {spec.hint !== undefined ? <span className="adw-hint"> — {spec.hint}</span> : null}
-                      </span>
-                      <input
-                        className="adw-input"
-                        type={spec.secret ? 'password' : 'text'}
-                        value={env[spec.key] ?? ''}
-                        onChange={e => setEnv(prev => ({ ...prev, [spec.key]: e.target.value }))}
-                      />
-                    </label>
+                    <Fragment key={spec.key}>
+                      <span className="adw-formLabel">{spec.label}{spec.required ? ' *' : ''}</span>
+                      <div className="adw-formCtrl">
+                        <input
+                          className="adw-input"
+                          type={spec.secret ? 'password' : 'text'}
+                          value={env[spec.key] ?? ''}
+                          onChange={e => setEnv(prev => ({ ...prev, [spec.key]: e.target.value }))}
+                        />
+                        {spec.hint !== undefined && <span className="adw-hint">{spec.hint}</span>}
+                      </div>
+                    </Fragment>
                   ))}
-                </div>
-                <div className="adw-srcFormActions">
-                  <button
-                    type="button" className="adw-btn adw-btnPrimary adw-btnSm" disabled={busy !== ''}
-                    onClick={() => run(key, async () => {
-                      const missing = source.installTemplate!.envSpecs.filter(s => s.required && (env[s.key] ?? '').trim() === '')
-                      if (missing.length > 0) throw new Error(`缺少必填项：${missing.map(m => m.label).join('、')}`)
-                      const r = await api.installSource(source.adapterId, env)
-                      setOpenId('')
-                      return r.connectionTest
-                        ? (r.connectionTest.ok ? '已配置并连接成功' : `已配置；连接测试：${r.connectionTest.message}`)
-                        : '已配置'
-                    })}
-                  >
-                    {busy === key ? '配置中…' : '保存并测试'}
-                  </button>
-                  <button type="button" className="adw-btn adw-btnSm" onClick={() => { setOpenId(''); setEnv({}) }}>取消</button>
+                  <div className="adw-formActions">
+                    <button
+                      type="button" className="adw-btn adw-btnPrimary adw-btnSm" disabled={busy !== ''}
+                      onClick={() => run(key, async () => {
+                        const missing = source.installTemplate!.envSpecs.filter(s => s.required && (env[s.key] ?? '').trim() === '')
+                        if (missing.length > 0) throw new Error(`缺少必填项：${missing.map(m => m.label).join('、')}`)
+                        const r = await api.installSource(source.adapterId, env)
+                        setOpenId('')
+                        return r.connectionTest
+                          ? (r.connectionTest.ok ? '已配置并连接成功' : `已配置；连接测试：${r.connectionTest.message}`)
+                          : '已配置'
+                      })}
+                    >
+                      {busy === key ? '配置中…' : '保存并测试'}
+                    </button>
+                    <button type="button" className="adw-btn adw-btnSm" onClick={() => { setOpenId(''); setEnv({}) }}>取消</button>
+                  </div>
                 </div>
               </div>
             )}
@@ -237,39 +237,39 @@ function MineruConfigRow(props: { scope: SettingsScope<Record<string, unknown>> 
         <span className="adw-hint">PDF / Word / 截图 → Markdown（adw_parse_document 工具与附件解析用）</span>
         <span className="adw-badge">{url !== '' ? '已配置' : '未配置'}</span>
       </div>
-      <div className="adw-srcFormGrid">
-        <label className="adw-field">
-          <span className="adw-fieldLabel">服务地址</span>
+      <div className="adw-formGrid">
+        <span className="adw-formLabel">服务地址</span>
+        <div className="adw-formCtrl">
           <input
             className="adw-input" value={editable} disabled={scope === undefined}
             onChange={e => setEditable(e.target.value)} placeholder="http://127.0.0.1:8000"
           />
-        </label>
-        <label className="adw-field">
-          <span className="adw-fieldLabel">解析后端</span>
+        </div>
+        <span className="adw-formLabel">解析后端</span>
+        <div className="adw-formCtrl">
           <select
             className="adw-select" value={backend} disabled={scope === undefined}
             onChange={e => { setBackend(e.target.value); applyNow('mineruBackend', e.target.value) }}
           >
             {MINERU_BACKEND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        </label>
-        <label className="adw-field">
-          <span className="adw-fieldLabel">识别语言</span>
+        </div>
+        <span className="adw-formLabel">识别语言</span>
+        <div className="adw-formCtrl">
           <select
             className="adw-select" value={lang} disabled={scope === undefined}
             onChange={e => { setLang(e.target.value); applyNow('mineruLang', e.target.value) }}
           >
             {MINERU_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        </label>
-      </div>
-      <div className="adw-srcFormActions">
-        <button type="button" className="adw-btn adw-btnPrimary adw-btnSm" disabled={busy || scope === undefined} onClick={save}>
-          {busy ? '处理中…' : '保存'}
-        </button>
-        <button type="button" className="adw-btn adw-btnSm" disabled={busy} onClick={probe}>健康检查</button>
-        {scope === undefined && <span className="adw-hint">设置服务不可用，此处只读（当前值：{url === '' ? '未配置' : url}）</span>}
+        </div>
+        <div className="adw-formActions">
+          <button type="button" className="adw-btn adw-btnPrimary adw-btnSm" disabled={busy || scope === undefined} onClick={save}>
+            {busy ? '处理中…' : '保存'}
+          </button>
+          <button type="button" className="adw-btn adw-btnSm" disabled={busy} onClick={probe}>健康检查</button>
+          {scope === undefined && <span className="adw-hint">设置服务不可用，此处只读（当前值：{url === '' ? '未配置' : url}）</span>}
+        </div>
       </div>
       {note !== '' && <div className="adw-hint">{note}</div>}
     </div>
@@ -348,41 +348,42 @@ function CustomServerSection(props: {
       ))}
       {open && (
         <div className="adw-srcForm">
-          <div className="adw-srcFormGrid">
-            <label className="adw-field">
-              <span className="adw-fieldLabel">名称 *</span>
+          <div className="adw-formGrid">
+            <span className="adw-formLabel">名称 *</span>
+            <div className="adw-formCtrl">
               <input className="adw-input" value={name} onChange={e => setName(e.target.value)} placeholder="如 my-mcp" />
-            </label>
-            <label className="adw-field">
-              <span className="adw-fieldLabel">类型</span>
+            </div>
+            <span className="adw-formLabel">类型</span>
+            <div className="adw-formCtrl">
               <select className="adw-select" value={mode} onChange={e => setMode(e.target.value === 'url' ? 'url' : 'stdio')}>
                 <option value="stdio">本地 stdio</option>
                 <option value="url">远程 http(s)</option>
               </select>
-            </label>
+            </div>
             {mode === 'stdio' ? (
               <>
-                <label className="adw-field">
-                  <span className="adw-fieldLabel">命令 *</span>
+                <span className="adw-formLabel">命令 *</span>
+                <div className="adw-formCtrl">
                   <input className="adw-input" value={command} onChange={e => setCommand(e.target.value)} placeholder="如 npx 或 python" />
-                </label>
-                <label className="adw-field">
-                  <span className="adw-fieldLabel">参数（空格分隔）</span>
-                  <input className="adw-input" value={args} onChange={e => setArgs(e.target.value)} placeholder="如 -y some-mcp-server" />
-                </label>
+                </div>
+                <span className="adw-formLabel">参数</span>
+                <div className="adw-formCtrl">
+                  <input className="adw-input" value={args} onChange={e => setArgs(e.target.value)} placeholder="空格分隔，如 -y some-mcp-server" />
+                </div>
               </>
             ) : (
-              <label className="adw-field">
-                <span className="adw-fieldLabel">URL *</span>
-                <input className="adw-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com/mcp" />
-              </label>
+              <>
+                <span className="adw-formLabel">URL *</span>
+                <div className="adw-formCtrl">
+                  <input className="adw-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com/mcp" />
+                </div>
+              </>
             )}
-            <label className="adw-field">
-              <span className="adw-fieldLabel">{mode === 'url' ? '请求头（KEY=VALUE 每行一个）' : '环境变量（KEY=VALUE 每行一个）'}</span>
-              <textarea className="adw-textarea adw-envArea" value={env} onChange={e => setEnv(e.target.value)} placeholder={mode === 'url' ? 'Authorization=Bearer xxx' : 'API_KEY=xxx'} />
-            </label>
-          </div>
-          <div className="adw-srcFormActions">
+            <span className="adw-formLabel">{mode === 'url' ? '请求头' : '环境变量'}</span>
+            <div className="adw-formCtrl">
+              <textarea className="adw-textarea adw-envArea" value={env} onChange={e => setEnv(e.target.value)} placeholder={mode === 'url' ? 'KEY=VALUE 每行一个，如 Authorization=Bearer xxx' : 'KEY=VALUE 每行一个，如 API_KEY=xxx'} />
+            </div>
+            <div className="adw-formActions">
             <button
               type="button" className="adw-btn adw-btnPrimary adw-btnSm" disabled={busy !== ''}
               onClick={() => run('custom:add', async () => {
@@ -411,6 +412,7 @@ function CustomServerSection(props: {
               {busy === 'custom:add' ? '添加中…' : '添加'}
             </button>
             <button type="button" className="adw-btn adw-btnSm" onClick={() => { setOpen(false); setName(''); setCommand(''); setArgs(''); setUrl(''); setEnv('') }}>取消</button>
+            </div>
           </div>
         </div>
       )}
