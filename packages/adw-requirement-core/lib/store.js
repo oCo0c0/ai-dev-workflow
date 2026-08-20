@@ -213,14 +213,34 @@ export class RequirementStore {
             return `![${alt}](${url})`;
         });
         req.description = desc;
-        // 附件图片 URL 指向本地
+        // 附件图片 URL 指向本地（图片型只要本地有文件就改写，含原本无 URL 的条目）
         for (const att of req.attachments) {
-            if (att.url && /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name)) {
+            if (/\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name) || att.type.startsWith('image/')) {
                 if (fs.existsSync(path.join(imgDir, att.name))) {
                     att.url = localUrl(att.name);
                 }
             }
         }
+        // === 附件清洗 ===
+        // 1) 同名同址去重（源侧可能把同一内嵌图列多遍）；
+        // 2) 图片型死条目移除：URL 为空（源侧「URL omitted」）且本地也没有文件的，
+        //    既不能展示也不能解析，留着只会误导。
+        const seen = new Set();
+        req.attachments = req.attachments.filter(att => {
+            const key = `${att.name}\n${att.url}`;
+            if (seen.has(key))
+                return false;
+            seen.add(key);
+            return true;
+        });
+        req.attachments = req.attachments.filter(att => {
+            const looksImage = /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name) || att.type.startsWith('image/');
+            if (!looksImage)
+                return true;
+            if (att.url !== '')
+                return true;
+            return fs.existsSync(path.join(imgDir, att.name));
+        });
     }
     /** 落盘（写临时文件后 rename，原子替换） */
     persist() {
