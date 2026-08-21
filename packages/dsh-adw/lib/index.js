@@ -20464,6 +20464,10 @@ var RequirementStore = class {
       ...detail,
       // 既有执行历史必须保留（详情更新不得抹掉执行记录）
       executions: existing?.executions ?? [],
+      // 工作副本与解析结果同样跨刷新保留（源 description 更新由 detail 覆盖）
+      parsedAttachments: existing?.parsedAttachments,
+      workingDescription: existing?.workingDescription,
+      workingUpdatedAt: existing?.workingUpdatedAt,
       source
     };
     if (existing) {
@@ -20473,6 +20477,32 @@ var RequirementStore = class {
     }
     this.persist();
     return saved;
+  }
+  /** 写入一份附件解析结果（按附件名索引） */
+  setParsedAttachment(id, name2, record2) {
+    const req = this.get(id);
+    if (!req) return void 0;
+    req.parsedAttachments = { ...req.parsedAttachments ?? {}, [name2]: record2 };
+    this.persist();
+    return req;
+  }
+  /** 保存文档工作副本（编辑 / 合并都走这里） */
+  setWorkingDescription(id, description) {
+    const req = this.get(id);
+    if (!req) return void 0;
+    req.workingDescription = description;
+    req.workingUpdatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    this.persist();
+    return req;
+  }
+  /** 放弃工作副本，回到源描述 */
+  clearWorkingDescription(id) {
+    const req = this.get(id);
+    if (!req) return void 0;
+    delete req.workingDescription;
+    delete req.workingUpdatedAt;
+    this.persist();
+    return req;
   }
   /** 删除；返回是否存在 */
   delete(id) {
@@ -20660,6 +20690,64 @@ function withTimeout(promise, ms) {
     new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
   ]);
 }
+function parseMarker(name2) {
+  return { open: `<!--adw-parse:${name2}-->`, close: `<!--/adw-parse:${name2}-->` };
+}
+function buildBlock(name2, record2) {
+  const { open, close } = parseMarker(name2);
+  return `${open}
+**\u3010${name2} \u89E3\u6790\u7ED3\u679C\u3011**\uFF08${record2.backend} \xB7 ${record2.parsedAt.slice(0, 16).replace("T", " ")}\uFF09
+
+${record2.markdown.trim()}
+${close}`;
+}
+function findReferenceLine(desc, name2) {
+  const stem = name2.replace(/\.[^.]+$/, "");
+  const lines = desc.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const refMatch = line.match(/!?\[([^\]]*)\]\(([^)]*)\)/g) ?? [];
+    for (const ref of refMatch) {
+      const m = ref.match(/!?\[([^\]]*)\]\(([^)]*)\)/);
+      if (m === null) continue;
+      const [, alt, url2] = m;
+      if (url2.includes(name2) || url2.includes(encodeURIComponent(name2)) || alt === name2 || alt === stem) return i;
+    }
+    if (new RegExp(`^\\[Image:\\s*${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`, "i").test(line.trim())) return i;
+  }
+  return -1;
+}
+function mergeParsedIntoDescription(description, parsed) {
+  let desc = description;
+  const appended = [];
+  for (const [name2, record2] of Object.entries(parsed)) {
+    if (record2.markdown.trim() === "") continue;
+    const block = buildBlock(name2, record2);
+    const { open, close } = parseMarker(name2);
+    const openIdx = desc.indexOf(open);
+    if (openIdx >= 0) {
+      const closeIdx = desc.indexOf(close, openIdx);
+      if (closeIdx >= 0) {
+        desc = desc.slice(0, openIdx) + block + desc.slice(closeIdx + close.length);
+        continue;
+      }
+    }
+    const line = findReferenceLine(desc, name2);
+    if (line >= 0) {
+      const lines = desc.split("\n");
+      lines.splice(line + 1, 0, "", block);
+      desc = lines.join("\n");
+    } else {
+      appended.push(block);
+    }
+  }
+  if (appended.length > 0) {
+    const heading = desc.includes("### \u9644\u4EF6\u89E3\u6790") ? "" : "\n\n### \u9644\u4EF6\u89E3\u6790\n";
+    desc = `${desc.replace(/\s+$/, "")}${heading}${appended.join("\n\n")}
+`;
+  }
+  return desc;
+}
 
 // ../adw-requirement-core/src/engine.ts
 var RequirementEngine = class {
@@ -20776,13 +20864,25 @@ var RequirementEngine = class {
   settleExecution(id, executionId, outcome, error2) {
     return this.store.settleExecution(id, executionId, outcome, error2);
   }
+  /** 写入一份附件解析结果 */
+  setParsedAttachment(id, name2, record2) {
+    return this.store.setParsedAttachment(id, name2, record2);
+  }
+  /** 保存文档工作副本 */
+  setWorkingDescription(id, description) {
+    return this.store.setWorkingDescription(id, description);
+  }
+  /** 放弃文档工作副本（回到源描述） */
+  clearWorkingDescription(id) {
+    return this.store.clearWorkingDescription(id);
+  }
   /** 断开全部 MCP 连接（插件卸载时调用） */
   async dispose() {
     await this.bridge.disconnect().catch(() => void 0);
   }
 };
 function renderDevPrompt(template, req) {
-  return template.replaceAll("{{title}}", req.title).replaceAll("{{number}}", req.number ?? req.id).replaceAll("{{id}}", req.id).replaceAll("{{status}}", req.status).replaceAll("{{priority}}", req.priority).replaceAll("{{description}}", req.description ?? "").replaceAll("{{acceptanceCriteria}}", (req.acceptanceCriteria ?? []).map((c) => `- [ ] ${c}`).join("\n"));
+  return template.replaceAll("{{title}}", req.title).replaceAll("{{number}}", req.number ?? req.id).replaceAll("{{id}}", req.id).replaceAll("{{status}}", req.status).replaceAll("{{priority}}", req.priority).replaceAll("{{description}}", req.workingDescription ?? req.description ?? "").replaceAll("{{acceptanceCriteria}}", (req.acceptanceCriteria ?? []).map((c) => `- [ ] ${c}`).join("\n"));
 }
 
 // ../adw-requirement-core/src/mineru-client.ts
@@ -21402,6 +21502,106 @@ function makeRoutes(deps) {
           return;
         }
         writeJson(res, 200, { prompt: renderDevPrompt(deps.getDevPromptTemplate(), req0) });
+        return;
+      }
+      if (verb === "attachments" && parts.length === 4 && parts[3] === "parse") {
+        if (!guard(req, res, "POST")) return;
+        const body = await readJsonBody(req);
+        if (body === void 0) {
+          writeJson(res, 400, { code: "VALIDATION_ERROR", message: "invalid JSON body" });
+          return;
+        }
+        const name2 = str(body, "name");
+        if (name2 === void 0 || name2 === "") {
+          writeJson(res, 400, { code: "VALIDATION_ERROR", message: 'field "name" is required' });
+          return;
+        }
+        if (req0 === void 0) {
+          writeJson(res, 404, { code: "NOT_FOUND", message: `requirement ${id} not saved` });
+          return;
+        }
+        const att = req0.attachments.find((a) => a.name === name2);
+        if (att === void 0) {
+          writeJson(res, 404, { code: "NOT_FOUND", message: `attachment ${name2} not on requirement` });
+          return;
+        }
+        const backend = str(body, "backend");
+        try {
+          const result = await parseDocument(engine, deps.getMineruUrl(), `adw-image://${id}/${name2}`, backend !== void 0 ? { backend } : void 0, { backend: deps.getMineruBackend(), langList: deps.getMineruLang() });
+          if (!result.success) {
+            writeJson(res, 200, result);
+            return;
+          }
+          const updated = engine.setParsedAttachment(id, name2, {
+            markdown: result.markdown ?? "",
+            backend: backend !== void 0 && backend !== "" ? backend : deps.getMineruBackend(),
+            parsedAt: (/* @__PURE__ */ new Date()).toISOString()
+          });
+          writeJson(res, 200, { success: true, markdown: result.markdown, requirement: updated });
+        } catch (err) {
+          writeJson(res, 500, { code: "PARSE_ERROR", message: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+      if (verb === "description" && parts.length === 3) {
+        if (req.method === "POST") {
+          if (!isLoopbackRequest(req)) {
+            writeJson(res, 403, { code: "FORBIDDEN", message: "loopback-only endpoint" });
+            return;
+          }
+          const body = await readJsonBody(req);
+          if (body === void 0) {
+            writeJson(res, 400, { code: "VALIDATION_ERROR", message: "invalid JSON body" });
+            return;
+          }
+          const description = str(body, "description");
+          if (description === void 0) {
+            writeJson(res, 400, { code: "VALIDATION_ERROR", message: 'field "description" is required' });
+            return;
+          }
+          const updated = engine.setWorkingDescription(id, description);
+          if (updated === void 0) {
+            writeJson(res, 404, { code: "NOT_FOUND", message: `requirement ${id} not saved` });
+            return;
+          }
+          writeJson(res, 200, updated);
+          return;
+        }
+        if (req.method === "DELETE") {
+          if (!isLoopbackRequest(req)) {
+            writeJson(res, 403, { code: "FORBIDDEN", message: "loopback-only endpoint" });
+            return;
+          }
+          const updated = engine.clearWorkingDescription(id);
+          if (updated === void 0) {
+            writeJson(res, 404, { code: "NOT_FOUND", message: `requirement ${id} not saved` });
+            return;
+          }
+          writeJson(res, 200, updated);
+          return;
+        }
+        writeJson(res, 405, { code: "METHOD_NOT_ALLOWED", message: "use POST or DELETE" });
+        return;
+      }
+      if (verb === "merge" && parts.length === 3) {
+        if (!guard(req, res, "POST")) return;
+        if (req0 === void 0) {
+          writeJson(res, 404, { code: "NOT_FOUND", message: `requirement ${id} not saved` });
+          return;
+        }
+        const parsed = req0.parsedAttachments ?? {};
+        if (Object.keys(parsed).length === 0) {
+          writeJson(res, 400, { code: "VALIDATION_ERROR", message: "no parsed attachments to merge" });
+          return;
+        }
+        const base = req0.workingDescription ?? req0.description;
+        const merged = mergeParsedIntoDescription(base, parsed);
+        const updated = engine.setWorkingDescription(id, merged);
+        if (updated === void 0) {
+          writeJson(res, 404, { code: "NOT_FOUND", message: `requirement ${id} not saved` });
+          return;
+        }
+        writeJson(res, 200, updated);
         return;
       }
       if (verb === "executions" && parts.length === 3) {

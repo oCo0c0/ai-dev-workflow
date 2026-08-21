@@ -134,7 +134,18 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-sectionTitle {
   padding: 8px 12px; font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-2); border-bottom: 1px solid var(--dsw-alias-border-l1);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
+.adw-sectionSpacer { flex: 1; }
+.adw-sectionTitle .adw-btn { flex: none; }
+/* 文档编辑态：等宽全宽 textarea */
+.adw-descEdit {
+  width: 100%; box-sizing: border-box; min-height: 320px; resize: vertical;
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace); font-size: 12.5px; line-height: 1.6;
+  background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 10px 12px; outline: none;
+}
+.adw-descEdit:focus { border-color: var(--dsw-alias-state-business-primary); }
 .adw-sectionBody { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .adw-desc { word-break: break-word; line-height: 1.6; font-size: 13px; max-height: 420px; overflow-y: auto; }
 .adw-desc img { display: block; max-width: 100%; margin: 8px 0; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1); }

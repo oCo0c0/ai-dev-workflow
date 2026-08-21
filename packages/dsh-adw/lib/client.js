@@ -22261,6 +22261,18 @@ function refreshRequirement(id) {
 function getDevPrompt(id) {
   return call(`/requirements/${encodeURIComponent(id)}/dev-prompt`);
 }
+function parseAttachment(id, name2) {
+  return call(`/requirements/${encodeURIComponent(id)}/attachments/parse`, { method: "POST", body: JSON.stringify({ name: name2 }) });
+}
+function saveDescription(id, description) {
+  return call(`/requirements/${encodeURIComponent(id)}/description`, { method: "POST", body: JSON.stringify({ description }) });
+}
+function revertDescription(id) {
+  return call(`/requirements/${encodeURIComponent(id)}/description`, { method: "DELETE" });
+}
+function mergeParses(id) {
+  return call(`/requirements/${encodeURIComponent(id)}/merge`, { method: "POST" });
+}
 function reportExecution(id, link3) {
   return call(`/requirements/${encodeURIComponent(id)}/executions`, {
     method: "POST",
@@ -22293,9 +22305,6 @@ function addServer(config) {
 }
 function mineruHealth() {
   return call("/mineru/health");
-}
-function parseDocument(input) {
-  return call("/mineru/parse", { method: "POST", body: JSON.stringify({ input }) });
 }
 
 // src/client/Panel.tsx
@@ -22508,7 +22517,8 @@ function AdwPanel(props) {
             } finally {
               setBusy("");
             }
-          }
+          },
+          onChanged: () => reload()
         }
       ),
       view.kind === "detail" && detail === void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-empty", children: "\u9700\u6C42\u4E0D\u5B58\u5728\u6216\u5DF2\u5220\u9664" })
@@ -22610,26 +22620,85 @@ function SearchPage(props) {
   ] });
 }
 function DetailPage(props) {
-  const { req, running, services, onRun, onRefresh } = props;
+  const { req, running, services, onRun, onRefresh, onChanged } = props;
   const [dialogOpen, setDialogOpen] = (0, import_react2.useState)(false);
-  const [parsed, setParsed] = (0, import_react2.useState)({});
+  const [localParsed, setLocalParsed] = (0, import_react2.useState)({});
+  const [progress, setProgress] = (0, import_react2.useState)(null);
+  const cancelBatchRef = (0, import_react2.useRef)(false);
+  const [editing, setEditing] = (0, import_react2.useState)(false);
+  const [draft, setDraft] = (0, import_react2.useState)("");
+  const [copiedName, setCopiedName] = (0, import_react2.useState)("");
   const last = req.executions[req.executions.length - 1];
   const isRunning = running || last !== void 0 && last.endedAt === void 0;
-  const parseInputFor = (url) => {
-    const m = url.match(/^\/api\/dsh-adw\/requirements\/([^/]+)\/images\/(.+)$/);
-    return m !== null ? `adw-image://${m[1]}/${m[2]}` : url;
-  };
-  const doParse = (attachment) => {
-    const key = attachment.url;
-    setParsed((prev) => ({ ...prev, [key]: { status: "loading" } }));
-    void parseDocument(parseInputFor(key)).then((result) => {
-      setParsed((prev) => ({
-        ...prev,
-        [key]: result.success ? { status: "done", markdown: result.markdown } : { status: "error", error: result.error }
-      }));
+  const serverParsed = req.parsedAttachments ?? {};
+  const displayDesc = req.workingDescription ?? req.description;
+  const sourceNewer = req.workingUpdatedAt !== void 0 && req.source.fetchedAt > req.workingUpdatedAt;
+  const mergedIn = (name2) => req.workingDescription !== void 0 && req.workingDescription.includes(`<!--adw-parse:${name2}-->`);
+  const doParse = (name2) => {
+    setLocalParsed((prev) => ({ ...prev, [name2]: { status: "loading" } }));
+    return parseAttachment(req.id, name2).then(async (result) => {
+      if (!result.success) throw new Error(result.error ?? "\u89E3\u6790\u5931\u8D25");
+      setLocalParsed((prev) => {
+        const next2 = { ...prev };
+        delete next2[name2];
+        return next2;
+      });
+      await onChanged();
     }).catch((err) => {
-      setParsed((prev) => ({ ...prev, [key]: { status: "error", error: err instanceof Error ? err.message : String(err) } }));
+      setLocalParsed((prev) => ({ ...prev, [name2]: { status: "error", error: err instanceof Error ? err.message : String(err) } }));
     });
+  };
+  const parseAll = () => {
+    const pending = req.attachments.filter((a) => serverParsed[a.name] === void 0);
+    if (pending.length === 0 || progress !== null) return;
+    cancelBatchRef.current = false;
+    void (async () => {
+      for (let i = 0; i < pending.length; i++) {
+        if (cancelBatchRef.current) break;
+        setProgress({ done: i, total: pending.length, current: pending[i].name });
+        await doParse(pending[i].name);
+      }
+      setProgress(null);
+    })();
+  };
+  const doMerge = () => {
+    void (async () => {
+      try {
+        await mergeParses(req.id);
+        await onChanged();
+      } catch {
+      }
+    })();
+  };
+  const copyMarkdown = (name2, markdown) => {
+    void navigator.clipboard?.writeText(markdown).then(() => {
+      setCopiedName(name2);
+      setTimeout(() => setCopiedName(""), 1500);
+    });
+  };
+  const startEdit = () => {
+    setDraft(displayDesc);
+    setEditing(true);
+  };
+  const saveEdit = () => {
+    void (async () => {
+      try {
+        await saveDescription(req.id, draft);
+        setEditing(false);
+        await onChanged();
+      } catch {
+      }
+    })();
+  };
+  const revertEdit = () => {
+    void (async () => {
+      try {
+        await revertDescription(req.id);
+        setEditing(false);
+        await onChanged();
+      } catch {
+      }
+    })();
   };
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-detail", children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-detailHead", children: [
@@ -22667,8 +22736,20 @@ function DetailPage(props) {
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "adw-section", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-sectionTitle", children: "\u9700\u6C42\u63CF\u8FF0" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-sectionBody", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-desc", children: req.description !== "" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Markdown2, { text: req.description }) : "\uFF08\u65E0\u63CF\u8FF0\uFF09" }) })
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-sectionTitle", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9700\u6C42\u63CF\u8FF0" }),
+        req.workingDescription !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "adw-badge", children: "\u5DF2\u7F16\u8F91" }),
+        sourceNewer && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "adw-hint", children: "\u6E90\u5DF2\u66F4\u65B0\uFF08\u672C\u5730\u7F16\u8F91\u57FA\u4E8E\u65E7\u7248\uFF0C\u53EF\u8FD8\u539F\u540E\u91CD\u65B0\u5408\u5E76\uFF09" }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "adw-sectionSpacer" }),
+        editing ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnPrimary adw-btnSm", onClick: saveEdit, children: "\u4FDD\u5B58" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => setEditing(false), children: "\u53D6\u6D88" })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: startEdit, children: "\u7F16\u8F91" }),
+          req.workingDescription !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: revertEdit, title: "\u653E\u5F03\u672C\u5730\u7F16\u8F91\u4E0E\u5408\u5E76\uFF0C\u56DE\u5230\u6E90\u63CF\u8FF0", children: "\u8FD8\u539F" })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-sectionBody", children: editing ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("textarea", { className: "adw-descEdit", value: draft, onChange: (e) => setDraft(e.target.value), spellCheck: false }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-desc", children: displayDesc !== "" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Markdown2, { text: displayDesc }) : "\uFF08\u65E0\u63CF\u8FF0\uFF09" }) })
     ] }),
     req.acceptanceCriteria.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "adw-section", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-sectionTitle", children: "\u9A8C\u6536\u6807\u51C6" }),
@@ -22678,31 +22759,61 @@ function DetailPage(props) {
       ] }, i)) })
     ] }),
     req.attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "adw-section", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-sectionTitle", children: "\u9644\u4EF6" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-sectionTitle", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+          "\u9644\u4EF6\uFF08\u5DF2\u89E3\u6790 ",
+          Object.keys(serverParsed).length,
+          "/",
+          req.attachments.length,
+          "\uFF09"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "adw-sectionSpacer" }),
+        progress !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "adw-hint", children: [
+          progress.done + 1,
+          "/",
+          progress.total,
+          " \xB7 ",
+          progress.current
+        ] }) : Object.keys(serverParsed).length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnPrimary adw-btnSm", onClick: doMerge, children: "\u5408\u5E76\u5230\u6587\u6863" }) : null,
+        progress !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
+          cancelBatchRef.current = true;
+        }, children: "\u505C\u6B62" }) : req.attachments.some((a) => serverParsed[a.name] === void 0) ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: parseAll, title: "\u987A\u5E8F\u89E3\u6790\u5168\u90E8\u672A\u89E3\u6790\u9644\u4EF6\uFF08MinerU\uFF09", children: "\u89E3\u6790\u5168\u90E8" }) : null
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-sectionBody", children: req.attachments.map((a, i) => {
-        const st = parsed[a.url];
+        const local = localParsed[a.name];
+        const done = serverParsed[a.name];
+        const status = local?.status === "loading" ? "loading" : local?.status === "error" ? "error" : done !== void 0 ? "done" : void 0;
         return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-attItem", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-attRow", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("a", { className: "adw-link", href: a.url, target: "_blank", rel: "noreferrer", children: a.name }),
+            mergedIn(a.name) && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "adw-badge", "data-tone": "succeeded", children: "\u5DF2\u5165\u6587\u6863" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "adw-srcSpacer" }),
+            status === "done" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => copyMarkdown(a.name, done.markdown), children: copiedName === a.name ? "\u5DF2\u590D\u5236" : "\u590D\u5236\u6E90\u7801" }),
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
               "button",
               {
                 type: "button",
                 className: "adw-btn adw-btnSm",
-                disabled: st?.status === "loading",
+                disabled: status === "loading",
                 title: "\u901A\u8FC7 MinerU \u89E3\u6790\u4E3A Markdown\uFF08\u9700\u5728 \u8BBE\u7F6E \u2192 \u63D2\u4EF6 \u2192 \u9700\u6C42\u6E90 \u4E2D\u914D\u7F6E MinerU \u670D\u52A1\uFF09",
-                onClick: () => doParse(a),
-                children: st?.status === "loading" ? "\u89E3\u6790\u4E2D\u2026" : st?.status === "done" ? "\u91CD\u65B0\u89E3\u6790" : "\u89E3\u6790"
+                onClick: () => void doParse(a.name),
+                children: status === "loading" ? "\u89E3\u6790\u4E2D\u2026" : status === "done" ? "\u91CD\u65B0\u89E3\u6790" : "\u89E3\u6790"
               }
             )
           ] }),
-          st?.status === "done" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-parseResult", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-parseHead", children: "\u9644\u4EF6\u89E3\u6790\u7ED3\u679C\uFF08MinerU\uFF09" }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-desc", children: (st.markdown ?? "").trim() !== "" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Markdown2, { text: st.markdown ?? "" }) : "\uFF08\u65E0\u6587\u672C\u5185\u5BB9\uFF09" })
+          status === "done" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-parseResult", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-parseHead", children: [
+              "\u89E3\u6790\u7ED3\u679C\uFF08",
+              done.backend,
+              " \xB7 ",
+              fmtTime(done.parsedAt),
+              "\uFF09"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-desc", children: done.markdown.trim() !== "" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Markdown2, { text: done.markdown }) : "\uFF08\u65E0\u6587\u672C\u5185\u5BB9\uFF09" })
           ] }),
-          st?.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-errorText", children: [
+          status === "error" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-errorText", children: [
             "\u89E3\u6790\u5931\u8D25\uFF1A",
-            st.error
+            local.status === "error" ? local.error : ""
           ] })
         ] }, i);
       }) })
@@ -23492,7 +23603,18 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 .adw-sectionTitle {
   padding: 8px 12px; font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-2); border-bottom: 1px solid var(--dsw-alias-border-l1);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
+.adw-sectionSpacer { flex: 1; }
+.adw-sectionTitle .adw-btn { flex: none; }
+/* \u6587\u6863\u7F16\u8F91\u6001\uFF1A\u7B49\u5BBD\u5168\u5BBD textarea */
+.adw-descEdit {
+  width: 100%; box-sizing: border-box; min-height: 320px; resize: vertical;
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace); font-size: 12.5px; line-height: 1.6;
+  background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 10px 12px; outline: none;
+}
+.adw-descEdit:focus { border-color: var(--dsw-alias-state-business-primary); }
 .adw-sectionBody { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .adw-desc { word-break: break-word; line-height: 1.6; font-size: 13px; max-height: 420px; overflow-y: auto; }
 .adw-desc img { display: block; max-width: 100%; margin: 8px 0; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1); }

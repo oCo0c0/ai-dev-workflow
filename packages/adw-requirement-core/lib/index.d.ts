@@ -5,7 +5,7 @@
  *   零 DSH 依赖 —— dsh-adw 插件与 adw 本体共用同一份语义。
  */
 export { RequirementEngine, renderDevPrompt, type FetchOptions, type EngineOptions } from './engine.js';
-export { RequirementStore, type ExecutionLink, type SavedRequirement } from './store.js';
+export { RequirementStore, mergeParsedIntoDescription, parseMarker, type ExecutionLink, type SavedRequirement, type ParsedAttachment } from './store.js';
 export { MCPBridgeService, type BridgeCallOptions, type RequirementSourceEntry, type MCPConfigSource } from './mcp-bridge.js';
 export { MCPConfigService, type MCPServerConfig } from './mcp-config.js';
 export { MinerUClient, type MinerUBackend, type MinerUParseMethod, type MinerUParseOptions, type MinerUParseResult, type MinerUTaskStatus, type MinerUTaskSubmitResult, } from './mineru-client.js';

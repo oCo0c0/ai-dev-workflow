@@ -128,12 +128,25 @@ export class RequirementEngine {
     settleExecution(id, executionId, outcome, error) {
         return this.store.settleExecution(id, executionId, outcome, error);
     }
+    /** 写入一份附件解析结果 */
+    setParsedAttachment(id, name, record) {
+        return this.store.setParsedAttachment(id, name, record);
+    }
+    /** 保存文档工作副本 */
+    setWorkingDescription(id, description) {
+        return this.store.setWorkingDescription(id, description);
+    }
+    /** 放弃文档工作副本（回到源描述） */
+    clearWorkingDescription(id) {
+        return this.store.clearWorkingDescription(id);
+    }
     /** 断开全部 MCP 连接（插件卸载时调用） */
     async dispose() {
         await this.bridge.disconnect().catch(() => undefined);
     }
 }
-/** 渲染开发 prompt（占位符替换，纯函数；模板来自插件设置） */
+/** 渲染开发 prompt（占位符替换，纯函数；模板来自插件设置）
+ *  {{description}} 优先用工作副本（编辑 + 解析合并的成果），未设置时用源描述 */
 export function renderDevPrompt(template, req) {
     return template
         .replaceAll('{{title}}', req.title)
@@ -141,7 +154,7 @@ export function renderDevPrompt(template, req) {
         .replaceAll('{{id}}', req.id)
         .replaceAll('{{status}}', req.status)
         .replaceAll('{{priority}}', req.priority)
-        .replaceAll('{{description}}', req.description ?? '')
+        .replaceAll('{{description}}', req.workingDescription ?? req.description ?? '')
         .replaceAll('{{acceptanceCriteria}}', (req.acceptanceCriteria ?? []).map(c => `- [ ] ${c}`).join('\n'));
 }
 //# sourceMappingURL=engine.js.map

@@ -28,6 +28,23 @@ const makeCtx = () => ({
 // 数据目录指向临时目录，避免冒烟写真实 ~/.dsh
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-adw-smoke-'))
 process.env.DSH_HOME = tmp
+// 预置存储与图片（必须在 apply 前落盘——store 在构造时一次性读入）
+{
+  const dataDir = path.join(tmp, 'dsh-adw')
+  fs.mkdirSync(dataDir, { recursive: true })
+  fs.writeFileSync(path.join(dataDir, 'requirements.json'), JSON.stringify({
+    version: 1,
+    requirements: [{
+      id: 'img-r1', number: 'R-1', title: '带图需求', status: 'open', priority: 'P2',
+      description: '![shot.png](/api/dsh-adw/requirements/img-r1/images/shot.png)',
+      acceptanceCriteria: [], attachments: [],
+      source: { adapterId: 'ones', serverName: 'ones-api', input: 'R-1', fetchedAt: '2026-01-01T00:00:00Z' },
+      executions: [],
+    }],
+  }), 'utf8')
+  fs.mkdirSync(path.join(dataDir, 'images', 'img-r1'), { recursive: true })
+  fs.writeFileSync(path.join(dataDir, 'images', 'img-r1', 'shot.png'), Buffer.from('PNGDATA'))
+}
 plugin.apply(makeCtx(), {})
 
 assert.equal(registered.routes.length, 1)
@@ -72,13 +89,15 @@ const handler = registered.routes[0].handler
   console.log('  ok - non-loopback request fenced (403)')
 }
 
-// GET /requirements
+// GET /requirements（含 apply 前预置的 img-r1）
 {
   const res = makeRes()
   await handler(makeReq('GET', '/api/dsh-adw/requirements'), res)
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(JSON.parse(res.body), [])
-  console.log('  ok - GET /requirements → []')
+  const list = JSON.parse(res.body)
+  assert.equal(list.length, 1)
+  assert.equal(list[0].id, 'img-r1')
+  console.log('  ok - GET /requirements → seeded img-r1')
 }
 
 // GET /sources
@@ -185,23 +204,8 @@ const handler = registered.routes[0].handler
   console.log('  ok - host data dir initialized at $DSH_HOME/dsh-adw')
 }
 
-// ── 本地附件图片路由（预置存储 + 图片文件后打路由） ───────────────────
+// ── 本地附件图片路由（存储已在 apply 前预置） ─────────────────────────
 {
-  const dataDir = path.join(tmp, 'dsh-adw')
-  const seeded = {
-    version: 1,
-    requirements: [{
-      id: 'img-r1', number: 'R-1', title: '带图需求', status: 'open', priority: 'P2',
-      description: '![shot.png](/api/dsh-adw/requirements/img-r1/images/shot.png)',
-      acceptanceCriteria: [], attachments: [],
-      source: { adapterId: 'ones', serverName: 'ones-api', input: 'R-1', fetchedAt: '2026-01-01T00:00:00Z' },
-      executions: [],
-    }],
-  }
-  fs.writeFileSync(path.join(dataDir, 'requirements.json'), JSON.stringify(seeded), 'utf8')
-  fs.mkdirSync(path.join(dataDir, 'images', 'img-r1'), { recursive: true })
-  fs.writeFileSync(path.join(dataDir, 'images', 'img-r1', 'shot.png'), Buffer.from('PNGDATA'))
-
   const res = makeRes()
   await handler(makeReq('GET', '/api/dsh-adw/requirements/img-r1/images/shot.png'), res)
   assert.equal(res.statusCode, 200)
@@ -219,6 +223,41 @@ const handler = registered.routes[0].handler
   await handler(makeReq('GET', '/api/dsh-adw/requirements/img-r1/images/..%2F..%2Frequirements.json'), resTrav)
   assert.equal(resTrav.statusCode, 404)
   console.log('  ok - image path traversal fenced (404)')
+}
+
+// ── 文档工作副本：编辑 → dev-prompt 接线 → 还原闭环 ───────────────────
+{
+  // POST /description 保存工作副本
+  const resSave = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/requirements/img-r1/description', '127.0.0.1',
+    JSON.stringify({ description: 'EDITED-DOC-MARKER' })), resSave)
+  assert.equal(resSave.statusCode, 200)
+  assert.equal(JSON.parse(resSave.body).workingDescription, 'EDITED-DOC-MARKER')
+  console.log('  ok - POST /description → workingDescription saved')
+
+  // dev-prompt 的 {{description}} 用工作副本
+  const resPrompt = makeRes()
+  await handler(makeReq('GET', '/api/dsh-adw/requirements/img-r1/dev-prompt'), resPrompt)
+  assert.equal(resPrompt.statusCode, 200)
+  const prompt = JSON.parse(resPrompt.body).prompt
+  assert.ok(prompt.includes('EDITED-DOC-MARKER'), 'dev prompt carries working copy')
+  assert.ok(!prompt.includes('shot.png'), 'dev prompt no longer shows source description')
+  console.log('  ok - GET /dev-prompt renders working description')
+
+  // merge 无解析结果 → 400
+  const resMergeEmpty = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/requirements/img-r1/merge', '127.0.0.1', '{}'), resMergeEmpty)
+  assert.equal(resMergeEmpty.statusCode, 400)
+  console.log('  ok - POST /merge without parsed attachments → 400')
+
+  // DELETE /description 还原 → dev-prompt 回落源描述
+  const resRevert = makeRes()
+  await handler(makeReq('DELETE', '/api/dsh-adw/requirements/img-r1/description', '127.0.0.1'), resRevert)
+  assert.equal(resRevert.statusCode, 200)
+  const resPrompt2 = makeRes()
+  await handler(makeReq('GET', '/api/dsh-adw/requirements/img-r1/dev-prompt'), resPrompt2)
+  assert.ok(JSON.parse(resPrompt2.body).prompt.includes('shot.png'), 'revert falls back to source description')
+  console.log('  ok - DELETE /description → prompt falls back to source')
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })

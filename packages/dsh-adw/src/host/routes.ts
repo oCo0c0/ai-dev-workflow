@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { RequirementEngine } from '@along/adw-requirement-core'
-import { renderDevPrompt, MinerUClient } from '@along/adw-requirement-core'
+import { renderDevPrompt, MinerUClient, mergeParsedIntoDescription } from '@along/adw-requirement-core'
 import { isLoopbackRequest } from './loopback.ts'
 import { parseDocument } from './mineru.ts'
 
@@ -267,6 +267,67 @@ export function makeRoutes(deps: AdwRoutesDeps): WebRoute[] {
         if (!guard(req, res, 'GET')) return
         if (req0 === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
         writeJson(res, 200, { prompt: renderDevPrompt(deps.getDevPromptTemplate(), req0) })
+        return
+      }
+      // 解析一份附件（host 侧解析 + 落盘一步完成；input 方言即 adw-image ref）
+      if (verb === 'attachments' && parts.length === 4 && parts[3] === 'parse') {
+        if (!guard(req, res, 'POST')) return
+        const body = await readJsonBody(req)
+        if (body === undefined) { writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'invalid JSON body' }); return }
+        const name = str(body, 'name')
+        if (name === undefined || name === '') { writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'field "name" is required' }); return }
+        if (req0 === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
+        const att = req0.attachments.find(a => a.name === name)
+        if (att === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `attachment ${name} not on requirement` }); return }
+        const backend = str(body, 'backend')
+        try {
+          const result = await parseDocument(engine, deps.getMineruUrl(), `adw-image://${id}/${name}`, backend !== undefined ? {backend} : undefined, {backend: deps.getMineruBackend(), langList: deps.getMineruLang()})
+          if (!result.success) { writeJson(res, 200, result); return }
+          const updated = engine.setParsedAttachment(id, name, {
+            markdown: result.markdown ?? '',
+            backend: (backend !== undefined && backend !== '' ? backend : deps.getMineruBackend()),
+            parsedAt: new Date().toISOString(),
+          })
+          writeJson(res, 200, {success: true, markdown: result.markdown, requirement: updated})
+        } catch (err) {
+          writeJson(res, 500, { code: 'PARSE_ERROR', message: err instanceof Error ? err.message : String(err) })
+        }
+        return
+      }
+      // 文档工作副本：POST 保存（编辑），DELETE 放弃（回到源描述）
+      if (verb === 'description' && parts.length === 3) {
+        if (req.method === 'POST') {
+          if (!isLoopbackRequest(req)) { writeJson(res, 403, { code: 'FORBIDDEN', message: 'loopback-only endpoint' }); return }
+          const body = await readJsonBody(req)
+          if (body === undefined) { writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'invalid JSON body' }); return }
+          const description = str(body, 'description')
+          if (description === undefined) { writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'field "description" is required' }); return }
+          const updated = engine.setWorkingDescription(id, description)
+          if (updated === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
+          writeJson(res, 200, updated)
+          return
+        }
+        if (req.method === 'DELETE') {
+          if (!isLoopbackRequest(req)) { writeJson(res, 403, { code: 'FORBIDDEN', message: 'loopback-only endpoint' }); return }
+          const updated = engine.clearWorkingDescription(id)
+          if (updated === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
+          writeJson(res, 200, updated)
+          return
+        }
+        writeJson(res, 405, { code: 'METHOD_NOT_ALLOWED', message: 'use POST or DELETE' })
+        return
+      }
+      // 把全部解析结果合并进文档工作副本（幂等，host 侧文本手术）
+      if (verb === 'merge' && parts.length === 3) {
+        if (!guard(req, res, 'POST')) return
+        if (req0 === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
+        const parsed = req0.parsedAttachments ?? {}
+        if (Object.keys(parsed).length === 0) { writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'no parsed attachments to merge' }); return }
+        const base = req0.workingDescription ?? req0.description
+        const merged = mergeParsedIntoDescription(base, parsed)
+        const updated = engine.setWorkingDescription(id, merged)
+        if (updated === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
+        writeJson(res, 200, updated)
         return
       }
       if (verb === 'executions' && parts.length === 3) {

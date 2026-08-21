@@ -48,6 +48,10 @@ export class RequirementStore {
             ...detail,
             // 既有执行历史必须保留（详情更新不得抹掉执行记录）
             executions: existing?.executions ?? [],
+            // 工作副本与解析结果同样跨刷新保留（源 description 更新由 detail 覆盖）
+            parsedAttachments: existing?.parsedAttachments,
+            workingDescription: existing?.workingDescription,
+            workingUpdatedAt: existing?.workingUpdatedAt,
             source,
         };
         if (existing) {
@@ -58,6 +62,35 @@ export class RequirementStore {
         }
         this.persist();
         return saved;
+    }
+    /** 写入一份附件解析结果（按附件名索引） */
+    setParsedAttachment(id, name, record) {
+        const req = this.get(id);
+        if (!req)
+            return undefined;
+        req.parsedAttachments = { ...(req.parsedAttachments ?? {}), [name]: record };
+        this.persist();
+        return req;
+    }
+    /** 保存文档工作副本（编辑 / 合并都走这里） */
+    setWorkingDescription(id, description) {
+        const req = this.get(id);
+        if (!req)
+            return undefined;
+        req.workingDescription = description;
+        req.workingUpdatedAt = new Date().toISOString();
+        this.persist();
+        return req;
+    }
+    /** 放弃工作副本，回到源描述 */
+    clearWorkingDescription(id) {
+        const req = this.get(id);
+        if (!req)
+            return undefined;
+        delete req.workingDescription;
+        delete req.workingUpdatedAt;
+        this.persist();
+        return req;
     }
     /** 删除；返回是否存在 */
     delete(id) {
@@ -281,5 +314,76 @@ function withTimeout(promise, ms) {
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
     ]);
+}
+// ── 解析结果合并（纯函数，可独立测试） ─────────────────────────────────
+/** 合并标记：注释形态，渲染与 agent 侧均不可见；按附件名成对出现 */
+export function parseMarker(name) {
+    return { open: `<!--adw-parse:${name}-->`, close: `<!--/adw-parse:${name}-->` };
+}
+/** 构造一份解析结果的合并块 */
+function buildBlock(name, record) {
+    const { open, close } = parseMarker(name);
+    return `${open}\n**【${name} 解析结果】**（${record.backend} · ${record.parsedAt.slice(0, 16).replace('T', ' ')}）\n\n${record.markdown.trim()}\n${close}`;
+}
+/** 在描述中定位附件引用的行号（图片/链接/[Image: x] 三种形态，按名称与 URL 匹配） */
+function findReferenceLine(desc, name) {
+    const stem = name.replace(/\.[^.]+$/, '');
+    const lines = desc.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // 图片或链接形态：名称出现在 URL 或 alt 里
+        const refMatch = line.match(/!?\[([^\]]*)\]\(([^)]*)\)/g) ?? [];
+        for (const ref of refMatch) {
+            const m = ref.match(/!?\[([^\]]*)\]\(([^)]*)\)/);
+            if (m === null)
+                continue;
+            const [, alt, url] = m;
+            if (url.includes(name) || url.includes(encodeURIComponent(name)) || alt === name || alt === stem)
+                return i;
+        }
+        // 富文本占位形态：[Image: xxx] / [image]
+        if (new RegExp(`^\\[Image:\\s*${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'i').test(line.trim()))
+            return i;
+    }
+    return -1;
+}
+/**
+ * 把解析结果合并进文档（幂等）：
+ * - 已有该附件的标记块 → 原位替换（重解析更新不重复）
+ * - 描述中有该附件引用 → 引用行后插入（图文相邻）
+ * - 都没有 → 文末「附件解析」小节追加
+ */
+export function mergeParsedIntoDescription(description, parsed) {
+    let desc = description;
+    const appended = [];
+    for (const [name, record] of Object.entries(parsed)) {
+        if (record.markdown.trim() === '')
+            continue;
+        const block = buildBlock(name, record);
+        const { open, close } = parseMarker(name);
+        const openIdx = desc.indexOf(open);
+        if (openIdx >= 0) {
+            const closeIdx = desc.indexOf(close, openIdx);
+            if (closeIdx >= 0) {
+                // 原位替换旧块
+                desc = desc.slice(0, openIdx) + block + desc.slice(closeIdx + close.length);
+                continue;
+            }
+        }
+        const line = findReferenceLine(desc, name);
+        if (line >= 0) {
+            const lines = desc.split('\n');
+            lines.splice(line + 1, 0, '', block);
+            desc = lines.join('\n');
+        }
+        else {
+            appended.push(block);
+        }
+    }
+    if (appended.length > 0) {
+        const heading = desc.includes('### 附件解析') ? '' : '\n\n### 附件解析\n';
+        desc = `${desc.replace(/\s+$/, '')}${heading}${appended.join('\n\n')}\n`;
+    }
+    return desc;
 }
 //# sourceMappingURL=store.js.map

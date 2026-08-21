@@ -6,7 +6,7 @@
  */
 // === 引擎与存储 ===
 export { RequirementEngine, renderDevPrompt } from './engine.js';
-export { RequirementStore } from './store.js';
+export { RequirementStore, mergeParsedIntoDescription, parseMarker } from './store.js';
 // === 桥接与配置 ===
 export { MCPBridgeService } from './mcp-bridge.js';
 export { MCPConfigService } from './mcp-config.js';

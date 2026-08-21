@@ -83,6 +83,26 @@ export function getDevPrompt(id: string): Promise<{ prompt: string }> {
   return call(`/requirements/${encodeURIComponent(id)}/dev-prompt`)
 }
 
+/** POST /requirements/:id/attachments/parse — parse one attachment host-side (parse + persist). */
+export function parseAttachment(id: string, name: string): Promise<{ success: boolean; markdown?: string; error?: string; requirement?: SavedRequirement }> {
+  return call(`/requirements/${encodeURIComponent(id)}/attachments/parse`, { method: 'POST', body: JSON.stringify({ name }) })
+}
+
+/** POST /requirements/:id/description — save the editable working description. */
+export function saveDescription(id: string, description: string): Promise<SavedRequirement> {
+  return call(`/requirements/${encodeURIComponent(id)}/description`, { method: 'POST', body: JSON.stringify({ description }) })
+}
+
+/** DELETE /requirements/:id/description — drop the working copy (back to source description). */
+export function revertDescription(id: string): Promise<SavedRequirement> {
+  return call(`/requirements/${encodeURIComponent(id)}/description`, { method: 'DELETE' })
+}
+
+/** POST /requirements/:id/merge — merge all parsed attachments into the working description. */
+export function mergeParses(id: string): Promise<SavedRequirement> {
+  return call(`/requirements/${encodeURIComponent(id)}/merge`, { method: 'POST' })
+}
+
 /** POST /requirements/:id/executions — report a started execution. */
 export function reportExecution(
   id: string,

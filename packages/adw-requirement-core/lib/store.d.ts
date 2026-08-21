@@ -28,6 +28,15 @@ export interface ExecutionLink {
     /** 失败原因 */
     error?: string;
 }
+/** 一份附件的 MinerU 解析结果（持久化，随需求走） */
+export interface ParsedAttachment {
+    /** 解析出的 Markdown 源码 */
+    markdown: string;
+    /** 所用后端（pipeline / vlm-* …） */
+    backend: string;
+    /** 解析时间（ISO 8601） */
+    parsedAt: string;
+}
 /** 已保存的需求：详情 + 溯源 + 执行历史 */
 export interface SavedRequirement extends RequirementDetail {
     /** 拉取溯源 */
@@ -43,6 +52,12 @@ export interface SavedRequirement extends RequirementDetail {
     };
     /** 执行历史（时间升序） */
     executions: ExecutionLink[];
+    /** 附件解析结果，按附件名索引（拉取时不产出，解析动作写入） */
+    parsedAttachments?: Record<string, ParsedAttachment>;
+    /** 文档工作副本（编辑 + 解析合并写入）；未设置时展示/执行均用源 description */
+    workingDescription?: string;
+    /** 工作副本最后写入时间（ISO 8601；用于「源已更新」提示） */
+    workingUpdatedAt?: string;
 }
 /**
  * 需求存储服务
@@ -64,6 +79,12 @@ export declare class RequirementStore {
     get(id: string): SavedRequirement | undefined;
     /** 插入或更新（保留既有 source/executions，更新详情字段） */
     upsert(detail: RequirementDetail, source: SavedRequirement['source']): SavedRequirement;
+    /** 写入一份附件解析结果（按附件名索引） */
+    setParsedAttachment(id: string, name: string, record: ParsedAttachment): SavedRequirement | undefined;
+    /** 保存文档工作副本（编辑 / 合并都走这里） */
+    setWorkingDescription(id: string, description: string): SavedRequirement | undefined;
+    /** 放弃工作副本，回到源描述 */
+    clearWorkingDescription(id: string): SavedRequirement | undefined;
     /** 删除；返回是否存在 */
     delete(id: string): boolean;
     /** 追加一条执行链接 */
@@ -87,4 +108,16 @@ export declare class RequirementStore {
     /** 读入（损坏/不存在时回空存储；损坏文件另存 .bak 便于排查） */
     private load;
 }
+/** 合并标记：注释形态，渲染与 agent 侧均不可见；按附件名成对出现 */
+export declare function parseMarker(name: string): {
+    open: string;
+    close: string;
+};
+/**
+ * 把解析结果合并进文档（幂等）：
+ * - 已有该附件的标记块 → 原位替换（重解析更新不重复）
+ * - 描述中有该附件引用 → 引用行后插入（图文相邻）
+ * - 都没有 → 文末「附件解析」小节追加
+ */
+export declare function mergeParsedIntoDescription(description: string, parsed: Record<string, ParsedAttachment>): string;
 //# sourceMappingURL=store.d.ts.map

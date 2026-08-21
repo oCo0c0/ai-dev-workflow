@@ -7,7 +7,7 @@
 
 // === 引擎与存储 ===
 export {RequirementEngine, renderDevPrompt, type FetchOptions, type EngineOptions} from './engine.js';
-export {RequirementStore, type ExecutionLink, type SavedRequirement} from './store.js';
+export {RequirementStore, mergeParsedIntoDescription, parseMarker, type ExecutionLink, type SavedRequirement, type ParsedAttachment} from './store.js';
 
 // === 桥接与配置 ===
 export {MCPBridgeService, type BridgeCallOptions, type RequirementSourceEntry, type MCPConfigSource} from './mcp-bridge.js';

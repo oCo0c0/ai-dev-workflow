@@ -6,12 +6,11 @@
  * machinery through the injected ExecutionService.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import type {
-  Attachment,
   Requirement,
   RequirementSourceEntry,
   SavedRequirement,
@@ -283,6 +282,7 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
                 setError(err instanceof Error ? err.message : String(err))
               } finally { setBusy('') }
             }}
+            onChanged={() => reload()}
           />
         )}
         {view.kind === 'detail' && detail === undefined && (
@@ -392,37 +392,83 @@ function DetailPage(props: {
   services: PanelServices
   onRun(target: ExecuteTarget, prompt: string): void
   onRefresh(): void
+  onChanged(): Promise<void>
 }): React.JSX.Element {
-  const { req, running, services, onRun, onRefresh } = props
+  const { req, running, services, onRun, onRefresh, onChanged } = props
   const [dialogOpen, setDialogOpen] = useState(false)
-  /** Per-attachment MinerU parse state, keyed by attachment url. */
-  const [parsed, setParsed] = useState<Record<string, { status: 'loading' | 'done' | 'error'; markdown?: string; error?: string }>>({})
+  /** 瞬态解析态（loading/error），按附件名索引；done 态读服务端 req.parsedAttachments */
+  const [localParsed, setLocalParsed] = useState<Record<string, { status: 'loading' } | { status: 'error'; error: string }>>({})
+  /** 批量解析进度（顺序执行，可取消） */
+  const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null)
+  const cancelBatchRef = useRef(false)
+  /** 文档编辑态 */
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [copiedName, setCopiedName] = useState('')
   const last = req.executions[req.executions.length - 1]
   const isRunning = running || (last !== undefined && last.endedAt === undefined)
 
-  /** MinerU input dialect for one attachment: local rewritten image →
-   * adw-image ref; anything else (http url) passes through as-is. */
-  const parseInputFor = (url: string): string => {
-    const m = url.match(/^\/api\/dsh-adw\/requirements\/([^/]+)\/images\/(.+)$/)
-    return m !== null ? `adw-image://${m[1]}/${m[2]}` : url
-  }
+  const serverParsed = req.parsedAttachments ?? {}
+  const displayDesc = req.workingDescription ?? req.description
+  const sourceNewer = req.workingUpdatedAt !== undefined && req.source.fetchedAt > req.workingUpdatedAt
+  /** 该附件的解析结果是否已合并进文档 */
+  const mergedIn = (name: string): boolean =>
+    req.workingDescription !== undefined && req.workingDescription.includes(`<!--adw-parse:${name}-->`)
 
-  /** Parse one attachment and splice the result under its row. */
-  const doParse = (attachment: Attachment): void => {
-    const key = attachment.url
-    setParsed(prev => ({ ...prev, [key]: { status: 'loading' } }))
-    void api.parseDocument(parseInputFor(key))
-      .then(result => {
-        setParsed(prev => ({
-          ...prev,
-          [key]: result.success
-            ? { status: 'done', markdown: result.markdown }
-            : { status: 'error', error: result.error },
-        }))
+  /** 解析一份附件：host 侧解析 + 落盘，然后刷新需求 */
+  const doParse = (name: string): Promise<void> => {
+    setLocalParsed(prev => ({ ...prev, [name]: { status: 'loading' } }))
+    return api.parseAttachment(req.id, name)
+      .then(async result => {
+        if (!result.success) throw new Error(result.error ?? '解析失败')
+        setLocalParsed(prev => { const next = { ...prev }; delete next[name]; return next })
+        await onChanged()
       })
       .catch(err => {
-        setParsed(prev => ({ ...prev, [key]: { status: 'error', error: err instanceof Error ? err.message : String(err) } }))
+        setLocalParsed(prev => ({ ...prev, [name]: { status: 'error', error: err instanceof Error ? err.message : String(err) } }))
       })
+  }
+
+  /** 批量解析全部「未解析」附件（顺序，可取消） */
+  const parseAll = (): void => {
+    const pending = req.attachments.filter(a => serverParsed[a.name] === undefined)
+    if (pending.length === 0 || progress !== null) return
+    cancelBatchRef.current = false
+    void (async () => {
+      for (let i = 0; i < pending.length; i++) {
+        if (cancelBatchRef.current) break
+        setProgress({ done: i, total: pending.length, current: pending[i].name })
+        await doParse(pending[i].name)
+      }
+      setProgress(null)
+    })()
+  }
+
+  /** 合并全部解析结果进文档工作副本（幂等，host 侧文本手术） */
+  const doMerge = (): void => {
+    void (async () => {
+      try { await api.mergeParses(req.id); await onChanged() } catch { /* 400 = 没有可合并项 */ }
+    })()
+  }
+
+  /** 复制一份解析结果的 Markdown 源码（保表格结构） */
+  const copyMarkdown = (name: string, markdown: string): void => {
+    void navigator.clipboard?.writeText(markdown).then(() => {
+      setCopiedName(name)
+      setTimeout(() => setCopiedName(''), 1500)
+    })
+  }
+
+  const startEdit = (): void => { setDraft(displayDesc); setEditing(true) }
+  const saveEdit = (): void => {
+    void (async () => {
+      try { await api.saveDescription(req.id, draft); setEditing(false); await onChanged() } catch { /* 保持编辑态 */ }
+    })()
+  }
+  const revertEdit = (): void => {
+    void (async () => {
+      try { await api.revertDescription(req.id); setEditing(false); await onChanged() } catch { /* ignore */ }
+    })()
   }
 
   return (
@@ -449,9 +495,29 @@ function DetailPage(props: {
       </div>
 
       <section className="adw-section">
-        <div className="adw-sectionTitle">需求描述</div>
+        <div className="adw-sectionTitle">
+          <span>需求描述</span>
+          {req.workingDescription !== undefined && <span className="adw-badge">已编辑</span>}
+          {sourceNewer && <span className="adw-hint">源已更新（本地编辑基于旧版，可还原后重新合并）</span>}
+          <span className="adw-sectionSpacer" />
+          {editing ? (
+            <>
+              <button type="button" className="adw-btn adw-btnPrimary adw-btnSm" onClick={saveEdit}>保存</button>
+              <button type="button" className="adw-btn adw-btnSm" onClick={() => setEditing(false)}>取消</button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="adw-btn adw-btnSm" onClick={startEdit}>编辑</button>
+              {req.workingDescription !== undefined && (
+                <button type="button" className="adw-btn adw-btnSm" onClick={revertEdit} title="放弃本地编辑与合并，回到源描述">还原</button>
+              )}
+            </>
+          )}
+        </div>
         <div className="adw-sectionBody">
-          <div className="adw-desc">{req.description !== '' ? <Markdown text={req.description} /> : '（无描述）'}</div>
+          {editing
+            ? <textarea className="adw-descEdit" value={draft} onChange={e => setDraft(e.target.value)} spellCheck={false} />
+            : <div className="adw-desc">{displayDesc !== '' ? <Markdown text={displayDesc} /> : '（无描述）'}</div>}
         </div>
       </section>
 
@@ -468,28 +534,51 @@ function DetailPage(props: {
 
       {req.attachments.length > 0 && (
         <section className="adw-section">
-          <div className="adw-sectionTitle">附件</div>
+          <div className="adw-sectionTitle">
+            <span>附件（已解析 {Object.keys(serverParsed).length}/{req.attachments.length}）</span>
+            <span className="adw-sectionSpacer" />
+            {progress !== null ? (
+              <span className="adw-hint">{progress.done + 1}/{progress.total} · {progress.current}</span>
+            ) : Object.keys(serverParsed).length > 0 ? (
+              <button type="button" className="adw-btn adw-btnPrimary adw-btnSm" onClick={doMerge}>合并到文档</button>
+            ) : null}
+            {progress !== null ? (
+              <button type="button" className="adw-btn adw-btnSm" onClick={() => { cancelBatchRef.current = true }}>停止</button>
+            ) : req.attachments.some(a => serverParsed[a.name] === undefined) ? (
+              <button type="button" className="adw-btn adw-btnSm" onClick={parseAll} title="顺序解析全部未解析附件（MinerU）">解析全部</button>
+            ) : null}
+          </div>
           <div className="adw-sectionBody">
             {req.attachments.map((a, i) => {
-              const st = parsed[a.url]
+              const local = localParsed[a.name]
+              const done = serverParsed[a.name]
+              const status: 'loading' | 'done' | 'error' | undefined =
+                local?.status === 'loading' ? 'loading' : local?.status === 'error' ? 'error' : done !== undefined ? 'done' : undefined
               return (
                 <div key={i} className="adw-attItem">
                   <div className="adw-attRow">
                     <a className="adw-link" href={a.url} target="_blank" rel="noreferrer">{a.name}</a>
+                    {mergedIn(a.name) && <span className="adw-badge" data-tone="succeeded">已入文档</span>}
+                    <span className="adw-srcSpacer" />
+                    {status === 'done' && (
+                      <button type="button" className="adw-btn adw-btnSm" onClick={() => copyMarkdown(a.name, done.markdown)}>
+                        {copiedName === a.name ? '已复制' : '复制源码'}
+                      </button>
+                    )}
                     <button
                       type="button" className="adw-btn adw-btnSm"
-                      disabled={st?.status === 'loading'}
+                      disabled={status === 'loading'}
                       title="通过 MinerU 解析为 Markdown（需在 设置 → 插件 → 需求源 中配置 MinerU 服务）"
-                      onClick={() => doParse(a)}
-                    >{st?.status === 'loading' ? '解析中…' : st?.status === 'done' ? '重新解析' : '解析'}</button>
+                      onClick={() => void doParse(a.name)}
+                    >{status === 'loading' ? '解析中…' : status === 'done' ? '重新解析' : '解析'}</button>
                   </div>
-                  {st?.status === 'done' && (
+                  {status === 'done' && (
                     <div className="adw-parseResult">
-                      <div className="adw-parseHead">附件解析结果（MinerU）</div>
-                      <div className="adw-desc">{(st.markdown ?? '').trim() !== '' ? <Markdown text={st.markdown ?? ''} /> : '（无文本内容）'}</div>
+                      <div className="adw-parseHead">解析结果（{done.backend} · {fmtTime(done.parsedAt)}）</div>
+                      <div className="adw-desc">{done.markdown.trim() !== '' ? <Markdown text={done.markdown} /> : '（无文本内容）'}</div>
                     </div>
                   )}
-                  {st?.status === 'error' && <div className="adw-errorText">解析失败：{st.error}</div>}
+                  {status === 'error' && <div className="adw-errorText">解析失败：{local.status === 'error' ? local.error : ''}</div>}
                 </div>
               )
             })}

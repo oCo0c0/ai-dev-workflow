@@ -6,7 +6,7 @@
  */
 import { type RequirementSourceEntry } from './mcp-bridge.js';
 import type { Requirement, RequirementDetail } from './requirement-sources/types.js';
-import { type ExecutionLink, type SavedRequirement } from './store.js';
+import { type ExecutionLink, type ParsedAttachment, type SavedRequirement } from './store.js';
 /** 拉取选项 */
 export interface FetchOptions {
     /** 目标 MCP server（缺省自动解析） */
@@ -86,9 +86,18 @@ export declare class RequirementEngine {
     } | undefined;
     /** 回写执行结局 */
     settleExecution(id: string, executionId: string, outcome: ExecutionLink['outcome'], error?: string): SavedRequirement | undefined;
+    /** 写入一份附件解析结果 */
+    setParsedAttachment(id: string, name: string, record: ParsedAttachment): SavedRequirement | undefined;
+    /** 保存文档工作副本 */
+    setWorkingDescription(id: string, description: string): SavedRequirement | undefined;
+    /** 放弃文档工作副本（回到源描述） */
+    clearWorkingDescription(id: string): SavedRequirement | undefined;
     /** 断开全部 MCP 连接（插件卸载时调用） */
     dispose(): Promise<void>;
 }
-/** 渲染开发 prompt（占位符替换，纯函数；模板来自插件设置） */
-export declare function renderDevPrompt(template: string, req: RequirementDetail): string;
+/** 渲染开发 prompt（占位符替换，纯函数；模板来自插件设置）
+ *  {{description}} 优先用工作副本（编辑 + 解析合并的成果），未设置时用源描述 */
+export declare function renderDevPrompt(template: string, req: RequirementDetail & {
+    workingDescription?: string;
+}): string;
 //# sourceMappingURL=engine.d.ts.map
