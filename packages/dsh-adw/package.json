@@ -1,7 +1,7 @@
 {
   "name": "@along/dsh-adw",
   "description": "adw requirement workbench for the dsh web GUI: a sidebar entry plus a requirement panel — fetch requirement documents from configured sources (ONES / GitHub Issues / generic MCP), save them host-side, pick a workspace (+mode/permission), and drive a real dsh session to develop the requirement. Hot-pluggable — no dsh source changes.",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -33,6 +33,9 @@
     "react": "^18.2.0"
   },
   "dependencies": {
+    "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
     "schemastery": "^3.18.0"
   },
   "devDependencies": {

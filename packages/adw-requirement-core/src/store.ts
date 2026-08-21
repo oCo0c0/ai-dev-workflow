@@ -200,7 +200,8 @@ export class RequirementStore {
             try {
                 const resources = Array.from(imageResources.keys())
                     .map(name => ({name, url: urlMap.get(name)}));
-                await withTimeout(imageService.downloadWikiImages(req.id, resources, imgDir), 30_000);
+                // 120s 总超时：wiki 图片可能几十张（并发下载下仍需余量）
+                await withTimeout(imageService.downloadWikiImages(req.id, resources, imgDir), 120_000);
             } catch (err) {
                 console.warn(`[adw-images] batch download failed: ${err instanceof Error ? err.message : err}`);
             }

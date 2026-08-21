@@ -270,14 +270,32 @@ export class OnesImageService {
     // === 图片下载 ===
     /**
      * 通过 GraphQL 查询任务关联的 wiki page UUID 列表
+     * @description 两个来源取并集：
+     *   1. GraphQL relatedWikiPages（wiki 挂在任务关联上）
+     *   2. 任务描述富文本中的 wiki 页链接（ai-dev-requirements 0.3.1 起对
+     *      子需求等条目，wiki 链接只出现在描述正文里，relatedWikiPages 为空）
      * @param taskUuid - 任务/需求 UUID
      */
     async getWikiPageUuids(taskUuid) {
-        const result = await this.graphql(OnesImageService.TASK_DETAIL_QUERY, { key: `task-${taskUuid}` });
-        const pages = result.data?.task?.relatedWikiPages ?? [];
-        return pages
-            .filter(p => !p.errorMessage)
-            .map(p => p.uuid);
+        let uuids = [];
+        try {
+            const result = await this.graphql(OnesImageService.TASK_DETAIL_QUERY, { key: `task-${taskUuid}` });
+            const pages = result.data?.task?.relatedWikiPages ?? [];
+            uuids = pages.filter(p => !p.errorMessage).map(p => p.uuid);
+        }
+        catch {
+            // GraphQL 失败不中断：继续尝试富文本提取（downloadWikiImages 有兜底）
+        }
+        try {
+            const rich = await this.graphql(OnesImageService.TASK_RICH_TEXT_QUERY, { key: `task-${taskUuid}` });
+            const html = rich.data?.task?.description ?? '';
+            for (const match of html.matchAll(/\/wiki\/#\/team\/[^/\s"']+\/space\/[^/\s"']+\/page\/([A-Za-z0-9]+)/g)) {
+                if (!uuids.includes(match[1]))
+                    uuids.push(match[1]);
+            }
+        }
+        catch { /* 富文本拉取失败不影响已得结果 */ }
+        return uuids;
     }
     /**
      * 通过 wiki page UUID 和 resource hash 下载图片
@@ -326,25 +344,31 @@ export class OnesImageService {
         }
         let downloaded = 0;
         const downloadedSet = new Set(); // 记录已成功下载的图片
-        // 2. 对每个 wiki page，尝试下载所有图片
+        // 2. 对每个 wiki page，并发下载图片（4 并发；串行在图片多时会撞上层总超时）
+        //    注：同页首波并发可能重复取一次 wiki token（缓存无 in-flight 去重），无害
+        const DOWNLOAD_CONCURRENCY = 4;
         for (const wikiPageUuid of wikiPageUuids) {
-            for (const resource of resources) {
-                // 跳过已成功下载的图片（避免重复下载）
-                if (downloadedSet.has(resource.name)) {
-                    continue;
-                }
-                const localPath = `${imgDir}/${resource.name}`;
-                if (fs.existsSync(localPath)) {
+            const pending = resources.filter(r => !downloadedSet.has(r.name)
+                && !fs.existsSync(`${imgDir}/${r.name}`));
+            // 已在本地下好的直接计数
+            for (const r of resources) {
+                if (!downloadedSet.has(r.name) && fs.existsSync(`${imgDir}/${r.name}`)) {
                     downloaded++;
-                    downloadedSet.add(resource.name);
-                    continue;
-                }
-                const success = await this.downloadWikiImage(wikiPageUuid, resource.name, localPath);
-                if (success) {
-                    downloaded++;
-                    downloadedSet.add(resource.name); // 记录成功下载
+                    downloadedSet.add(r.name);
                 }
             }
+            let next = 0;
+            const workers = Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, pending.length) }, async () => {
+                while (next < pending.length) {
+                    const resource = pending[next++];
+                    const success = await this.downloadWikiImage(wikiPageUuid, resource.name, `${imgDir}/${resource.name}`);
+                    if (success) {
+                        downloaded++;
+                        downloadedSet.add(resource.name); // 记录成功下载
+                    }
+                }
+            });
+            await Promise.all(workers);
         }
         return downloaded;
     }

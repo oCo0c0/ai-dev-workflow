@@ -7,7 +7,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import type {
   Attachment,
   Requirement,
@@ -449,7 +451,7 @@ function DetailPage(props: {
       <section className="adw-section">
         <div className="adw-sectionTitle">需求描述</div>
         <div className="adw-sectionBody">
-          <div className="adw-desc">{req.description !== '' ? renderRichText(req.description) : '（无描述）'}</div>
+          <div className="adw-desc">{req.description !== '' ? <Markdown text={req.description} /> : '（无描述）'}</div>
         </div>
       </section>
 
@@ -484,7 +486,7 @@ function DetailPage(props: {
                   {st?.status === 'done' && (
                     <div className="adw-parseResult">
                       <div className="adw-parseHead">附件解析结果（MinerU）</div>
-                      <div className="adw-desc">{(st.markdown ?? '').trim() !== '' ? renderRichText(st.markdown ?? '') : '（无文本内容）'}</div>
+                      <div className="adw-desc">{(st.markdown ?? '').trim() !== '' ? <Markdown text={st.markdown ?? ''} /> : '（无文本内容）'}</div>
                     </div>
                   )}
                   {st?.status === 'error' && <div className="adw-errorText">解析失败：{st.error}</div>}
@@ -634,18 +636,29 @@ function ExecuteDialog(props: {
   )
 }
 
-/** Inline markdown image ![alt](url) → real <img>; other text passes through unchanged. */
-function renderRichText(text: string): ReactNode[] {
-  const nodes: ReactNode[] = []
-  const pattern = /!\[([^\]]*)\]\(([^)\s]+)\)/g
-  let cursor = 0
-  let match: RegExpExecArray | null
-  let key = 0
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
-    nodes.push(<img key={key++} src={match[2]} alt={match[1]} loading="lazy" />)
-    cursor = match.index + match[0].length
-  }
-  if (cursor < text.length) nodes.push(text.slice(cursor))
-  return nodes
+/** Markdown renderer for requirement descriptions and parsed documents.
+ *  Same stack as the adw app (react-markdown + remark-gfm + rehype-raw):
+ *  renders GFM tables / lists / headings properly instead of dumping raw
+ *  text with pre-wrap line breaks. Styling lives in styles.ts (.adw-md). */
+function Markdown({ text }: { text: string }) {
+  return (
+    <div className="adw-md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
+        components={{
+          a: ({href, children}) => (
+            <a className="adw-mdLink" href={href} target="_blank" rel="noreferrer">{children}</a>
+          ),
+          img: ({src, alt}) => (
+            <img className="adw-mdImg" src={src} alt={alt || ''} loading="lazy" />
+          ),
+          // 表格外包一层横向滚动容器（宽表不被挤压截断）
+          table: ({children}) => (
+            <div className="adw-mdTableWrap"><table>{children}</table></div>
+          ),
+        }}
+      >{text}</ReactMarkdown>
+    </div>
+  )
 }

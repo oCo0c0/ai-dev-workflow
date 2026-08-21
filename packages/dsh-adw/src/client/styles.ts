@@ -136,8 +136,65 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
   background: var(--dsw-alias-bg-layer-2); border-bottom: 1px solid var(--dsw-alias-border-l1);
 }
 .adw-sectionBody { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
-.adw-desc { white-space: pre-wrap; word-break: break-word; line-height: 1.6; font-size: 13px; max-height: 420px; overflow-y: auto; }
+.adw-desc { word-break: break-word; line-height: 1.6; font-size: 13px; max-height: 420px; overflow-y: auto; }
 .adw-desc img { display: block; max-width: 100%; margin: 8px 0; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1); }
+
+/* ── Markdown 正文（需求描述 / 附件解析结果，与 adw 应用 MarkdownContent 同栈渲染） ── */
+.adw-md { font-size: 13px; line-height: 1.65; word-break: break-word; }
+.adw-md > :first-child { margin-top: 0; }
+.adw-md > :last-child { margin-bottom: 0; }
+.adw-md h1, .adw-md h2, .adw-md h3, .adw-md h4, .adw-md h5, .adw-md h6 {
+  margin: 14px 0 6px; line-height: 1.4; font-weight: 600; color: var(--dsw-alias-label-primary);
+}
+.adw-md h1 { font-size: 16px; padding-bottom: 4px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.adw-md h2 { font-size: 15px; padding-bottom: 3px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.adw-md h3 { font-size: 14px; }
+.adw-md h4, .adw-md h5, .adw-md h6 { font-size: 13px; }
+.adw-md p { margin: 6px 0; }
+.adw-md ul, .adw-md ol { margin: 6px 0; padding-left: 22px; }
+.adw-md ul { list-style: disc; }
+.adw-md ol { list-style: decimal; }
+.adw-md li { margin: 2px 0; }
+.adw-md li > p { margin: 2px 0; }
+.adw-md strong { font-weight: 600; }
+.adw-md hr { margin: 12px 0; border: none; border-top: 1px solid var(--dsw-alias-border-l1); }
+.adw-md blockquote {
+  margin: 8px 0; padding: 4px 10px; border-left: 3px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-interactive-bg-hover); border-radius: 0 6px 6px 0;
+  color: var(--dsw-alias-label-secondary);
+}
+.adw-md blockquote > :first-child { margin-top: 2px; }
+.adw-md blockquote > :last-child { margin-bottom: 2px; }
+.adw-md code {
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace); font-size: 12px;
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover); border: 1px solid var(--dsw-alias-border-l1);
+}
+.adw-md pre {
+  margin: 8px 0; padding: 10px 12px; border-radius: 8px; overflow-x: auto;
+  background: var(--dsw-alias-interactive-bg-hover); border: 1px solid var(--dsw-alias-border-l1);
+}
+.adw-md pre code { padding: 0; border: none; background: transparent; font-size: 12px; line-height: 1.5; }
+.adw-mdLink { color: var(--dsw-alias-brand-primary); text-decoration: none; word-break: break-all; }
+.adw-mdLink:hover { text-decoration: underline; }
+.adw-mdImg {
+  display: block; max-width: 100%; margin: 8px 0;
+  border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1);
+}
+.adw-mdTableWrap { margin: 10px 0; overflow-x: auto; max-width: 100%; }
+.adw-mdTableWrap table {
+  border-collapse: collapse; font-size: 12.5px; min-width: 60%; width: auto; max-width: 100%;
+}
+.adw-mdTableWrap th, .adw-mdTableWrap td {
+  border: 1px solid var(--dsw-alias-border-l2); padding: 5px 10px; text-align: left;
+  vertical-align: top; word-break: break-word;
+}
+.adw-mdTableWrap th {
+  font-weight: 600; color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.adw-mdTableWrap td { color: var(--dsw-alias-label-primary); }
+.adw-mdTableWrap tr:nth-child(even) td { background: var(--dsw-alias-bg-layer-2); }
 .adw-check { display: flex; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.5; }
 .adw-checkDot { color: var(--dsw-alias-label-tertiary); flex: none; }
 .adw-link { color: var(--dsw-alias-brand-primary); text-decoration: none; word-break: break-all; }

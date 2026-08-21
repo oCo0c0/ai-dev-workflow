@@ -41,6 +41,10 @@ export declare class OnesImageService {
     private getWikiPageAuth;
     /**
      * 通过 GraphQL 查询任务关联的 wiki page UUID 列表
+     * @description 两个来源取并集：
+     *   1. GraphQL relatedWikiPages（wiki 挂在任务关联上）
+     *   2. 任务描述富文本中的 wiki 页链接（ai-dev-requirements 0.3.1 起对
+     *      子需求等条目，wiki 链接只出现在描述正文里，relatedWikiPages 为空）
      * @param taskUuid - 任务/需求 UUID
      */
     getWikiPageUuids(taskUuid: string): Promise<string[]>;
