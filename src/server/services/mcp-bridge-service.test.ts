@@ -223,4 +223,109 @@ describe('MCPBridgeService', () => {
             await expect(bridge.installSource('nope', {})).rejects.toThrow(/Unknown requirement source/);
         });
     });
+
+    describe('tool error surfacing & connection recovery', () => {
+        /**
+         * 最小 stdio MCP fixture server（JSON-RPC over stdio，无 SDK 依赖）
+         * @description 通过 FIXTURE_MODE 环境变量控制行为：
+         *   - ok            正常返回需求详情 Markdown
+         *   - toolerror     get_issue 返回 {isError:true}（模拟 ones-api "Task not found"）
+         *   - searcherror   search_issues 返回 {isError:true}（验证纯编号搜索失败不中断）
+         *   - die-after-first 首次调用响应后进程退出（模拟连接池中子进程死亡）
+         */
+        const FIXTURE_SERVER_SCRIPT = [
+            'const readline = require("readline");',
+            'const rl = readline.createInterface({input: process.stdin});',
+            'const MODE = process.env.FIXTURE_MODE || "ok";',
+            'let calls = 0;',
+            'function send(obj) { process.stdout.write(JSON.stringify(obj) + "\\n"); }',
+            'rl.on("line", (line) => {',
+            '  line = line.trim();',
+            '  if (!line) return;',
+            '  let msg; try { msg = JSON.parse(line); } catch { return; }',
+            '  if (msg.method === "initialize") {',
+            '    send({jsonrpc:"2.0", id: msg.id, result: {protocolVersion: msg.params && msg.params.protocolVersion || "2024-11-05", capabilities: {tools:{}}, serverInfo: {name:"fixture", version:"0.0.1"}}});',
+            '  } else if (msg.method === "tools/list") {',
+            '    send({jsonrpc:"2.0", id: msg.id, result: {tools: [',
+            '      {name:"get_issue", description:"get issue by id", inputSchema:{type:"object", properties:{id:{type:"string"}}, required:["id"]}},',
+            '      {name:"search_issues", description:"search issues", inputSchema:{type:"object", properties:{query:{type:"string"}}, required:["query"]}}',
+            '    ]}});',
+            '  } else if (msg.method === "tools/call") {',
+            '    calls++;',
+            '    const tool = msg.params.name;',
+            '    if (MODE === "toolerror" && tool === "get_issue") {',
+            '      send({jsonrpc:"2.0", id: msg.id, result: {content:[{type:"text", text:"Error: ONES: Task #424242 not found in current team"}], isError:true}});',
+            '      return;',
+            '    }',
+            '    if (MODE === "searcherror" && tool === "search_issues") {',
+            '      send({jsonrpc:"2.0", id: msg.id, result: {content:[{type:"text", text:"Error: search backend unavailable"}], isError:true}});',
+            '      return;',
+            '    }',
+            '    if (MODE === "die-after-first" && calls === 1) {',
+            '      send({jsonrpc:"2.0", id: msg.id, result: {content:[{type:"text", text:"# First\\n\\nok"}]}});',
+            '      setTimeout(() => process.exit(0), 50);',
+            '      return;',
+            '    }',
+            '    send({jsonrpc:"2.0", id: msg.id, result: {content:[{type:"text", text:"# Issue 42 title\\n\\n## Description\\n\\nhello world"}]}});',
+            '  }',
+            '});',
+        ].join('\n');
+
+        /** 写入 fixture server 脚本并注册为 FIXTURE_SERVER 配置 */
+        function configureFixture(mode: string): void {
+            const script = path.join(tempDir, `fixture-server-${mode}.cjs`);
+            fs.writeFileSync(script, FIXTURE_SERVER_SCRIPT, 'utf-8');
+            fs.writeFileSync(settingsFile, JSON.stringify({
+                mcpServers: {
+                    [FIXTURE_SERVER]: {
+                        command: process.execPath,
+                        args: [script],
+                        env: {FIXTURE_MODE: mode},
+                    },
+                },
+            }), 'utf-8');
+        }
+
+        it('parses a successful detail response', async () => {
+            configureFixture('ok');
+            const detail = await service.fetchRequirementDetail('task-abc');
+            expect(detail.title).toBe('Issue 42 title');
+            expect(detail.description).toBe('hello world');
+        });
+
+        /**
+         * 测试：工具级错误（isError）必须抛出异常，而非把错误文本解析成空需求壳
+         * @description ones-api 对不可见条目返回 {content:[{text:"Error: Task not found"}], isError:true}，
+         *              旧实现忽略 isError → 解析出全空字段 → 静默保存空需求。
+         */
+        it('surfaces tool-level isError instead of producing an empty shell', async () => {
+            configureFixture('toolerror');
+            await expect(service.fetchRequirementDetail('task-abc'))
+                .rejects.toThrow(/get_issue.*reported an error.*not found/s);
+        });
+
+        /**
+         * 测试：纯编号拉取时搜索工具报错应回退用编号直拉详情（不中断）
+         */
+        it('falls back to direct detail call when search tool errors (plain number)', async () => {
+            configureFixture('searcherror');
+            const {detail} = await service.fetchRequirementByInput('123');
+            expect(detail.title).toBe('Issue 42 title');
+        });
+
+        /**
+         * 测试：连接池中的子进程死亡后应驱逐死连接并自动重连恢复
+         * @description die-after-first 模式下首个进程响应一次后退出；第二次拉取
+         *              应重新拉起进程并成功返回（旧行为：永远 "Not connected"）。
+         */
+        it('recovers after the pooled server process dies', async () => {
+            configureFixture('die-after-first');
+            const first = await service.fetchRequirementDetail('task-abc');
+            expect(first.title).toBe('First');
+            // 等待 onclose 触发（即使未触发，重试包装也会在 "Not connected" 时自愈）
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const second = await service.fetchRequirementDetail('task-abc');
+            expect(second.title).toBe('First');
+        });
+    });
 });

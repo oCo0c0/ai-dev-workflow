@@ -166,6 +166,24 @@ export declare class MCPBridgeService {
      */
     private isToolNotFoundError;
     /**
+     * 判断错误是否为连接断开类（连接池中的子进程/网络死亡后 SDK 抛出）
+     */
+    private isConnectionError;
+    /**
+     * 执行一次工具调用，遇到连接断开类错误时驱逐死连接并重建重试一次
+     * @description 池中连接底层进程可能已死亡（npx 缓存更新/进程崩溃/宿主回收），
+     *   此时 SDK 调用抛 "Not connected"；驱逐池条目后 ensureConnected 会重新拉起。
+     * @returns 命中的服务器上下文与工具响应 content
+     */
+    private callToolWithReconnect;
+    /**
+     * 调用单个工具并检查 MCP 协议级错误（isError）
+     * @description MCP 工具执行失败时返回 {content:[{text:"Error: ..."}], isError:true}
+     *   而非 JSON-RPC 错误；忽略该标志会把错误文本当正文解析（产生空需求壳），
+     *   故在此显式转换为异常，让错误信息透出到调用方。
+     */
+    private invokeTool;
+    /**
      * 从服务端工具清单中按适配器命名约定解析出应调用的工具名
      */
     private resolveTool;

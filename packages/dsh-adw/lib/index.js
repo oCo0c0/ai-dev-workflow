@@ -20170,6 +20170,15 @@ async function buildHttpTransport(config2) {
   }
 }
 var DEFAULT_SERVER_NAME = "ones-api";
+function extractToolErrorText(content) {
+  if (!Array.isArray(content)) return "";
+  return content.map((item) => {
+    if (item && typeof item === "object" && typeof item.text === "string") {
+      return item.text;
+    }
+    return "";
+  }).filter(Boolean).join("\n").trim();
+}
 var MCPBridgeService = class {
   /** MCP 配置源（注册中心或兼容 get/list 的服务） */
   mcpConfigSource;
@@ -20263,6 +20272,11 @@ var MCPBridgeService = class {
         { capabilities: {} }
       );
       await client.connect(transport);
+      client.onclose = () => {
+        if (this.pool.get(serverName)?.client === client) {
+          this.pool.delete(serverName);
+        }
+      };
       const adapter = resolveAdapter(serverName, config2);
       let availableTools = null;
       const toolByCapability = {};
@@ -20313,9 +20327,12 @@ var MCPBridgeService = class {
     const plainNumber = adapter.extractPlainNumber(normalized);
     let resolvedId = normalized;
     if (plainNumber) {
-      const results = await this.searchRequirements(plainNumber, { serverName });
-      if (results.length > 0) {
-        resolvedId = results[0].id;
+      try {
+        const results = await this.searchRequirements(plainNumber, { serverName });
+        if (results.length > 0) {
+          resolvedId = results[0].id;
+        }
+      } catch {
       }
     }
     const detail = await this.fetchRequirementDetail(resolvedId, { serverName });
@@ -20333,11 +20350,11 @@ var MCPBridgeService = class {
   async fetchRequirementDetail(id, opts) {
     const serverName = this.resolveServerName(opts?.serverName);
     try {
-      const ctx = await this.ensureConnected(serverName);
-      const normalized = ctx.adapter.normalizeInput(id);
-      const args = ctx.adapter.buildDetailArgs(normalized, this.mcpConfigSource.get(serverName));
-      const result = await this.callToolByCapability(ctx, "fetchDetail", args);
-      return ctx.adapter.parseDetail(result.content);
+      const { ctx, content } = await this.callToolWithReconnect(serverName, "fetchDetail", (adapter) => {
+        const normalized = adapter.normalizeInput(id);
+        return adapter.buildDetailArgs(normalized, this.mcpConfigSource.get(serverName));
+      });
+      return ctx.adapter.parseDetail(content);
     } catch (err) {
       throw new Error(
         `Failed to fetch requirement detail for "${id}": ${getErrorMessage(err)}`
@@ -20353,10 +20370,12 @@ var MCPBridgeService = class {
   async searchRequirements(query, opts) {
     const serverName = this.resolveServerName(opts?.serverName);
     try {
-      const ctx = await this.ensureConnected(serverName);
-      const args = ctx.adapter.buildSearchArgs(query, this.mcpConfigSource.get(serverName));
-      const result = await this.callToolByCapability(ctx, "search", args);
-      return ctx.adapter.parseList(result.content);
+      const { ctx, content } = await this.callToolWithReconnect(
+        serverName,
+        "search",
+        (adapter) => adapter.buildSearchArgs(query, this.mcpConfigSource.get(serverName))
+      );
+      return ctx.adapter.parseList(content);
     } catch (err) {
       throw new Error(
         `Failed to search requirements: ${getErrorMessage(err)}`
@@ -20458,6 +20477,46 @@ var MCPBridgeService = class {
     return msg.includes("-32602") && /not found/i.test(msg);
   }
   /**
+   * 判断错误是否为连接断开类（连接池中的子进程/网络死亡后 SDK 抛出）
+   */
+  isConnectionError(err) {
+    return /not connected|connection closed|transport (is )?closed|transport error|disconnected|socket hang up|aborted/i.test(getErrorMessage(err));
+  }
+  /**
+   * 执行一次工具调用，遇到连接断开类错误时驱逐死连接并重建重试一次
+   * @description 池中连接底层进程可能已死亡（npx 缓存更新/进程崩溃/宿主回收），
+   *   此时 SDK 调用抛 "Not connected"；驱逐池条目后 ensureConnected 会重新拉起。
+   * @returns 命中的服务器上下文与工具响应 content
+   */
+  async callToolWithReconnect(serverName, capability, buildArgs) {
+    const invoke = async () => {
+      const ctx = await this.ensureConnected(serverName);
+      const result = await this.callToolByCapability(ctx, capability, buildArgs(ctx.adapter));
+      return { ctx, content: result.content };
+    };
+    try {
+      return await invoke();
+    } catch (err) {
+      if (!this.isConnectionError(err)) throw err;
+      this.pool.delete(serverName);
+      return invoke();
+    }
+  }
+  /**
+   * 调用单个工具并检查 MCP 协议级错误（isError）
+   * @description MCP 工具执行失败时返回 {content:[{text:"Error: ..."}], isError:true}
+   *   而非 JSON-RPC 错误；忽略该标志会把错误文本当正文解析（产生空需求壳），
+   *   故在此显式转换为异常，让错误信息透出到调用方。
+   */
+  async invokeTool(ctx, name2, args) {
+    const result = await ctx.client.callTool({ name: name2, arguments: args });
+    if (result.isError) {
+      const detail = extractToolErrorText(result.content) || "unknown tool error";
+      throw new Error(`MCP tool "${name2}" reported an error: ${detail}`);
+    }
+    return result;
+  }
+  /**
    * 从服务端工具清单中按适配器命名约定解析出应调用的工具名
    */
   resolveTool(adapter, capability, tools) {
@@ -20477,13 +20536,13 @@ var MCPBridgeService = class {
   async callToolByCapability(ctx, capability, args) {
     const resolved = ctx.toolByCapability[capability];
     if (resolved) {
-      return await ctx.client.callTool({ name: resolved, arguments: args });
+      return this.invokeTool(ctx, resolved, args);
     }
     const candidates = ctx.adapter.fallbackToolNames[capability] ?? [];
     let lastErr;
     for (const name2 of candidates) {
       try {
-        return await ctx.client.callTool({ name: name2, arguments: args });
+        return await this.invokeTool(ctx, name2, args);
       } catch (err) {
         if (this.isToolNotFoundError(err)) {
           lastErr = err;
