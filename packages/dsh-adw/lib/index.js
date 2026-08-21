@@ -20512,6 +20512,45 @@ var RequirementStore = class {
     this.persist();
     return true;
   }
+  /**
+   * 删除一份附件：移出附件列表 + 清掉它的解析结果 + 从工作副本剥掉它的合并标记块
+   * （本地文件保留——描述里的图片引用可能仍指向它）
+   */
+  removeAttachment(id, name2) {
+    const req = this.get(id);
+    if (!req) return void 0;
+    const attachments = req.attachments.filter((a) => a.name !== name2);
+    if (attachments.length === req.attachments.length && req.parsedAttachments?.[name2] === void 0) {
+      return req;
+    }
+    const parsedAttachments = { ...req.parsedAttachments ?? {} };
+    delete parsedAttachments[name2];
+    let workingDescription = req.workingDescription;
+    if (workingDescription !== void 0) {
+      const { open, close } = parseMarker(name2);
+      const openIdx = workingDescription.indexOf(open);
+      if (openIdx >= 0) {
+        const closeIdx = workingDescription.indexOf(close, openIdx);
+        if (closeIdx >= 0) {
+          workingDescription = workingDescription.slice(0, openIdx) + workingDescription.slice(closeIdx + close.length);
+          workingDescription = workingDescription.replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "\n");
+        }
+      }
+      if (!workingDescription.includes("<!--adw-parse:")) {
+        workingDescription = workingDescription.replace(/\n*### 附件解析\s*\n*$/g, "");
+      }
+      workingDescription = workingDescription.trimEnd() + "\n";
+    }
+    const updated = {
+      ...req,
+      attachments,
+      parsedAttachments,
+      ...workingDescription !== void 0 ? { workingDescription } : {}
+    };
+    this.data.requirements = this.data.requirements.map((r) => r.id === id ? updated : r);
+    this.persist();
+    return updated;
+  }
   /** 追加一条执行链接 */
   addExecution(id, link) {
     const req = this.get(id);
@@ -20875,6 +20914,10 @@ var RequirementEngine = class {
   /** 放弃文档工作副本（回到源描述） */
   clearWorkingDescription(id) {
     return this.store.clearWorkingDescription(id);
+  }
+  /** 删除一份附件（移出列表 + 清解析结果 + 剥工作副本合并标记块） */
+  removeAttachment(id, name2) {
+    return this.store.removeAttachment(id, name2);
   }
   /** 断开全部 MCP 连接（插件卸载时调用） */
   async dispose() {
@@ -21581,6 +21624,27 @@ function makeRoutes(deps) {
           return;
         }
         writeJson(res, 405, { code: "METHOD_NOT_ALLOWED", message: "use POST or DELETE" });
+        return;
+      }
+      if (verb === "attachments" && parts.length === 4 && parts[3] !== "parse") {
+        if (!guard(req, res, "DELETE")) return;
+        let name2;
+        try {
+          name2 = decodeURIComponent(parts[3]);
+        } catch {
+          writeJson(res, 400, { code: "VALIDATION_ERROR", message: "malformed attachment name" });
+          return;
+        }
+        if (req0 === void 0) {
+          writeJson(res, 404, { code: "NOT_FOUND", message: `requirement ${id} not saved` });
+          return;
+        }
+        const updated = engine.removeAttachment(id, name2);
+        if (updated === void 0) {
+          writeJson(res, 404, { code: "NOT_FOUND", message: `requirement ${id} not saved` });
+          return;
+        }
+        writeJson(res, 200, updated);
         return;
       }
       if (verb === "merge" && parts.length === 3) {

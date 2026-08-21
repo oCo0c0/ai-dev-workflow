@@ -103,6 +103,11 @@ export function mergeParses(id: string): Promise<SavedRequirement> {
   return call(`/requirements/${encodeURIComponent(id)}/merge`, { method: 'POST' })
 }
 
+/** DELETE /requirements/:id/attachments/:name — remove one attachment (list + parse + merged markers). */
+export function removeAttachment(id: string, name: string): Promise<SavedRequirement> {
+  return call(`/requirements/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
 /** POST /requirements/:id/executions — report a started execution. */
 export function reportExecution(
   id: string,

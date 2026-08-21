@@ -1,6 +1,6 @@
 {
   "name": "@along/adw-requirement-core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Requirement-fetching core extracted from adw (ai-dev-workbench): source adapters (ONES/GitHub/generic) + MCP bridge + MCP config + requirement store. Zero DSH dependencies.",
   "type": "module",
   "main": "lib/index.js",

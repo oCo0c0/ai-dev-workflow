@@ -22273,6 +22273,9 @@ function revertDescription(id) {
 function mergeParses(id) {
   return call(`/requirements/${encodeURIComponent(id)}/merge`, { method: "POST" });
 }
+function removeAttachment(id, name2) {
+  return call(`/requirements/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name2)}`, { method: "DELETE" });
+}
 function reportExecution(id, link3) {
   return call(`/requirements/${encodeURIComponent(id)}/executions`, {
     method: "POST",
@@ -22628,6 +22631,7 @@ function DetailPage(props) {
   const [editing, setEditing] = (0, import_react2.useState)(false);
   const [draft, setDraft] = (0, import_react2.useState)("");
   const [copiedName, setCopiedName] = (0, import_react2.useState)("");
+  const [attRemoveConfirm, setAttRemoveConfirm] = (0, import_react2.useState)("");
   const last = req.executions[req.executions.length - 1];
   const isRunning = running || last !== void 0 && last.endedAt === void 0;
   const serverParsed = req.parsedAttachments ?? {};
@@ -22665,6 +22669,16 @@ function DetailPage(props) {
     void (async () => {
       try {
         await mergeParses(req.id);
+        await onChanged();
+      } catch {
+      }
+    })();
+  };
+  const doRemoveAttachment = (name2) => {
+    void (async () => {
+      try {
+        await removeAttachment(req.id, name2);
+        setAttRemoveConfirm("");
         await onChanged();
       } catch {
       }
@@ -22799,7 +22813,12 @@ function DetailPage(props) {
                 onClick: () => void doParse(a.name),
                 children: status === "loading" ? "\u89E3\u6790\u4E2D\u2026" : status === "done" ? "\u91CD\u65B0\u89E3\u6790" : "\u89E3\u6790"
               }
-            )
+            ),
+            attRemoveConfirm === a.name ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "adw-attConfirm", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "adw-hint", children: "\u5220\u9664\u8BE5\u9644\u4EF6\uFF1F" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm adw-btnDanger", onClick: () => doRemoveAttachment(a.name), children: "\u5220\u9664" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => setAttRemoveConfirm(""), children: "\u53D6\u6D88" })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "adw-cardDel", title: "\u5220\u9664\u9644\u4EF6", onClick: () => setAttRemoveConfirm(a.name), children: "\u2715" })
           ] }),
           status === "done" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-parseResult", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-parseHead", children: [
@@ -23743,6 +23762,7 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 /* \u2500\u2500 \u9644\u4EF6\u89E3\u6790\uFF08\u8BE6\u60C5\u9875\u9644\u4EF6\u884C\u5185\u8054\uFF09 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .adw-attItem { display: flex; flex-direction: column; gap: 6px; }
 .adw-attRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adw-attRow .adw-attConfirm { display: flex; align-items: center; gap: 6px; }
 .adw-parseResult {
   border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px;
   background: var(--dsw-alias-bg-layer-2); padding: 8px 10px;

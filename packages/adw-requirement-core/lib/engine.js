@@ -140,6 +140,10 @@ export class RequirementEngine {
     clearWorkingDescription(id) {
         return this.store.clearWorkingDescription(id);
     }
+    /** 删除一份附件（移出列表 + 清解析结果 + 剥工作副本合并标记块） */
+    removeAttachment(id, name) {
+        return this.store.removeAttachment(id, name);
+    }
     /** 断开全部 MCP 连接（插件卸载时调用） */
     async dispose() {
         await this.bridge.disconnect().catch(() => undefined);

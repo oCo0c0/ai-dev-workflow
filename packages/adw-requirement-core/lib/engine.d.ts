@@ -92,6 +92,8 @@ export declare class RequirementEngine {
     setWorkingDescription(id: string, description: string): SavedRequirement | undefined;
     /** 放弃文档工作副本（回到源描述） */
     clearWorkingDescription(id: string): SavedRequirement | undefined;
+    /** 删除一份附件（移出列表 + 清解析结果 + 剥工作副本合并标记块） */
+    removeAttachment(id: string, name: string): SavedRequirement | undefined;
     /** 断开全部 MCP 连接（插件卸载时调用） */
     dispose(): Promise<void>;
 }

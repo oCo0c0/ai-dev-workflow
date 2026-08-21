@@ -274,6 +274,7 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 /* ── 附件解析（详情页附件行内联） ─────────────────────────── */
 .adw-attItem { display: flex; flex-direction: column; gap: 6px; }
 .adw-attRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adw-attRow .adw-attConfirm { display: flex; align-items: center; gap: 6px; }
 .adw-parseResult {
   border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px;
   background: var(--dsw-alias-bg-layer-2); padding: 8px 10px;

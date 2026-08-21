@@ -10,10 +10,23 @@
  */
 import fs from 'fs';
 import path from 'path';
-import type {AttachmentImageService} from './requirement-sources/index.js';
+import type {AttachmentImageService} from './requirement-sources';
 import type {MinerUService} from './mineru-service.js';
 import {APP_DATA_DIR, REQUIREMENTS_DIR, LEGACY_IMAGE_DIR} from '../utils/constants.js';
 import {downloadFile as httpDownloadFile, urlToImageFilename} from '../utils/http-utils.js';
+import {parseMarker} from '../utils/parse-merge.js';
+
+/**
+ * 一份附件的 MinerU 解析结果（持久化，随需求走）
+ */
+export interface ParsedAttachment {
+    /** 解析出的 Markdown 源码 */
+    markdown: string;
+    /** 所用后端（pipeline / vlm-* …） */
+    backend: string;
+    /** 解析时间（ISO 8601） */
+    parsedAt: string;
+}
 
 /**
  * 已存储的需求信息接口
@@ -32,9 +45,15 @@ export interface StoredRequirement {
     relatedIssues: { id: string; title: string; status: string }[];
     savedAt: string;
     source: string;
+    /** 附件解析结果，按附件名索引（解析动作写入） */
+    parsedAttachments?: Record<string, ParsedAttachment>;
+    /** 文档工作副本（编辑 + 解析合并写入）；未设置时展示/执行均用源 description */
+    workingDescription?: string;
+    /** 工作副本最后写入时间（ISO 8601；用于「源已更新」提示） */
+    workingUpdatedAt?: string;
 }
 
-/** 需求元数据（存储在 metadata.json，不含 description） */
+/** 需求元数据（存储在 metadata.json，不含 description/workingDescription） */
 interface RequirementMetadata {
     id: string;
     number?: string;
@@ -48,6 +67,8 @@ interface RequirementMetadata {
     relatedIssues: { id: string; title: string; status: string }[];
     savedAt: string;
     source: string;
+    parsedAttachments?: Record<string, ParsedAttachment>;
+    workingUpdatedAt?: string;
 }
 
 /** 旧版存储文件路径 */
@@ -83,6 +104,11 @@ export class RequirementStoreService {
         return path.join(this.reqDir(id), 'document.md');
     }
 
+    /** working.md 路径（文档工作副本） */
+    private workingPath(id: string): string {
+        return path.join(this.reqDir(id), 'working.md');
+    }
+
     // === CRUD ===
 
     /** 列出所有已保存需求（按 savedAt 倒序） */
@@ -107,10 +133,24 @@ export class RequirementStoreService {
         return this.readRequirement(id);
     }
 
-    /** 创建或更新需求（自动填充 savedAt） */
+    /** 创建或更新需求（自动填充 savedAt；未显式传入时保留既有工作副本与解析结果） */
     upsert(req: Omit<StoredRequirement, 'savedAt'> & { savedAt?: string }): StoredRequirement {
         const now = req.savedAt ?? new Date().toISOString();
-        const {description, ...meta} = {...req, savedAt: now} as StoredRequirement;
+
+        // 工作副本与解析结果跨更新保留（重拉刷新源 description 不抹掉本地成果）
+        const existing = this.get(req.id);
+        const parsedAttachments = req.parsedAttachments ?? existing?.parsedAttachments;
+        const workingDescription = req.workingDescription ?? existing?.workingDescription;
+        const workingUpdatedAt = req.workingUpdatedAt ?? existing?.workingUpdatedAt;
+
+        const {description, ...rest} = req as StoredRequirement;
+        const meta: RequirementMetadata = {
+            ...rest,
+            savedAt: now,
+            parsedAttachments,
+            workingUpdatedAt,
+        };
+        delete (meta as Partial<StoredRequirement>).workingDescription;
 
         // 确保目录存在
         const dir = this.reqDir(req.id);
@@ -120,8 +160,83 @@ export class RequirementStoreService {
         // 写入元数据和文档
         fs.writeFileSync(this.metadataPath(req.id), JSON.stringify(meta, null, 2), 'utf-8');
         fs.writeFileSync(this.documentPath(req.id), description ?? '', 'utf-8');
+        if (workingDescription !== undefined) {
+            fs.writeFileSync(this.workingPath(req.id), workingDescription, 'utf-8');
+        }
 
-        return {...meta, description: description ?? ''};
+        return {...meta, description: description ?? '', workingDescription};
+    }
+
+    /** 写入一份附件解析结果（按附件名索引） */
+    setParsedAttachment(id: string, name: string, record: ParsedAttachment): StoredRequirement | undefined {
+        const req = this.get(id);
+        if (!req) return undefined;
+        const merged = {...(req.parsedAttachments ?? {}), [name]: record};
+        return this.upsert({...req, parsedAttachments: merged});
+    }
+
+    /** 保存文档工作副本（编辑 / 合并都走这里） */
+    setWorkingDescription(id: string, description: string): StoredRequirement | undefined {
+        const req = this.get(id);
+        if (!req) return undefined;
+        return this.upsert({...req, workingDescription: description, workingUpdatedAt: new Date().toISOString()});
+    }
+
+    /** 放弃工作副本，回到源描述 */
+    clearWorkingDescription(id: string): StoredRequirement | undefined {
+        const req = this.get(id);
+        if (!req) return undefined;
+        const dir = this.reqDir(id);
+        const workingFile = this.workingPath(id);
+        if (fs.existsSync(workingFile)) fs.rmSync(workingFile);
+        const meta: RequirementMetadata = {
+            ...(req as unknown as RequirementMetadata),
+        };
+        delete meta.workingUpdatedAt;
+        // parsedAttachments 保留（只是不再合并；重新合并随时可用）
+        fs.writeFileSync(this.metadataPath(id), JSON.stringify(meta, null, 2), 'utf-8');
+        const refreshed = this.readRequirement(id);
+        return refreshed ?? this.get(id);
+    }
+
+    /**
+     * 删除一份附件：移出附件列表 + 清掉它的解析结果 + 从工作副本剥掉它的合并标记块
+     * （本地图片/文档文件保留——描述里的图片引用可能仍指向它，删文件会破图）
+     */
+    removeAttachment(id: string, name: string): StoredRequirement | undefined {
+        const req = this.get(id);
+        if (!req) return undefined;
+        const attachments = req.attachments.filter(a => a.name !== name);
+        if (attachments.length === req.attachments.length && req.parsedAttachments?.[name] === undefined) {
+            return req; // 附件本就不存在
+        }
+        const parsedAttachments = {...(req.parsedAttachments ?? {})};
+        delete parsedAttachments[name];
+        // 剥掉工作副本里的合并标记块
+        let workingDescription = req.workingDescription;
+        if (workingDescription !== undefined) {
+            const {open, close} = parseMarker(name);
+            const openIdx = workingDescription.indexOf(open);
+            if (openIdx >= 0) {
+                const closeIdx = workingDescription.indexOf(close, openIdx);
+                if (closeIdx >= 0) {
+                    workingDescription = workingDescription.slice(0, openIdx) + workingDescription.slice(closeIdx + close.length);
+                    // 清理残留空行
+                    workingDescription = workingDescription.replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '\n');
+                }
+            }
+            // 标记块清空后若「附件解析」小节只剩空标题则一并移除
+            if (!workingDescription.includes('<!--adw-parse:')) {
+                workingDescription = workingDescription.replace(/\n*### 附件解析\s*\n*$/g, '');
+            }
+            workingDescription = workingDescription.trimEnd() + '\n';
+        }
+        return this.upsert({
+            ...req,
+            attachments,
+            parsedAttachments,
+            ...(workingDescription !== undefined ? {workingDescription} : {}),
+        });
     }
 
     /** 根据 ID 删除需求（整个文件夹） */
@@ -143,7 +258,11 @@ export class RequirementStoreService {
         try {
             const meta: RequirementMetadata = JSON.parse(fs.readFileSync(metaFile, 'utf-8'));
             const description = fs.existsSync(docFile) ? fs.readFileSync(docFile, 'utf-8') : '';
-            return {...meta, description};
+            const workingFile = this.workingPath(id);
+            const workingDescription = meta.workingUpdatedAt !== undefined && fs.existsSync(workingFile)
+                ? fs.readFileSync(workingFile, 'utf-8')
+                : undefined;
+            return {...meta, description, ...(workingDescription !== undefined ? {workingDescription} : {})};
         } catch {
             return undefined;
         }
@@ -154,6 +273,11 @@ export class RequirementStoreService {
     /** 获取需求图片存储目录 */
     getImageDir(reqId: string): string {
         return path.join(this.reqDir(reqId), 'images');
+    }
+
+    /** 获取需求文档附件存储目录（downloadAndParseDocuments 下载目标） */
+    getDocumentsDir(reqId: string): string {
+        return path.join(this.reqDir(reqId), 'documents');
     }
 
     /** 获取本地图片文件路径，不存在返回 null */

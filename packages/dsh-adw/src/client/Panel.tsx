@@ -405,6 +405,7 @@ function DetailPage(props: {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [copiedName, setCopiedName] = useState('')
+  const [attRemoveConfirm, setAttRemoveConfirm] = useState('')
   const last = req.executions[req.executions.length - 1]
   const isRunning = running || (last !== undefined && last.endedAt === undefined)
 
@@ -448,6 +449,13 @@ function DetailPage(props: {
   const doMerge = (): void => {
     void (async () => {
       try { await api.mergeParses(req.id); await onChanged() } catch { /* 400 = 没有可合并项 */ }
+    })()
+  }
+
+  /** 删除一份附件（移出列表 + 清解析结果 + 剥工作副本合并标记块） */
+  const doRemoveAttachment = (name: string): void => {
+    void (async () => {
+      try { await api.removeAttachment(req.id, name); setAttRemoveConfirm(''); await onChanged() } catch { /* ignore */ }
     })()
   }
 
@@ -571,6 +579,15 @@ function DetailPage(props: {
                       title="通过 MinerU 解析为 Markdown（需在 设置 → 插件 → 需求源 中配置 MinerU 服务）"
                       onClick={() => void doParse(a.name)}
                     >{status === 'loading' ? '解析中…' : status === 'done' ? '重新解析' : '解析'}</button>
+                    {attRemoveConfirm === a.name ? (
+                      <span className="adw-attConfirm">
+                        <span className="adw-hint">删除该附件？</span>
+                        <button type="button" className="adw-btn adw-btnSm adw-btnDanger" onClick={() => doRemoveAttachment(a.name)}>删除</button>
+                        <button type="button" className="adw-btn adw-btnSm" onClick={() => setAttRemoveConfirm('')}>取消</button>
+                      </span>
+                    ) : (
+                      <button type="button" className="adw-cardDel" title="删除附件" onClick={() => setAttRemoveConfirm(a.name)}>✕</button>
+                    )}
                   </div>
                   {status === 'done' && (
                     <div className="adw-parseResult">

@@ -42,6 +42,11 @@ import {
     Save,
     Upload,
     FileUp,
+    RotateCcw,
+    ScanSearch,
+    GitMerge,
+    Copy,
+    Square,
 } from 'lucide-react';
 
 /**
@@ -84,6 +89,12 @@ interface StoredRequirement extends Requirement {
     savedAt: string;
     /** 需求来源标识（如 ONES 系统名） */
     source: string;
+    /** 附件解析结果，按附件名索引（服务端持久化） */
+    parsedAttachments?: Record<string, { markdown: string; backend: string; parsedAt: string }>;
+    /** 文档工作副本（编辑 + 解析合并写入）；未设置时展示/执行均用源 description */
+    workingDescription?: string;
+    /** 工作副本最后写入时间（ISO 格式） */
+    workingUpdatedAt?: string;
 }
 
 /**
@@ -136,6 +147,86 @@ export default function RequirementsPage(): JSX.Element {
     const [editFiles, setEditFiles] = useState<File[]>([]);
     const [editParsing, setEditParsing] = useState(false);
     const editFileInputRef = useRef<HTMLInputElement>(null);
+
+    // ── 附件解析闭环（与 dsh-adw 插件同语义） ─────────────────────────────
+    /** 瞬态解析态（loading/error），按附件名索引；done 态读服务端 selected.parsedAttachments */
+    const [attTransient, setAttTransient] = useState<Record<string, { status: 'loading' } | { status: 'error'; error: string }>>({});
+    /** 批量解析进度（顺序执行，可取消） */
+    const [attProgress, setAttProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+    const attCancelRef = useRef(false);
+    const [copiedAtt, setCopiedAtt] = useState('');
+
+    const applyUpdated = useCallback((updated: StoredRequirement) => {
+        setSelected(updated);
+        setSelectedRequirement(updated);
+        setSaved(prev => prev.map(r => r.id === updated.id ? updated : r));
+    }, [setSelectedRequirement]);
+
+    /** 解析一份附件：服务端解析 + 落盘，然后刷新需求 */
+    const parseOne = useCallback(async (id: string, name: string): Promise<boolean> => {
+        setAttTransient(prev => ({ ...prev, [name]: { status: 'loading' } }));
+        try {
+            const r = await apiPost<{ success: boolean; markdown?: string; error?: string; requirement?: StoredRequirement }>(
+                `/requirements/saved/${id}/attachments/parse`, { name });
+            if (!r.success) throw new Error(r.error ?? 'parse failed');
+            if (r.requirement) applyUpdated(r.requirement);
+            setAttTransient(prev => { const next = { ...prev }; delete next[name]; return next; });
+            return true;
+        } catch (err) {
+            setAttTransient(prev => ({ ...prev, [name]: { status: 'error', error: err instanceof Error ? err.message : String(err) } }));
+            return false;
+        }
+    }, [applyUpdated]);
+
+    /** 批量解析全部「未解析」附件（顺序，可取消） */
+    const parseAll = useCallback(async () => {
+        if (!selected || attProgress) return;
+        const pending = selected.attachments.filter(a => selected.parsedAttachments?.[a.name] === undefined);
+        if (pending.length === 0) return;
+        attCancelRef.current = false;
+        for (let i = 0; i < pending.length; i++) {
+            if (attCancelRef.current) break;
+            setAttProgress({ done: i, total: pending.length, current: pending[i].name });
+            await parseOne(selected.id, pending[i].name);
+        }
+        setAttProgress(null);
+    }, [selected, attProgress, parseOne]);
+
+    /** 合并全部解析结果进文档工作副本（幂等） */
+    const mergeParses = useCallback(async () => {
+        if (!selected) return;
+        try {
+            const updated = await apiPost<StoredRequirement>(`/requirements/saved/${selected.id}/merge`, {});
+            applyUpdated(updated);
+        } catch { /* 400 = 没有可合并项 */ }
+    }, [selected, applyUpdated]);
+
+    /** 还原文档工作副本（回到源描述） */
+    const revertWorking = useCallback(async () => {
+        if (!selected) return;
+        try {
+            const updated = await apiDelete<StoredRequirement>(`/requirements/saved/${selected.id}/working-description`);
+            applyUpdated(updated);
+        } catch { /* ignore */ }
+    }, [selected, applyUpdated]);
+
+    /** 复制一份解析结果的 Markdown 源码（保表格结构） */
+    const copyAttMarkdown = useCallback((name: string, markdown: string) => {
+        void navigator.clipboard?.writeText(markdown).then(() => {
+            setCopiedAtt(name);
+            setTimeout(() => setCopiedAtt(''), 1500);
+        });
+    }, []);
+
+    /** 删除一份附件（移出列表 + 清解析 + 剥工作副本标记块） */
+    const removeAttachment = useCallback(async (name: string) => {
+        if (!selected) return;
+        try {
+            const updated = await apiDelete<StoredRequirement>(
+                `/requirements/saved/${selected.id}/attachments/${encodeURIComponent(name)}`);
+            applyUpdated(updated);
+        } catch { /* ignore */ }
+    }, [selected, applyUpdated]);
 
     /** 从全局状态获取设置选中需求的方法 */
     const setSelectedRequirement = useAppStore((s) => s.setSelectedRequirement);
@@ -387,12 +478,12 @@ export default function RequirementsPage(): JSX.Element {
 
     /**
      * 进入编辑模式
-     * 用当前选中需求的数据初始化编辑表单
+     * 用当前选中需求的数据初始化编辑表单（工作副本优先）
      */
     const startEdit = () => {
         if (!selected) return;
         setEditTitle(selected.title);
-        setEditDescription(selected.description);
+        setEditDescription(selected.workingDescription ?? selected.description);
         setEditing(true);
     };
 
@@ -405,22 +496,21 @@ export default function RequirementsPage(): JSX.Element {
 
     /**
      * 保存编辑后的需求
-     * 调用 PUT API 更新标题和描述，成功后刷新本地和全局状态
+     * 标题走 PUT；描述保存为工作副本（POST working-description）——源描述不动，
+     * 展示与执行 prompt 优先用工作副本
      */
     const saveEdit = async () => {
         if (!selected) return;
         setSaving(true);
         try {
-            const updated = await apiPut<StoredRequirement>(`/requirements/saved/${selected.id}`, {
-                title: editTitle,
+            if (editTitle.trim() !== selected.title) {
+                const retitled = await apiPut<StoredRequirement>(`/requirements/saved/${selected.id}`, {title: editTitle});
+                applyUpdated(retitled);
+            }
+            const updated = await apiPost<StoredRequirement>(`/requirements/saved/${selected.id}/working-description`, {
                 description: editDescription,
             });
-            setSelected(updated);
-            setSelectedRequirement(updated);
-            setSaved(prev => prev.map(r => r.id === updated.id ? updated : r));
-            // 更新编辑状态为新值（保持编辑模式）
-            setEditTitle(updated.title);
-            setEditDescription(updated.description);
+            applyUpdated(updated);
             setEditing(false); // 退出编辑模式，用户可以重新进入查看新值
         } catch {
             // 静默处理保存失败
@@ -836,6 +926,22 @@ export default function RequirementsPage(): JSX.Element {
                                         </h2>
                                     )}
                                     <div className="flex items-center gap-1">
+                                        {!editing && selected.workingDescription !== undefined && (
+                                            <span className="text-xs px-2 py-0.5 rounded-full border border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                                {t('requirements.editedBadge')}
+                                            </span>
+                                        )}
+                                        {!editing && selected.workingDescription !== undefined && (
+                                            <Button
+                                                onClick={revertWorking}
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 rounded-lg hover:bg-amber-500/10 hover:text-amber-600 transition-colors"
+                                                title={t('requirements.revertWorking')}
+                                            >
+                                                <RotateCcw className="h-4 w-4"/>
+                                            </Button>
+                                        )}
                                         {!editing && (
                                             <Button
                                                 onClick={startEdit}
@@ -957,10 +1063,10 @@ export default function RequirementsPage(): JSX.Element {
                                                 )}
                                             </div>
                                         </div>
-                                    ) : selected.description ? (
+                                    ) : (selected.workingDescription ?? selected.description) ? (
                                         <div className="prose prose-sm max-w-none dark:prose-invert">
                                             <MarkdownContent
-                                                content={selected.description}
+                                                content={selected.workingDescription ?? selected.description}
                                                 imageBasePath={selected.id ? `/api/requirements/images/${selected.id}` : undefined}
                                             />
                                         </div>
@@ -981,6 +1087,123 @@ export default function RequirementsPage(): JSX.Element {
                                                     </li>
                                                 ))}
                                             </ul>
+                                        </div>
+                                    )}
+
+                                    {/* 附件（解析闭环：解析全部 / 合并到文档 / 复制源码） */}
+                                    {selected.attachments.length > 0 && (
+                                        <div className="mt-6 rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                                            <h4 className="text-sm font-semibold flex items-center gap-2 flex-wrap">
+                                                <ScanSearch className="h-4 w-4"/>
+                                                {t('requirements.attachmentsTitle')}
+                                                <span className="text-xs font-normal text-muted-foreground">
+                                                    {t('requirements.parsedCount', {
+                                                        parsed: Object.keys(selected.parsedAttachments ?? {}).length,
+                                                        total: selected.attachments.length,
+                                                    })}
+                                                </span>
+                                                <span className="flex-1"/>
+                                                {attProgress ? (
+                                                    <>
+                                                        <span className="text-xs text-muted-foreground">
+                                                            {attProgress.done + 1}/{attProgress.total} · {attProgress.current}
+                                                        </span>
+                                                        <Button variant="outline" size="sm" className="h-7 gap-1"
+                                                                onClick={() => { attCancelRef.current = true; }}>
+                                                            <Square className="h-3 w-3"/>
+                                                            {t('requirements.parseStop')}
+                                                        </Button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        {Object.keys(selected.parsedAttachments ?? {}).length > 0 && (
+                                                            <Button size="sm" className="h-7 gap-1" onClick={mergeParses}>
+                                                                <GitMerge className="h-3.5 w-3.5"/>
+                                                                {t('requirements.mergeToDoc')}
+                                                            </Button>
+                                                        )}
+                                                        {selected.attachments.some(a => selected.parsedAttachments?.[a.name] === undefined) && (
+                                                            <Button variant="outline" size="sm" className="h-7 gap-1" onClick={parseAll}>
+                                                                <ScanSearch className="h-3.5 w-3.5"/>
+                                                                {t('requirements.parseAll')}
+                                                            </Button>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </h4>
+                                            <div className="space-y-3">
+                                                {selected.attachments.map(att => {
+                                                    const transient = attTransient[att.name];
+                                                    const done = selected.parsedAttachments?.[att.name];
+                                                    const status = transient?.status === 'loading' ? 'loading'
+                                                        : transient?.status === 'error' ? 'error'
+                                                            : done ? 'done' : undefined;
+                                                    const mergedIn = selected.workingDescription?.includes(`<!--adw-parse:${att.name}-->`) ?? false;
+                                                    return (
+                                                        <div key={att.name}
+                                                             className="rounded-lg border border-border/60 bg-background/60 p-3 space-y-2">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0"/>
+                                                                <a href={att.url} target="_blank" rel="noreferrer"
+                                                                   className="text-sm text-primary hover:underline truncate max-w-[16rem]">
+                                                                    {att.name}
+                                                                </a>
+                                                                {mergedIn && (
+                                                                    <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-500/40 text-emerald-600 dark:text-emerald-400">
+                                                                        {t('requirements.mergedBadge')}
+                                                                    </span>
+                                                                )}
+                                                                <span className="flex-1"/>
+                                                                {status === 'done' && (
+                                                                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs"
+                                                                            onClick={() => copyAttMarkdown(att.name, done!.markdown)}>
+                                                                        <Copy className="h-3 w-3"/>
+                                                                        {copiedAtt === att.name ? t('requirements.copied') : t('requirements.copySource')}
+                                                                    </Button>
+                                                                )}
+                                                                <Button variant="outline" size="sm" className="h-7 gap-1 text-xs"
+                                                                        disabled={status === 'loading'}
+                                                                        onClick={() => void parseOne(selected.id, att.name)}>
+                                                                    {status === 'loading'
+                                                                        ? <Loader2 className="h-3 w-3 animate-spin"/>
+                                                                        : <ScanSearch className="h-3 w-3"/>}
+                                                                    {status === 'loading' ? t('requirements.parsing')
+                                                                        : status === 'done' ? t('requirements.reparse')
+                                                                            : t('requirements.parse')}
+                                                                </Button>
+                                                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-destructive/10 hover:text-destructive"
+                                                                        title={t('requirements.removeAttachment')}
+                                                                        disabled={status === 'loading'}
+                                                                        onClick={() => {
+                                                                            if (window.confirm(t('requirements.removeAttachmentConfirm', {name: att.name}))) {
+                                                                                void removeAttachment(att.name);
+                                                                            }
+                                                                        }}>
+                                                                    <Trash2 className="h-3.5 w-3.5"/>
+                                                                </Button>
+                                                            </div>
+                                                            {status === 'done' && (
+                                                                <div className="text-xs rounded-md border border-dashed border-border bg-muted/30 p-2.5">
+                                                                    <div className="text-[11px] text-muted-foreground mb-1">
+                                                                        {done!.backend} · {new Date(done!.parsedAt).toLocaleString()}
+                                                                    </div>
+                                                                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                                                                        <MarkdownContent
+                                                                            content={done!.markdown}
+                                                                            imageBasePath={selected.id ? `/api/requirements/images/${selected.id}` : undefined}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {status === 'error' && (
+                                                                <div className="text-xs text-destructive">
+                                                                    {t('requirements.parseFailed')}: {transient!.status === 'error' ? transient.error : ''}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     )}
 

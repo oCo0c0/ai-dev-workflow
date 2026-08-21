@@ -537,7 +537,8 @@ export class TaskScheduler {
         mcpBridgeService: MCPBridgeService,
     ): Promise<{ title: string; description: string }> {
         const saved = reqStore.get(requirementId);
-        if (saved) return {title: saved.title, description: saved.description};
+        // 工作副本（编辑 + 解析合并的成果）优先于源描述
+        if (saved) return {title: saved.title, description: saved.workingDescription ?? saved.description};
         const detail = await mcpBridgeService.fetchRequirementDetail(requirementId);
         return {title: detail.title, description: detail.description};
     }

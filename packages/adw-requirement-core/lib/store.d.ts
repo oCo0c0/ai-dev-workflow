@@ -87,6 +87,11 @@ export declare class RequirementStore {
     clearWorkingDescription(id: string): SavedRequirement | undefined;
     /** 删除；返回是否存在 */
     delete(id: string): boolean;
+    /**
+     * 删除一份附件：移出附件列表 + 清掉它的解析结果 + 从工作副本剥掉它的合并标记块
+     * （本地文件保留——描述里的图片引用可能仍指向它）
+     */
+    removeAttachment(id: string, name: string): SavedRequirement | undefined;
     /** 追加一条执行链接 */
     addExecution(id: string, link: ExecutionLink): SavedRequirement | undefined;
     /** 回写执行结局（幂等：已结束的执行不再变更） */

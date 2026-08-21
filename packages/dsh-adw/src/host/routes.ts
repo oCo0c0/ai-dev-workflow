@@ -317,6 +317,22 @@ export function makeRoutes(deps: AdwRoutesDeps): WebRoute[] {
         writeJson(res, 405, { code: 'METHOD_NOT_ALLOWED', message: 'use POST or DELETE' })
         return
       }
+      // 删除一份附件（移出列表 + 清解析结果 + 剥工作副本合并标记块）
+      if (verb === 'attachments' && parts.length === 4 && parts[3] !== 'parse') {
+        if (!guard(req, res, 'DELETE')) return
+        let name: string
+        try {
+          name = decodeURIComponent(parts[3])
+        } catch {
+          writeJson(res, 400, { code: 'VALIDATION_ERROR', message: 'malformed attachment name' })
+          return
+        }
+        if (req0 === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
+        const updated = engine.removeAttachment(id, name)
+        if (updated === undefined) { writeJson(res, 404, { code: 'NOT_FOUND', message: `requirement ${id} not saved` }); return }
+        writeJson(res, 200, updated)
+        return
+      }
       // 把全部解析结果合并进文档工作副本（幂等，host 侧文本手术）
       if (verb === 'merge' && parts.length === 3) {
         if (!guard(req, res, 'POST')) return

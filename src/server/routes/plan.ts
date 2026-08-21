@@ -626,10 +626,11 @@ async function getRequirementContent(
     reqStore: RequirementStoreService,
     mcpBridgeService: MCPBridgeService,
 ): Promise<{ title: string; description: string }> {
-    // 优先从本地已保存的需求中取（内容与 Requirements 页面展示一致）
+    // 优先从本地已保存的需求中取（内容与 Requirements 页面展示一致；
+    // 工作副本（编辑 + 解析合并的成果）优先于源描述）
     const saved = reqStore.get(requirementId);
     if (saved) {
-        return {title: saved.title, description: saved.description};
+        return {title: saved.title, description: saved.workingDescription ?? saved.description};
     }
     // 本地无缓存，fallback 到 MCP 实时获取
     const detail = await mcpBridgeService.fetchRequirementDetail(requirementId);

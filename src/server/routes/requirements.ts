@@ -13,6 +13,7 @@ import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
+import {mergeParsedIntoDescription} from '../utils/parse-merge.js';
 import {broadcast} from '../websocket.js';
 
 /**
@@ -156,6 +157,165 @@ export function createRequirementsRoutes(
         try {
             const deleted = requirementStore.delete(req.params.id);
             res.json({success: deleted});
+        } catch (err) {
+            res.status(500).json({code: 'STORE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    // ─── 附件解析 / 文档工作副本（与 dsh-adw 插件同语义的闭环） ────────────────
+
+    /**
+     * POST /api/requirements/saved/:id/attachments/parse
+     * @description 服务端解析一份附件（图片走本地 images/，文档走 documents/），
+     *              结果持久化到 parsedAttachments，随需求走
+     * @param {string} id.path - 需求 ID
+     * @body { name: string, backend?: string }
+     * @returns {{ success: boolean, markdown?: string, error?: string, requirement?: object }}
+     */
+    router.post('/saved/:id/attachments/parse', async (req, res) => {
+        try {
+            const existing = requirementStore.get(req.params.id);
+            if (!existing) {
+                res.status(404).json({code: 'NOT_FOUND', message: 'Requirement not found'});
+                return;
+            }
+            if (!mineruService) {
+                res.status(503).json({code: 'MINERU_DISABLED', message: 'MinerU service is not configured'});
+                return;
+            }
+            const name = (req.body.name as string)?.trim();
+            if (!name) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'name is required'});
+                return;
+            }
+            const att = existing.attachments.find(a => a.name === name);
+            if (!att) {
+                res.status(404).json({code: 'NOT_FOUND', message: `attachment ${name} not on requirement`});
+                return;
+            }
+
+            // 解析目标：本地图片 → images/；文档附件 → documents/（无则按 URL 下载）
+            const {join} = await import('path');
+            const {existsSync} = await import('fs');
+            let localPath: string | null = requirementStore.getImagePath(req.params.id, name);
+            if (!localPath && /\.(pdf|docx|pptx|xlsx)$/i.test(name)) {
+                const docCandidate = join(requirementStore.getDocumentsDir(req.params.id), name);
+                localPath = existsSync(docCandidate) ? docCandidate : null;
+            }
+            if (!localPath && /^https?:/i.test(att.url)) {
+                // 远程附件：下载到 documents/ 再解析
+                const {downloadFile} = await import('../utils/http-utils.js');
+                const docDir = requirementStore.getDocumentsDir(req.params.id);
+                const target = join(docDir, name);
+                try {
+                    await downloadFile(att.url, target);
+                    localPath = target;
+                } catch {
+                    localPath = null;
+                }
+            }
+            if (!localPath) {
+                res.status(404).json({code: 'NOT_FOUND', message: `attachment ${name} has no local file`});
+                return;
+            }
+
+            const backend = typeof req.body.backend === 'string' ? req.body.backend : undefined;
+            const result = await mineruService.parseFile(localPath, backend ? {backend: backend as never} : undefined);
+            if (!result.success || !result.markdown) {
+                res.json({success: false, error: result.error ?? 'no markdown'});
+                return;
+            }
+            const updated = requirementStore.setParsedAttachment(req.params.id, name, {
+                markdown: result.markdown,
+                backend: backend ?? 'pipeline',
+                parsedAt: new Date().toISOString(),
+            });
+            res.json({success: true, markdown: result.markdown, requirement: updated});
+        } catch (err) {
+            res.status(500).json({code: 'PARSE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * POST /api/requirements/saved/:id/working-description
+     * @description 保存文档工作副本（编辑成果；展示与执行 prompt 优先用它）
+     */
+    router.post('/saved/:id/working-description', (req, res) => {
+        try {
+            const description = req.body.description;
+            if (typeof description !== 'string') {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'description is required'});
+                return;
+            }
+            const updated = requirementStore.setWorkingDescription(req.params.id, description);
+            if (!updated) {
+                res.status(404).json({code: 'NOT_FOUND', message: 'Requirement not found'});
+                return;
+            }
+            broadcast({type: 'requirement:updated', data: updated});
+            res.json(updated);
+        } catch (err) {
+            res.status(500).json({code: 'STORE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * DELETE /api/requirements/saved/:id/working-description
+     * @description 放弃工作副本，回到源描述
+     */
+    router.delete('/saved/:id/working-description', (req, res) => {
+        try {
+            const updated = requirementStore.clearWorkingDescription(req.params.id);
+            if (!updated) {
+                res.status(404).json({code: 'NOT_FOUND', message: 'Requirement not found'});
+                return;
+            }
+            broadcast({type: 'requirement:updated', data: updated});
+            res.json(updated);
+        } catch (err) {
+            res.status(500).json({code: 'STORE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * DELETE /api/requirements/saved/:id/attachments/:name
+     * @description 删除一份附件（移出附件列表 + 清解析结果 + 剥工作副本合并标记块）
+     */
+    router.delete('/saved/:id/attachments/:name', (req, res) => {
+        try {
+            const name = decodeURIComponent(req.params.name);
+            const updated = requirementStore.removeAttachment(req.params.id, name);
+            if (!updated) {
+                res.status(404).json({code: 'NOT_FOUND', message: 'Requirement not found'});
+                return;
+            }
+            broadcast({type: 'requirement:updated', data: updated});
+            res.json(updated);
+        } catch (err) {
+            res.status(500).json({code: 'STORE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * POST /api/requirements/saved/:id/merge
+     * @description 把全部解析结果合并进文档工作副本（幂等，服务端文本手术）
+     */
+    router.post('/saved/:id/merge', (req, res) => {
+        try {
+            const existing = requirementStore.get(req.params.id);
+            if (!existing) {
+                res.status(404).json({code: 'NOT_FOUND', message: 'Requirement not found'});
+                return;
+            }
+            const parsed = existing.parsedAttachments ?? {};
+            if (Object.keys(parsed).length === 0) {
+                res.status(400).json({code: 'VALIDATION_ERROR', message: 'no parsed attachments to merge'});
+                return;
+            }
+            const merged = mergeParsedIntoDescription(existing.workingDescription ?? existing.description, parsed);
+            const updated = requirementStore.setWorkingDescription(req.params.id, merged);
+            broadcast({type: 'requirement:updated', data: updated});
+            res.json(updated);
         } catch (err) {
             res.status(500).json({code: 'STORE_ERROR', message: getErrorMessage(err)});
         }

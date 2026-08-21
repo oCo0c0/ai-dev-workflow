@@ -101,6 +101,46 @@ export class RequirementStore {
         this.persist();
         return true;
     }
+    /**
+     * 删除一份附件：移出附件列表 + 清掉它的解析结果 + 从工作副本剥掉它的合并标记块
+     * （本地文件保留——描述里的图片引用可能仍指向它）
+     */
+    removeAttachment(id, name) {
+        const req = this.get(id);
+        if (!req)
+            return undefined;
+        const attachments = req.attachments.filter(a => a.name !== name);
+        if (attachments.length === req.attachments.length && req.parsedAttachments?.[name] === undefined) {
+            return req; // 附件本就不存在
+        }
+        const parsedAttachments = { ...(req.parsedAttachments ?? {}) };
+        delete parsedAttachments[name];
+        let workingDescription = req.workingDescription;
+        if (workingDescription !== undefined) {
+            const { open, close } = parseMarker(name);
+            const openIdx = workingDescription.indexOf(open);
+            if (openIdx >= 0) {
+                const closeIdx = workingDescription.indexOf(close, openIdx);
+                if (closeIdx >= 0) {
+                    workingDescription = workingDescription.slice(0, openIdx) + workingDescription.slice(closeIdx + close.length);
+                    workingDescription = workingDescription.replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '\n');
+                }
+            }
+            if (!workingDescription.includes('<!--adw-parse:')) {
+                workingDescription = workingDescription.replace(/\n*### 附件解析\s*\n*$/g, '');
+            }
+            workingDescription = workingDescription.trimEnd() + '\n';
+        }
+        const updated = {
+            ...req,
+            attachments,
+            parsedAttachments,
+            ...(workingDescription !== undefined ? { workingDescription } : {}),
+        };
+        this.data.requirements = this.data.requirements.map(r => (r.id === id ? updated : r));
+        this.persist();
+        return updated;
+    }
     /** 追加一条执行链接 */
     addExecution(id, link) {
         const req = this.get(id);

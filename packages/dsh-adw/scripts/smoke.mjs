@@ -37,7 +37,8 @@ process.env.DSH_HOME = tmp
     requirements: [{
       id: 'img-r1', number: 'R-1', title: '带图需求', status: 'open', priority: 'P2',
       description: '![shot.png](/api/dsh-adw/requirements/img-r1/images/shot.png)',
-      acceptanceCriteria: [], attachments: [],
+      acceptanceCriteria: [],
+      attachments: [{ name: 'shot.png', url: '/api/dsh-adw/requirements/img-r1/images/shot.png', type: 'image/png' }],
       source: { adapterId: 'ones', serverName: 'ones-api', input: 'R-1', fetchedAt: '2026-01-01T00:00:00Z' },
       executions: [],
     }],
@@ -258,6 +259,20 @@ const handler = registered.routes[0].handler
   await handler(makeReq('GET', '/api/dsh-adw/requirements/img-r1/dev-prompt'), resPrompt2)
   assert.ok(JSON.parse(resPrompt2.body).prompt.includes('shot.png'), 'revert falls back to source description')
   console.log('  ok - DELETE /description → prompt falls back to source')
+
+  // 附件删除：先注入带合并标记的工作副本，再 DELETE 附件 → 列表清空 + 标记块剥离
+  const resSeedDesc = makeRes()
+  await handler(makeReq('POST', '/api/dsh-adw/requirements/img-r1/description', '127.0.0.1',
+    JSON.stringify({ description: '前文\n\n![shot.png](/api/dsh-adw/requirements/img-r1/images/shot.png)\n\n<!--adw-parse:shot.png-->\nPARSED-TEXT\n<!--/adw-parse:shot.png-->\n\n后文' })), resSeedDesc)
+  assert.equal(resSeedDesc.statusCode, 200)
+  const resDelAtt = makeRes()
+  await handler(makeReq('DELETE', '/api/dsh-adw/requirements/img-r1/attachments/shot.png', '127.0.0.1'), resDelAtt)
+  assert.equal(resDelAtt.statusCode, 200)
+  const afterDel = JSON.parse(resDelAtt.body)
+  assert.equal(afterDel.attachments.length, 0, 'attachment removed from list')
+  assert.ok(!afterDel.workingDescription.includes('PARSED-TEXT'), 'merge marker stripped from working copy')
+  assert.ok(afterDel.workingDescription.includes('![shot.png]'), 'image reference in doc untouched')
+  console.log('  ok - DELETE /attachments/:name → removed + marker stripped')
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })
