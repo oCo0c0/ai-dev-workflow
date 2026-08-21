@@ -78,9 +78,10 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
  * @param path - 请求路径（相对于 API_BASE）
  * @throws 当 HTTP 状态码非 2xx 时，抛出包含后端错误信息的 Error
  */
-export async function apiDelete(path: string): Promise<void> {
+export async function apiDelete<T>(path: string): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, {method: 'DELETE'});
     if (!res.ok) throw new Error((await res.json()).message || res.statusText);
+    return res.json();
 }
 
 /**

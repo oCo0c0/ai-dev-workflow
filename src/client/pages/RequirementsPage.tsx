@@ -148,6 +148,9 @@ export default function RequirementsPage(): JSX.Element {
     const [editParsing, setEditParsing] = useState(false);
     const editFileInputRef = useRef<HTMLInputElement>(null);
 
+    /** 从全局状态获取设置选中需求的方法 */
+    const setSelectedRequirement = useAppStore((s) => s.setSelectedRequirement);
+
     // ── 附件解析闭环（与 dsh-adw 插件同语义） ─────────────────────────────
     /** 瞬态解析态（loading/error），按附件名索引；done 态读服务端 selected.parsedAttachments */
     const [attTransient, setAttTransient] = useState<Record<string, { status: 'loading' } | { status: 'error'; error: string }>>({});
@@ -227,9 +230,6 @@ export default function RequirementsPage(): JSX.Element {
             applyUpdated(updated);
         } catch { /* ignore */ }
     }, [selected, applyUpdated]);
-
-    /** 从全局状态获取设置选中需求的方法 */
-    const setSelectedRequirement = useAppStore((s) => s.setSelectedRequirement);
 
     /**
      * 加载已保存的需求列表
