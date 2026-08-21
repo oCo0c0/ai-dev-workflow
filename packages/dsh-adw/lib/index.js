@@ -20527,6 +20527,9 @@ var RequirementStore = class {
   }
   /** 插入或更新（保留既有 source/executions，更新详情字段） */
   upsert(detail, source) {
+    if (detail.id.trim() === "") {
+      throw new Error("\u9700\u6C42 id \u4E3A\u7A7A\uFF08\u6E90\u4FA7\u89E3\u6790\u5931\u8D25\uFF09\uFF0C\u5DF2\u62D2\u7EDD\u4FDD\u5B58");
+    }
     const existing = this.get(detail.id);
     const saved = {
       ...detail,
@@ -20710,7 +20713,8 @@ ${att.url}`;
       const raw = fs4.readFileSync(this.file, "utf8");
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.requirements)) {
-        return { version: 1, requirements: parsed.requirements };
+        const healthy = parsed.requirements.filter((r) => typeof r?.id === "string" && r.id.trim() !== "");
+        return { version: 1, requirements: healthy };
       }
       return { ...EMPTY };
     } catch {

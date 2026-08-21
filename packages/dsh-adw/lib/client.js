@@ -612,7 +612,19 @@ function AdwPanel(props) {
           reqs,
           running,
           anyConfigured: serverOptions.length > 0,
-          onOpen: (id) => setView({ kind: "detail", id })
+          onOpen: (id) => setView({ kind: "detail", id }),
+          onDelete: (id) => {
+            void (async () => {
+              setError("");
+              try {
+                const r = await deleteRequirement(id);
+                if (!r.success) throw new Error("\u5220\u9664\u5931\u8D25\uFF1A\u9700\u6C42\u4E0D\u5B58\u5728\u6216\u5DF2\u5220\u9664");
+                await reload();
+              } catch (err) {
+                setError(`\u5220\u9664\u5931\u8D25\uFF1A${err instanceof Error ? err.message : String(err)}`);
+              }
+            })();
+          }
         }
       ),
       view.kind === "search" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -640,11 +652,6 @@ function AdwPanel(props) {
             } finally {
               setBusy("");
             }
-          },
-          onDelete: async () => {
-            await deleteRequirement(detail.id);
-            await reload();
-            setView({ kind: "list" });
           }
         }
       ),
@@ -653,7 +660,8 @@ function AdwPanel(props) {
   ] });
 }
 function ListPage(props) {
-  const { reqs, running, anyConfigured, onOpen } = props;
+  const { reqs, running, anyConfigured, onOpen, onDelete } = props;
+  const [confirmId, setConfirmId] = (0, import_react.useState)("");
   if (reqs.length === 0 && !anyConfigured) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-firstRun", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-firstRunTitle", children: "\u4ECE\u914D\u7F6E\u4E00\u4E2A\u9700\u6C42\u6E90\u5F00\u59CB" }),
@@ -667,26 +675,65 @@ function ListPage(props) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: 12 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "adw-grid", children: reqs.map((req) => {
     const last = req.executions[req.executions.length - 1];
     const isRunning = running.has(req.id) || last !== void 0 && last.endedAt === void 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { type: "button", className: "adw-card", onClick: () => onOpen(req.id), children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-cardTop", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-cardNumber", children: req.number ?? req.id }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-badge", "data-tone": toneOf(last?.outcome, isRunning), children: isRunning ? OUTCOME_LABEL.running : last !== void 0 ? OUTCOME_LABEL[last.outcome ?? ""] ?? "\u672A\u6267\u884C" : "\u672A\u6267\u884C" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-cardTitle", children: req.title }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-cardMeta", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: req.source.adapterId }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\xB7" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: req.status }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\xB7" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-          "\u6267\u884C ",
-          req.executions.length,
-          " \u6B21"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\xB7" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: fmtTime(req.source.fetchedAt) })
-      ] })
-    ] }, req.id);
+    const confirming = confirmId === req.id;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "div",
+      {
+        className: "adw-card",
+        role: "button",
+        tabIndex: 0,
+        onClick: () => {
+          if (!confirming) onOpen(req.id);
+        },
+        onKeyDown: (e) => {
+          if ((e.key === "Enter" || e.key === " ") && !confirming) {
+            e.preventDefault();
+            onOpen(req.id);
+          }
+        },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-cardTop", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-cardNumber", children: req.number ?? req.id }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-badge", "data-tone": toneOf(last?.outcome, isRunning), children: isRunning ? OUTCOME_LABEL.running : last !== void 0 ? OUTCOME_LABEL[last.outcome ?? ""] ?? "\u672A\u6267\u884C" : "\u672A\u6267\u884C" }),
+            confirming ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-cardConfirm", onClick: (e) => e.stopPropagation(), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-hint", children: "\u5220\u9664\u8FD9\u6761\u9700\u6C42\uFF1F" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm adw-btnDanger", onClick: () => {
+                setConfirmId("");
+                onDelete(req.id);
+              }, children: "\u5220\u9664" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => setConfirmId(""), children: "\u53D6\u6D88" })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "adw-cardDel",
+                title: "\u5220\u9664",
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setConfirmId(req.id);
+                },
+                children: "\u2715"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "adw-cardTitle", children: req.title }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "adw-cardMeta", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: req.source.adapterId }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\xB7" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: req.status }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\xB7" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              "\u6267\u884C ",
+              req.executions.length,
+              " \u6B21"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\xB7" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: fmtTime(req.source.fetchedAt) })
+          ] })
+        ]
+      },
+      req.id
+    );
   }) }) });
 }
 function SearchPage(props) {
@@ -707,9 +754,8 @@ function SearchPage(props) {
   ] });
 }
 function DetailPage(props) {
-  const { req, running, services, onRun, onRefresh, onDelete } = props;
+  const { req, running, services, onRun, onRefresh } = props;
   const [dialogOpen, setDialogOpen] = (0, import_react.useState)(false);
-  const [confirmDelete, setConfirmDelete] = (0, import_react.useState)(false);
   const [parsed, setParsed] = (0, import_react.useState)({});
   const last = req.executions[req.executions.length - 1];
   const isRunning = running || last !== void 0 && last.endedAt === void 0;
@@ -761,11 +807,7 @@ function DetailPage(props) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "adw-detailActions", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnPrimary", disabled: isRunning, onClick: () => setDialogOpen(true), children: "\u6267\u884C\u5F00\u53D1\u2026" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn", onClick: onRefresh, children: "\u91CD\u65B0\u62C9\u53D6" }),
-        confirmDelete ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnDanger", onClick: onDelete, children: "\u786E\u8BA4\u5220\u9664" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn", onClick: () => setConfirmDelete(false), children: "\u53D6\u6D88" })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn adw-btnDanger", onClick: () => setConfirmDelete(true), children: "\u5220\u9664" })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "adw-btn", onClick: onRefresh, children: "\u91CD\u65B0\u62C9\u53D6" })
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "adw-section", children: [
@@ -1558,6 +1600,14 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 }
 .adw-card:hover { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-bg-layer-3); }
 .adw-cardTop { display: flex; align-items: center; gap: 8px; }
+.adw-cardTop .adw-cardConfirm { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.adw-cardDel {
+  margin-left: auto; flex: none; width: 22px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1; font-family: inherit;
+}
+.adw-cardDel:hover { color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .adw-cardNumber { font-size: 12px; color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-markdown-code-block-small, ui-monospace, monospace); }
 .adw-cardTitle { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adw-cardMeta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--dsw-alias-label-tertiary); }

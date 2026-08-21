@@ -38,6 +38,11 @@ export class RequirementStore {
     }
     /** 插入或更新（保留既有 source/executions，更新详情字段） */
     upsert(detail, source) {
+        // 空壳防御：源侧解析失败可能产出 id 为空的壳记录——存进去会变成
+        // 无法打开也无法删除的死条目（空 id 匹配不到任何路由），直接拒绝。
+        if (detail.id.trim() === '') {
+            throw new Error('需求 id 为空（源侧解析失败），已拒绝保存');
+        }
         const existing = this.get(detail.id);
         const saved = {
             ...detail,
@@ -254,7 +259,9 @@ export class RequirementStore {
             const raw = fs.readFileSync(this.file, 'utf8');
             const parsed = JSON.parse(raw);
             if (parsed && Array.isArray(parsed.requirements)) {
-                return { version: 1, requirements: parsed.requirements };
+                // 自愈：丢弃 id 为空的历史坏记录（无法路由到的死条目）
+                const healthy = parsed.requirements.filter(r => typeof r?.id === 'string' && r.id.trim() !== '');
+                return { version: 1, requirements: healthy };
             }
             return { ...EMPTY };
         }

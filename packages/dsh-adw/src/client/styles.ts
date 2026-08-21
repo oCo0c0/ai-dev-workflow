@@ -100,6 +100,14 @@ html[data-dsh-adw-active] [class*="centerCol"] > :not([data-dsh-adw-view]) { dis
 }
 .adw-card:hover { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-bg-layer-3); }
 .adw-cardTop { display: flex; align-items: center; gap: 8px; }
+.adw-cardTop .adw-cardConfirm { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.adw-cardDel {
+  margin-left: auto; flex: none; width: 22px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1; font-family: inherit;
+}
+.adw-cardDel:hover { color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .adw-cardNumber { font-size: 12px; color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-markdown-code-block-small, ui-monospace, monospace); }
 .adw-cardTitle { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adw-cardMeta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--dsw-alias-label-tertiary); }

@@ -245,6 +245,18 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
             running={running}
             anyConfigured={serverOptions.length > 0}
             onOpen={id => setView({ kind: 'detail', id })}
+            onDelete={id => {
+              void (async () => {
+                setError('')
+                try {
+                  const r = await api.deleteRequirement(id)
+                  if (!r.success) throw new Error('删除失败：需求不存在或已删除')
+                  await reload()
+                } catch (err) {
+                  setError(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+                }
+              })()
+            }}
           />
         )}
         {view.kind === 'search' && (
@@ -269,11 +281,6 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
                 setError(err instanceof Error ? err.message : String(err))
               } finally { setBusy('') }
             }}
-            onDelete={async () => {
-              await api.deleteRequirement(detail.id)
-              await reload()
-              setView({ kind: 'list' })
-            }}
           />
         )}
         {view.kind === 'detail' && detail === undefined && (
@@ -290,8 +297,10 @@ function ListPage(props: {
   running: ReadonlySet<string>
   anyConfigured: boolean
   onOpen(id: string): void
+  onDelete(id: string): void
 }): React.JSX.Element {
-  const { reqs, running, anyConfigured, onOpen } = props
+  const { reqs, running, anyConfigured, onOpen, onDelete } = props
+  const [confirmId, setConfirmId] = useState('')
   if (reqs.length === 0 && !anyConfigured) {
     return (
       <div className="adw-firstRun">
@@ -310,13 +319,30 @@ function ListPage(props: {
         {reqs.map(req => {
           const last = req.executions[req.executions.length - 1]
           const isRunning = running.has(req.id) || (last !== undefined && last.endedAt === undefined)
+          const confirming = confirmId === req.id
           return (
-            <button type="button" key={req.id} className="adw-card" onClick={() => onOpen(req.id)}>
+            <div
+              key={req.id} className="adw-card" role="button" tabIndex={0}
+              onClick={() => { if (!confirming) onOpen(req.id) }}
+              onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !confirming) { e.preventDefault(); onOpen(req.id) } }}
+            >
               <span className="adw-cardTop">
                 <span className="adw-cardNumber">{req.number ?? req.id}</span>
                 <span className="adw-badge" data-tone={toneOf(last?.outcome, isRunning)}>
                   {isRunning ? OUTCOME_LABEL.running : last !== undefined ? (OUTCOME_LABEL[last.outcome ?? ''] ?? '未执行') : '未执行'}
                 </span>
+                {confirming ? (
+                  <span className="adw-cardConfirm" onClick={e => e.stopPropagation()}>
+                    <span className="adw-hint">删除这条需求？</span>
+                    <button type="button" className="adw-btn adw-btnSm adw-btnDanger" onClick={() => { setConfirmId(''); onDelete(req.id) }}>删除</button>
+                    <button type="button" className="adw-btn adw-btnSm" onClick={() => setConfirmId('')}>取消</button>
+                  </span>
+                ) : (
+                  <button
+                    type="button" className="adw-cardDel" title="删除"
+                    onClick={e => { e.stopPropagation(); setConfirmId(req.id) }}
+                  >✕</button>
+                )}
               </span>
               <span className="adw-cardTitle">{req.title}</span>
               <span className="adw-cardMeta">
@@ -328,7 +354,7 @@ function ListPage(props: {
                 <span>·</span>
                 <span>{fmtTime(req.source.fetchedAt)}</span>
               </span>
-            </button>
+            </div>
           )
         })}
       </div>
@@ -364,11 +390,9 @@ function DetailPage(props: {
   services: PanelServices
   onRun(target: ExecuteTarget, prompt: string): void
   onRefresh(): void
-  onDelete(): void
 }): React.JSX.Element {
-  const { req, running, services, onRun, onRefresh, onDelete } = props
+  const { req, running, services, onRun, onRefresh } = props
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
   /** Per-attachment MinerU parse state, keyed by attachment url. */
   const [parsed, setParsed] = useState<Record<string, { status: 'loading' | 'done' | 'error'; markdown?: string; error?: string }>>({})
   const last = req.executions[req.executions.length - 1]
@@ -419,12 +443,6 @@ function DetailPage(props: {
         <div className="adw-detailActions">
           <button type="button" className="adw-btn adw-btnPrimary" disabled={isRunning} onClick={() => setDialogOpen(true)}>执行开发…</button>
           <button type="button" className="adw-btn" onClick={onRefresh}>重新拉取</button>
-          {confirmDelete
-            ? <>
-              <button type="button" className="adw-btn adw-btnDanger" onClick={onDelete}>确认删除</button>
-              <button type="button" className="adw-btn" onClick={() => setConfirmDelete(false)}>取消</button>
-            </>
-            : <button type="button" className="adw-btn adw-btnDanger" onClick={() => setConfirmDelete(true)}>删除</button>}
         </div>
       </div>
 
