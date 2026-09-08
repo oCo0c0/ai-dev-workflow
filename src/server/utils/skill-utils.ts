@@ -22,7 +22,8 @@
 
 import type {SkillSetConfig, PhaseToolsConfig, MCPToolSetConfig} from '../services/pipeline-service.js';
 import type {MCPServerConfig} from '../services/mcp-config-service.js';
-import type {McpStdioMap} from '../services/cli-providers/types.js';
+import type {McpServerMap, McpStdioMap} from '../services/cli-providers/types.js';
+import {getMcpGateway} from '../platform/mcp-gateway.js';
 import {readdirSync} from 'fs';
 import {join} from 'path';
 
@@ -133,21 +134,36 @@ export function getPhaseMcpServers(
 }
 
 /**
- * 将 MCP 服务器名数组解析为 SDK 可用的 stdio 配置 map（McpStdioMap 类型见 cli-providers/types）。
+ * 将 MCP 服务器名数组解析为引擎可用的 MCP 注入配置。
  *
+ * 平台网关优先（平台化改造核心）：MCP 上游连接由平台网关统一持有，
+ * 引擎以 HTTP MCP client 挂载网关聚合端点（server 名白名单经 url query
+ * 传递，保留 pipeline 的 per-phase 选择语义）。工具调用回流平台进程，
+ * 统一观测、统一鉴权。
+ *
+ * 网关未启动（endpoint 未配置，如单元测试）时回退 stdio 直挂（旧行为）：
  * 主进程用 MCPConfigService.get 权威解析（合并 ~/.claude.json + settings.json），
- * 不让 bridge 子进程重读文件——避免重写解析逻辑引入二次 bug。
+ * 不让 bridge 子进程重读文件——避免重写解析逻辑引入二次 Bug。
  * 找不到的服务器名收集到 missing，由调用方记 warning 跳过。
  *
  * @param names - MCP 服务器名数组（undefined/空 → 不约束，返回 undefined）
  * @param mcpService - MCP 配置源（MCPRegistryService / MCPConfigService，均实现 get(name)）
- * @returns { map, missing }：map 为 SDK 注入用配置，undefined 表示不注入；missing 为未找到的服务器名
+ * @returns { map, missing }：map 为引擎注入用配置，undefined 表示不注入；missing 为未找到的服务器名
  */
 export function resolveMcpServerMap(
     names: string[] | undefined,
     mcpService: {get(name: string): MCPServerConfig | undefined}
-): { map: McpStdioMap | undefined; missing: string[] } {
+): { map: McpServerMap | undefined; missing: string[] } {
     if (!names || names.length === 0) return {map: undefined, missing: []};
+
+    // 平台网关形态：HTTP 挂载聚合端点，白名单经 query 传递
+    const gatewayServers = getMcpGateway().asClaudeMcpServers(names);
+    if (gatewayServers) {
+        const missing = names.filter((name) => !mcpService.get(name));
+        return {map: gatewayServers, missing};
+    }
+
+    // 回退：stdio 直挂（网关未启动时的兼容路径）
     const map: McpStdioMap = {};
     const missing: string[] = [];
     for (const name of names) {

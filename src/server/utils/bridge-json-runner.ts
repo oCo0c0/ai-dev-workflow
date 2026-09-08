@@ -10,7 +10,7 @@
  */
 
 import type {CLIRunnerService} from '../services/cli-runner-service.js';
-import type {McpStdioMap} from '../services/cli-providers/types.js';
+import type {McpServerMap} from '../services/cli-providers/types.js';
 import {extractJsonValue} from './structured-json.js';
 import type {ValidationResult} from './json-validator.js';
 
@@ -22,7 +22,7 @@ export interface RunBridgeJsonOptions<T = unknown> {
     cwd: string;
     sessionId?: string;
     skills?: string[] | 'all';
-    mcpServers?: McpStdioMap;
+    mcpServers?: McpServerMap;
     /** 中止信号（透传给 runBridge，abort 时不再重试） */
     signal?: AbortSignal;
     /** 单次最大轮数，默认 20 */

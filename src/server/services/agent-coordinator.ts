@@ -21,6 +21,7 @@ import {validateShape, type FieldSpec} from '../utils/json-validator.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import type {AgentExecution, SubTask} from '../../types/agent-execution.js';
 import type {MemoryService} from './memory/memory-service.js';
+import {isStepWorthyTool} from '../platform/tool-catalog.js';
 
 export interface CoordinatorConfig {
     cliRunner: CLIRunnerService;
@@ -29,11 +30,9 @@ export interface CoordinatorConfig {
     memoryService?: MemoryService;
 }
 
-// 只有写操作工具才创建独立步骤（Read/Glob/Grep 等读操作是噪声）
-const STEP_TOOLS = new Set([
-    'Write', 'Edit', 'NotebookEdit', 'Bash', 'TaskCreate',
-    'Workflow', 'Skill', 'CronCreate', 'CronDelete',
-]);
+// 写类/Shell/任务/定时类工具才创建独立步骤，Read/Glob/Grep 等读操作是噪声。
+// 按工具分类目录判定（覆盖 claude/pi/codex 三个引擎的工具名，见 platform/tool-catalog），
+// 不再硬编码单个引擎的工具名集合。
 
 /**
  * 从工具结果内容中抽取可展示的文本摘要。
@@ -95,6 +94,10 @@ export class AgentCoordinator {
     private allowedTools = new Map<string, Set<string>>();
     /** 挂起的权限请求：permissionRequestId → {executionId, toolName} */
     private pendingPermissions = new Map<string, { executionId: string; toolName: string }>();
+    /** 运行期间收到排队回复的标志（消息本身已写入 user 日志，本轮结束后自动续跑消费） */
+    private queuedReplyFlags = new Set<string>();
+    /** 「立即处理」标志：abort 当前轮后不落 aborted 终态，自动带新消息续跑 */
+    private interruptFlags = new Set<string>();
     private config: CoordinatorConfig;
 
     constructor(config: CoordinatorConfig) {
@@ -102,60 +105,32 @@ export class AgentCoordinator {
     }
 
     /**
-     * 执行 Agent — 首次运行任务分解 + 串行子任务 / 单次执行
+     * 执行 Agent — 首次运行任务分解 + 串行子任务 / 单次执行。
+     * 外层循环消费两类续跑：①运行期间排队的用户消息（本轮结束后自动续跑）；
+     * ②「立即处理」中断（中止当前轮后直接带新消息续跑）。
      */
     async execute(executionId: string): Promise<void> {
-        const execution = await this.store.get(executionId);
-        if (!execution) throw new Error('Execution not found');
-
-        const controller = new AbortController();
-        this.abortControllers.set(executionId, controller);
-
         try {
-            await this.store.updateStatus(executionId, 'running');
-            this.broadcastStatus(executionId, 'running');
+            while (true) {
+                this.queuedReplyFlags.delete(executionId);
+                const outcome = await this.runOnce(executionId);
 
-            const cwd = execution.workspacePath || this.config.workspacePath || process.cwd();
-
-            // 从日志中提取用户回复消息（兼容新旧两种格式），拼入 prompt 让 Agent 看到后续指令
-            const userReplies = execution.logs
-                .map(log => {
-                    // 新格式：JSON {type: 'user', content: '...'}
-                    try {
-                        const parsed = JSON.parse(log);
-                        if (parsed.type === 'user') return parsed.content || '';
-                    } catch { /* fall through */ }
-                    // 旧格式：**User:** 前缀（向后兼容）
-                    if (log.startsWith('**User:**')) return log.replace('**User:** ', '');
-                    return null;
-                })
-                .filter((r): r is string => r !== null && r.length > 0);
-
-            // 仅「首次运行」做任务分解：已有 subTasks / 已有会话 / 有用户回复都跳过
-            let subTasks = execution.subTasks ?? [];
-            // 所有子任务均已结束且本次为回复/续接 → 回退单次执行，让用户补充信息生效
-            const allTerminal = subTasks.length > 0
-                && subTasks.every(t => t.status === 'completed' || t.status === 'failed' || t.status === 'skipped');
-            if (allTerminal && (userReplies.length > 0 || execution.sessionId)) {
-                subTasks = [];
-            }
-            if (subTasks.length === 0 && !execution.sessionId && userReplies.length === 0) {
-                subTasks = await this.tryDecompose(execution, cwd, controller.signal);
-            }
-
-            // 分解过程中被中止：直接终态，避免空跑一次 bridge
-            if (controller.signal.aborted) {
-                await this.finalizeSteps(executionId, 'aborted');
-                await this.store.updateStatus(executionId, 'aborted');
-                this.broadcastStatus(executionId, 'aborted');
-                this.broadcastComplete(executionId, 'aborted');
-                return;
-            }
-
-            if (subTasks.length > 0) {
-                await this.runSubTaskLoop(executionId, execution, cwd, subTasks, controller);
-            } else {
-                await this.runSingleShot(executionId, execution, cwd, controller, userReplies);
+                if (outcome === 'aborted' && this.interruptFlags.has(executionId)) {
+                    // 「立即处理」：不落 aborted 终态，直接续跑（新消息已入 user 日志）
+                    this.interruptFlags.delete(executionId);
+                    await this.store.updateStatus(executionId, 'running');
+                    this.broadcastStatus(executionId, 'running');
+                    await this.store.addLog(executionId, '⚡ 已中断当前轮，立即处理新消息').catch(() => undefined);
+                    continue;
+                }
+                if (outcome === 'completed' && this.queuedReplyFlags.has(executionId)) {
+                    // 排队消息自动续跑：runOnce 会从日志提取 user 回复续接会话
+                    await this.store.updateStatus(executionId, 'running');
+                    this.broadcastStatus(executionId, 'running');
+                    await this.store.addLog(executionId, '📨 存在排队消息，继续处理').catch(() => undefined);
+                    continue;
+                }
+                break;
             }
         } catch (error) {
             console.error(`[coordinator] execute error:`, error);
@@ -169,7 +144,89 @@ export class AgentCoordinator {
             // 执行结束清理本次白名单与挂起权限（bridge 侧超时兜底会处理残留）
             this.allowedTools.delete(executionId);
             this.denyPendingPermissions(executionId, '执行已结束');
+            this.queuedReplyFlags.delete(executionId);
+            this.interruptFlags.delete(executionId);
         }
+    }
+
+    /** 单轮执行（任务分解 + 串行子任务 / 单次），返回本轮终态 */
+    private async runOnce(executionId: string): Promise<'completed' | 'failed' | 'aborted'> {
+        const execution = await this.store.get(executionId);
+        if (!execution) throw new Error('Execution not found');
+
+        const controller = new AbortController();
+        this.abortControllers.set(executionId, controller);
+
+        await this.store.updateStatus(executionId, 'running');
+        this.broadcastStatus(executionId, 'running');
+
+        const cwd = execution.workspacePath || this.config.workspacePath || process.cwd();
+
+        // 从日志中提取用户回复消息（兼容新旧两种格式），拼入 prompt 让 Agent 看到后续指令
+        const userReplies = execution.logs
+            .map(log => {
+                // 新格式：JSON {type: 'user', content: '...'}
+                try {
+                    const parsed = JSON.parse(log);
+                    if (parsed.type === 'user') return parsed.content || '';
+                } catch { /* fall through */ }
+                // 旧格式：**User:** 前缀（向后兼容）
+                if (log.startsWith('**User:**')) return log.replace('**User:** ', '');
+                return null;
+            })
+            .filter((r): r is string => r !== null && r.length > 0);
+
+        // 仅「首次运行」做任务分解：已有 subTasks / 已有会话 / 有用户回复都跳过
+        let subTasks = execution.subTasks ?? [];
+        // 所有子任务均已结束且本次为回复/续接 → 回退单次执行，让用户补充信息生效
+        const allTerminal = subTasks.length > 0
+            && subTasks.every(t => t.status === 'completed' || t.status === 'failed' || t.status === 'skipped');
+        if (allTerminal && (userReplies.length > 0 || execution.sessionId)) {
+            subTasks = [];
+        }
+        if (subTasks.length === 0 && !execution.sessionId && userReplies.length === 0) {
+            subTasks = await this.tryDecompose(execution, cwd, controller.signal);
+        }
+
+        // 分解过程中被中止：直接终态，避免空跑一次 bridge
+        if (controller.signal.aborted) {
+            await this.finalizeSteps(executionId, 'aborted');
+            await this.store.updateStatus(executionId, 'aborted');
+            this.broadcastStatus(executionId, 'aborted');
+            this.broadcastComplete(executionId, 'aborted');
+            return 'aborted';
+        }
+
+        if (subTasks.length > 0) {
+            return this.runSubTaskLoop(executionId, execution, cwd, subTasks, controller);
+        }
+        return this.runSingleShot(executionId, execution, cwd, controller, userReplies);
+    }
+
+    /**
+     * 运行中的用户回复入队：消息已由 routes 写入 user 日志，
+     * 本轮结束后由 execute 外层循环自动续跑消费
+     */
+    markQueuedReply(executionId: string): void {
+        this.queuedReplyFlags.add(executionId);
+        broadcast({
+            type: 'agent-execution:queued_update',
+            data: {executionId, queued: true},
+        });
+    }
+
+    /**
+     * 「立即处理」：中止当前轮，外层循环检测标志后自动带新消息续跑。
+     * @returns 是否成功触发（无运行中的控制器时返回 false）
+     */
+    interruptNow(executionId: string): boolean {
+        const controller = this.abortControllers.get(executionId);
+        if (!controller) return false;
+        this.interruptFlags.add(executionId);
+        this.queuedReplyFlags.add(executionId);
+        controller.abort();
+        this.denyPendingPermissions(executionId, '已中断当前轮，立即处理新消息');
+        return true;
     }
 
     /**
@@ -282,7 +339,7 @@ export class AgentCoordinator {
         cwd: string,
         subTasks: SubTask[],
         controller: AbortController,
-    ): Promise<void> {
+    ): Promise<'completed' | 'failed' | 'aborted'> {
         let lastSessionId = execution.sessionId;
         let overall: 'completed' | 'failed' | 'aborted' = 'completed';
 
@@ -403,6 +460,7 @@ export class AgentCoordinator {
         if (overall === 'aborted') {
             await this.store.addLog(executionId, '执行已中止').catch(() => undefined);
         }
+        return overall;
     }
 
     /**
@@ -414,7 +472,7 @@ export class AgentCoordinator {
         cwd: string,
         controller: AbortController,
         userReplies: string[],
-    ): Promise<void> {
+    ): Promise<'completed' | 'failed' | 'aborted'> {
         let prompt: string;
         if (userReplies.length > 0 && execution.sessionId) {
             // 续接会话：带上用户补充信息
@@ -459,11 +517,13 @@ export class AgentCoordinator {
             await this.store.updateStatus(executionId, 'aborted');
             this.broadcastStatus(executionId, 'aborted');
             this.broadcastComplete(executionId, 'aborted');
+            return 'aborted';
         } else if (result.exitCode === 0) {
             await this.finalizeSteps(executionId, 'completed');
             await this.store.updateStatus(executionId, 'completed');
             this.broadcastStatus(executionId, 'completed');
             this.broadcastComplete(executionId, 'completed');
+            return 'completed';
         } else {
             await this.finalizeSteps(executionId, 'failed');
             await this.store.updateStatus(executionId, 'failed');
@@ -471,6 +531,7 @@ export class AgentCoordinator {
             await this.store.addLog(executionId, `执行失败（退出码 ${result.exitCode}）: ${errMsg}`);
             this.broadcastStatus(executionId, 'failed');
             this.broadcastComplete(executionId, 'failed');
+            return 'failed';
         }
     }
 
@@ -587,8 +648,8 @@ export class AgentCoordinator {
         // 避免重复（tool_use_id 去重）
         if (execution.steps.some(s => s.id === toolUseId)) return;
 
-        // 只有写操作工具才创建独立步骤，读操作（Read/Glob/Grep 等）不创建
-        if (!STEP_TOOLS.has(toolName)) return;
+        // 只有写类/Shell/任务类工具才创建独立步骤，读操作（Read/Glob/Grep 等）不创建
+        if (!isStepWorthyTool(toolName)) return;
 
         await this.store.updateSteps(executionId, [
             ...execution.steps,

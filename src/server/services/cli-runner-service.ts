@@ -10,7 +10,7 @@
 
 import {getErrorMessage} from '../utils/error-utils.js';
 import {createProvider, getProvider, isBuiltinProviderId, DEFAULT_PROVIDER_ID} from './cli-providers';
-import type {CLIProvider, McpStdioMap} from './cli-providers/types.js';
+import type {CLIProvider, McpServerMap} from './cli-providers/types.js';
 import {ConfigService} from './config-service.js';
 import {ModelProviderStore} from './model-provider-store.js';
 import type {ModelProviderRecord} from './model-provider-types.js';
@@ -303,7 +303,7 @@ export class CLIRunnerService {
             maxTurns?: number;
             maxHistoryMessages?: number;
             skills?: string[] | 'all';
-            mcpServers?: McpStdioMap
+            mcpServers?: McpServerMap
         },
         options?: CLIRunnerOptions
     ): Promise<CLIExecutionResult> {

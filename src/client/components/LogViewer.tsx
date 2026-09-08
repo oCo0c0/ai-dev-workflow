@@ -10,12 +10,14 @@
  *
  *   工具栏：标题 / 实时绿点 / 消息计数 / 复制全部 / 清空
  *   智能自动滚动：用户向上滚动时暂停，滚回底部自动恢复
+ *   快速跳转栏（showJumpBar）：每条用户消息一个锚点节点，点击定位、滚动联动高亮
  */
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Copy, Check, Trash2, Terminal, ChevronDown, ChevronUp} from 'lucide-react';
 import {cn} from '../lib/utils';
 import {LogMessage, type LogMessageData} from './LogMessage';
+import {MessageJumpBar, type JumpAnchor} from './MessageJumpBar';
 
 const OUTPUT_PER_GROUP = 15;
 
@@ -32,6 +34,8 @@ interface LogViewerProps {
     title?: string;
     isStreaming?: boolean;
     className?: string;
+    /** 显示用户消息快速跳转栏（默认关闭） */
+    showJumpBar?: boolean;
 }
 
 export function LogViewer({
@@ -41,6 +45,7 @@ export function LogViewer({
                               title = '日志',
                               isStreaming = false,
                               className,
+                              showJumpBar = false,
                           }: LogViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -73,9 +78,65 @@ export function LogViewer({
         });
     }, []);
 
+    // ── 快速跳转栏：用户消息锚点 ──
+    const userAnchors = useMemo<JumpAnchor[]>(() => {
+        return messages
+            .map((m, index) => ({m, index}))
+            .filter(({m}) => m.kind === 'user')
+            .map(({m, index}) => ({index, content: m.content, timestamp: m.timestamp}));
+    }, [messages]);
+
+    const [activeAnchor, setActiveAnchor] = useState<number | null>(null);
+    /** 悬停跳转栏节点时对应的日志区目标消息（同步高亮预览） */
+    const [hoveredAnchor, setHoveredAnchor] = useState<number | null>(null);
+    /** 点击跳转后短暂闪烁的目标消息（定位确认） */
+    const [flashAnchor, setFlashAnchor] = useState<number | null>(null);
+    const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    /** 计算当前可视区所在段的锚点（视口中线以上最近的用户消息） */
+    const updateActiveAnchor = useCallback(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const anchors = el.querySelectorAll<HTMLElement>('[data-jump-anchor]');
+        if (anchors.length === 0) {
+            setActiveAnchor(null);
+            return;
+        }
+        const pivot = el.scrollTop + el.clientHeight / 2;
+        let current: number | null = null;
+        anchors.forEach((node) => {
+            if (node.offsetTop <= pivot) {
+                current = Number(node.dataset.jumpAnchor);
+            }
+        });
+        // 视口在第一条锚点之前（会话开头）时不高亮任何节点
+        setActiveAnchor(current);
+    }, []);
+
     const handleScroll = useCallback(() => {
         setAutoScroll(isNearBottom());
-    }, [isNearBottom]);
+        updateActiveAnchor();
+    }, [isNearBottom, updateActiveAnchor]);
+
+    // 消息更新时重算高亮（无滚动的静态场景，如历史加载）
+    useEffect(() => {
+        if (showJumpBar) updateActiveAnchor();
+    }, [messages, showJumpBar, updateActiveAnchor]);
+
+    /** 点击跳转：平滑滚动到目标用户消息，并在到达后短暂高亮（定位确认） */
+    const jumpToAnchor = useCallback((index: number) => {
+        const el = containerRef.current;
+        if (!el) return;
+        const target = el.querySelector<HTMLElement>(`[data-jump-anchor="${index}"]`);
+        target?.scrollIntoView({behavior: 'smooth', block: 'center'});
+        setActiveAnchor(index);
+        if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+        setFlashAnchor(index);
+        flashTimerRef.current = setTimeout(() => {
+            setFlashAnchor(null);
+            flashTimerRef.current = null;
+        }, 1600);
+    }, []);
 
     // 尺寸变化观察器：当容器高度因内容渲染而增长时自动滚动
     useEffect(() => {
@@ -112,6 +173,7 @@ export function LogViewer({
     useEffect(() => {
         return () => {
             if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+            if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
         };
     }, []);
 
@@ -237,15 +299,41 @@ export function LogViewer({
                 </div>
             </div>
 
-            {/* ═══ 日志内容（时间顺序）═══ */}
-            <div ref={containerRef} className="flex-1 overflow-y-auto p-3 min-h-[120px]" onScroll={handleScroll}>
+            {/* ═══ 日志内容（时间顺序；跳转栏开启时右侧预留竖条空间）═══ */}
+            <div
+                ref={containerRef}
+                className={cn(
+                    'flex-1 overflow-y-auto min-h-[120px]',
+                    showJumpBar && userAnchors.length > 0 ? 'py-3 pl-3 pr-9' : 'p-3',
+                )}
+                onScroll={handleScroll}
+            >
                 {!hasContent ? (
                     <div className="text-muted-foreground text-center py-8 text-xs">{emptyText}</div>
                 ) : (
                     <div className="space-y-1.5">
                         {segments.map((seg, si) => {
                             if (seg.type === 'single') {
-                                return <LogMessage key={`msg-${seg.index}`} message={seg.message}/>;
+                                // 用户消息包一层锚点容器，供快速跳转栏定位
+                                // （key/锚点索引与原始数组下标同源，消息无业务 id）。
+                                // 悬停跳转栏节点或点击跳转后，目标消息高亮预览/闪烁确认
+                                const anchorIndex = seg.message.kind === 'user' ? seg.index : undefined;
+                                const isAnchorHighlighted =
+                                    anchorIndex !== undefined &&
+                                    (hoveredAnchor === anchorIndex || flashAnchor === anchorIndex);
+                                return (
+                                    <div
+                                        key={`msg-${seg.index}`}
+                                        data-jump-anchor={anchorIndex}
+                                        className={cn(
+                                            'rounded-xl transition-all',
+                                            isAnchorHighlighted &&
+                                                'ring-2 ring-blue-500/70 ring-offset-2 ring-offset-background',
+                                        )}
+                                    >
+                                        <LogMessage message={seg.message}/>
+                                    </div>
+                                );
                             }
                             // 输出组
                             const isOpen = expandedGroups.has(si);
@@ -285,6 +373,20 @@ export function LogViewer({
                     </div>
                 )}
             </div>
+
+            {/* ═══ 快速跳转栏：视口右侧悬浮竖条 ═══
+                组件内部 Portal 到 document.body 并以 fixed 定位（视口右侧垂直居中），
+                不随日志滚动、也不随页面滚动移动。
+                注意不能改为容器内 absolute/fixed：glass-card 的 backdrop-filter
+                会劫持 fixed 定位基准，且页面滚动会把容器带出视口。 */}
+            {showJumpBar && (
+                <MessageJumpBar
+                    anchors={userAnchors}
+                    activeIndex={activeAnchor}
+                    onJump={jumpToAnchor}
+                    onHoverAnchor={setHoveredAnchor}
+                />
+            )}
         </div>
     );
 }
