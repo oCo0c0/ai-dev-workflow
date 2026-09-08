@@ -25,7 +25,7 @@ import {broadcast} from '../websocket.js';
 import {PlanStoreService, type PersistedPlan} from '../services/plan-store-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import {getPhaseSkills, getPhaseMcpServers, resolveMcpServerMap} from '../utils/skill-utils.js';
-import type {McpStdioMap} from '../services/cli-providers/types.js';
+import type {McpServerMap} from '../services/cli-providers/types.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
@@ -590,7 +590,7 @@ function resolvePlanMcpServers(
     pipelineId: string | undefined,
     pipelineService: PipelineService | undefined,
     mcpConfigService: MCPRegistryService,
-): { mcpServers: McpStdioMap | undefined; missing: string[] } {
+): { mcpServers: McpServerMap | undefined; missing: string[] } {
     if (!pipelineId || !pipelineService) return {mcpServers: undefined, missing: []};
     const pipeline = pipelineService.get(pipelineId);
     if (!pipeline?.steps) return {mcpServers: undefined, missing: []};
@@ -606,7 +606,7 @@ function resolvePlanMcpWithWarn(
     plan: PersistedPlan,
     pipelineService: PipelineService | undefined,
     mcpConfigService: MCPRegistryService,
-): McpStdioMap | undefined {
+): McpServerMap | undefined {
     const {mcpServers, missing} = resolvePlanMcpServers(plan.pipelineId, pipelineService, mcpConfigService);
     if (missing.length > 0) {
         broadcast({type: 'error', data: {message: `MCP servers not found, skipped: ${missing.join(', ')}`}});
@@ -648,7 +648,7 @@ async function runBridgeWithTimeout(
         cwd: string;
         sessionId?: string;
         skills?: string[] | 'all';
-        mcpServers?: McpStdioMap;
+        mcpServers?: McpServerMap;
         signal?: AbortSignal;
         accumulatedOutput?: string;
     },
@@ -712,7 +712,7 @@ async function runPlanSkillsSequentially(
         prompt: string;
         cwd: string;
         skills?: string[] | 'all';
-        mcpServers?: McpStdioMap;
+        mcpServers?: McpServerMap;
         signal?: AbortSignal;
     },
     planStore: PlanStoreService,
@@ -748,7 +748,7 @@ async function runNextPlanSkill(
         cliRunner: CLIRunnerService;
         prompt: string;
         cwd: string;
-        mcpServers?: McpStdioMap;
+        mcpServers?: McpServerMap;
         signal?: AbortSignal;
     },
     planStore: PlanStoreService,

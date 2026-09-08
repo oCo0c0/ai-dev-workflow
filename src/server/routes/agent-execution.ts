@@ -4,12 +4,75 @@
  */
 
 import {Router} from 'express';
+import fs from 'fs';
+import path from 'path';
 import {AgentExecutionStore} from '../services/agent-execution-store.js';
 import {createAgentCoordinator, type CoordinatorConfig} from '../services/agent-coordinator.js';
 import {WorkspaceService} from '../services/workspace-service.js';
+import type {MinerUService} from '../services/mineru-service.js';
 import {broadcast} from '../websocket.js';
 
-export function createAgentExecutionRoutes(config: CoordinatorConfig, workspaceService?: WorkspaceService): Router {
+/** 附加文档的单文件内容上限（字符），防止超大文档撑爆上下文 */
+const MAX_DOCUMENT_CHARS = 100_000;
+
+/**
+ * 解析附加文档并追加到需求文本。
+ * 文本类（md/txt/json/csv）直接读取；二进制文档（docx/xlsx/pdf 等）走 MinerU
+ * 解析（未启用或解析失败时跳过并记日志）——对齐 Plan 页的参考文档模式。
+ * 安全约束：路径必须解析到工作区内，防止任意文件读取。
+ */
+async function enrichWithDocuments(
+    requirementText: string,
+    documentPaths: string[],
+    workspacePath: string,
+    mineruService?: MinerUService,
+): Promise<{text: string; loaded: string[]; skipped: string[]}> {
+    const loaded: string[] = [];
+    const skipped: string[] = [];
+    const parts: string[] = [];
+    const workspaceRoot = path.resolve(workspacePath);
+
+    for (const relPath of documentPaths.slice(0, 5)) {
+        if (typeof relPath !== 'string' || !relPath.trim()) continue;
+        const fullPath = path.resolve(workspacePath, relPath.trim());
+        if (!fullPath.startsWith(workspaceRoot)) {
+            skipped.push(`${relPath}（超出工作区范围）`);
+            continue;
+        }
+        try {
+            let content = '';
+            if (/\.(md|txt|json|csv|log)$/i.test(fullPath)) {
+                content = fs.readFileSync(fullPath, 'utf8');
+            } else if (mineruService?.isEnabled()) {
+                const result = await mineruService.parseFile(fullPath);
+                if (result.success && result.markdown) content = result.markdown;
+            } else {
+                skipped.push(`${relPath}（需启用 MinerU 才能解析 ${path.extname(fullPath) || '该类型'} 文件）`);
+                continue;
+            }
+            if (!content.trim()) {
+                skipped.push(`${relPath}（内容为空或解析失败）`);
+                continue;
+            }
+            parts.push(`### ${relPath}\n\n${content.slice(0, MAX_DOCUMENT_CHARS)}`);
+            loaded.push(relPath);
+        } catch (err) {
+            skipped.push(`${relPath}（读取失败：${err instanceof Error ? err.message : String(err)}）`);
+        }
+    }
+
+    let text = requirementText;
+    if (parts.length > 0) {
+        text += '\n\n---\n\n## 参考文档\n\n' + parts.join('\n\n---\n\n');
+    }
+    return {text, loaded, skipped};
+}
+
+export function createAgentExecutionRoutes(
+    config: CoordinatorConfig,
+    workspaceService?: WorkspaceService,
+    mineruService?: MinerUService,
+): Router {
     const router = Router();
     const store = AgentExecutionStore.getInstance();
     const coordinator = createAgentCoordinator(config);
@@ -41,14 +104,35 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig, workspaceS
 
             const requirementId = req.body.requirementId || `manual-${Date.now()}`;
 
+            // 附加文档：解析内容追加进需求文本（对齐 Plan 页参考文档模式），
+            // 让模型直接看到文档内容，而不是口头说"看文档"
+            const documentPaths: string[] = Array.isArray(req.body.documentPaths)
+                ? req.body.documentPaths.filter((p: unknown): p is string => typeof p === 'string')
+                : [];
+            const {text: enrichedText, loaded, skipped} = await enrichWithDocuments(
+                requirementText,
+                documentPaths,
+                workspacePath || '',
+                mineruService,
+            );
+
             const execution = await store.create({
                 requirementId,
-                requirementText,
+                requirementText: enrichedText,
                 requirementNumber: req.body.requirementNumber,
                 requirementTitle: req.body.requirementTitle || requirementText.split('\n')[0].substring(0, 50),
                 workspacePath: workspacePath || '',
                 status: 'ready',
             });
+
+            // 文档加载结果记入日志（前端与模型侧均可见）
+            if (loaded.length > 0) {
+                const docMsg = `📎 已附加文档：${loaded.join('、')}`;
+                await store.addLog(execution.id, docMsg);
+            }
+            for (const skip of skipped) {
+                await store.addLog(execution.id, `⚠️ 文档跳过：${skip}`);
+            }
 
             // 记录到工作区历史，便于下次快速选择（静默失败）
             if (workspacePath && typeof workspacePath === 'string' && workspacePath.trim()) {
@@ -151,6 +235,13 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig, workspaceS
             const userMsg = JSON.stringify({type: 'user', content: message});
             await store.addLog(id, userMsg);
 
+            if (execution.status === 'running') {
+                // 运行中：消息进入排队（本轮结束后由 coordinator 自动续跑消费）
+                coordinator.markQueuedReply(id);
+                res.json({success: true, queued: true});
+                return;
+            }
+
             // 如果执行已完成/失败/中止，直接重新执行（coordinator 内部会设 running 并广播）
             if (execution.status === 'completed' || execution.status === 'failed' || execution.status === 'aborted') {
                 // 异步自动执行，无需用户手动点开始
@@ -159,6 +250,23 @@ export function createAgentExecutionRoutes(config: CoordinatorConfig, workspaceS
                 });
             }
 
+            res.json({success: true, queued: false});
+        } catch (error) {
+            res.status(500).json({code: 'INTERNAL_ERROR', message: (error as Error).message});
+        }
+    });
+
+    /**
+     * POST /api/agent-execution/:id/process-now
+     * 立即处理排队消息：中止当前轮，自动带新消息续跑
+     */
+    router.post('/:id/process-now', async (req, res) => {
+        try {
+            const {id} = req.params;
+            const triggered = coordinator.interruptNow(id);
+            if (!triggered) {
+                return res.status(400).json({code: 'NOT_RUNNING', message: '执行未在运行中，无需立即处理'});
+            }
             res.json({success: true});
         } catch (error) {
             res.status(500).json({code: 'INTERNAL_ERROR', message: (error as Error).message});

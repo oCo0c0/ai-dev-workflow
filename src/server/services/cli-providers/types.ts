@@ -164,7 +164,7 @@ export interface CLIProviderStatus {
 }
 
 /**
- * SDK query options.mcpServers 的 stdio 配置 map。
+ * MCP stdio 启动配置（引擎直接 spawn 上游进程的旧形态，网关未启动时回退使用）
  * key 为服务器名，value 为 stdio 启动配置。type 固定 'stdio'（传输协议），
  * 与 McpServerInfo.type（运行时推断 node/python/docker）语义不同，不可混用。
  */
@@ -174,6 +174,21 @@ export type McpStdioMap = Record<string, {
     args: string[];
     env: Record<string, string>;
 }>;
+
+/**
+ * MCP HTTP 挂载配置（平台网关形态：引擎以 HTTP MCP client 连接网关聚合端点，
+ * 上游进程由平台统一管理）
+ */
+export interface McpHttpConfig {
+    type: 'http';
+    url: string;
+}
+
+/**
+ * 引擎的 MCP 注入参数：stdio 直挂（旧形态）或 HTTP 网关（平台形态）。
+ * 平台化后 runBridge 默认下发网关形态；网关未启动时回退 stdio。
+ */
+export type McpServerMap = Record<string, McpStdioMap[string] | McpHttpConfig>;
 
 /**
  * CLI Provider 对话输入
@@ -191,8 +206,9 @@ export interface CLIProviderInput {
     maxHistoryMessages?: number;
     /** 技能列表 */
     skills?: string[] | 'all';
-    /** MCP 服务器 stdio 配置 map，undefined = 不注入（claude 走全局默认 MCP） */
-    mcpServers?: McpStdioMap;
+    /** MCP 注入配置（stdio 直挂或 http 网关），undefined = 不注入。
+     *  平台网关启用后由解析层统一下发网关形态。 */
+    mcpServers?: McpServerMap;
 }
 
 /**

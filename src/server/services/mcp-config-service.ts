@@ -98,6 +98,13 @@ export interface MCPServerConfig {
     env: Record<string, string>;
     /** 服务器是否启用 */
     enabled: boolean;
+    /**
+     * server 进程工作目录（可选）。
+     * 部分 server 按 cwd 推断"项目"位置——不设置时
+     * 会继承平台服务进程的启动目录，把无关目录误当项目。
+     * 未配置时网关使用平台数据目录（~/.ai-dev-workbench）作为默认值。
+     */
+    cwd?: string;
     /** 服务器连接状态（运行时动态值，非持久化） */
     status?: 'connected' | 'disconnected' | 'error';
 }

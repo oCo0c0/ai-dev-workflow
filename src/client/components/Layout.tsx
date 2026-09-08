@@ -226,7 +226,7 @@ export default function Layout() {
                     {!sidebarCollapsed && (
                         <div className="flex items-center gap-2">
                             <img
-                                src="https://blogsite.site/upload/logo.png"
+                                src="https://blogsite.site/upload/logo1.png"
                                 alt="logo"
                                 className="h-7 w-7 rounded-xl object-cover shrink-0 ring-2 ring-primary/40 shadow-md shadow-primary/20"
                             />
@@ -235,7 +235,7 @@ export default function Layout() {
                     )}
                     {sidebarCollapsed && (
                         <img
-                            src="https://blogsite.site/upload/logo.png"
+                            src="https://blogsite.site/upload/logo1.png"
                             alt="logo"
                             className="h-7 w-7 rounded-xl object-cover mx-auto"
                         />

@@ -40,6 +40,9 @@ import {TaskStoreService} from './services/task-store-service.js';
 import {TaskScheduler} from './services/task-scheduler-service.js';
 import {ModelProviderStore} from './services/model-provider-store.js';
 
+// 平台层（引擎无关）
+import {getMcpGateway} from './platform/mcp-gateway.js';
+
 // 路由层
 import {createRequirementsRoutes} from './routes/requirements.js';
 import {createWorkspaceRoutes} from './routes/workspace.js';
@@ -129,6 +132,33 @@ export async function createServer(port: number): Promise<http.Server> {
         console.warn(`[mcp-registry] import failed: ${err instanceof Error ? err.message : err}`);
     }
     const mcpBridgeService = new MCPBridgeService(mcpRegistryService);
+
+    // MCP 聚合网关：平台统一管理 MCP 的唯一入口。
+    // 上游连接由网关持有（懒连接 + 崩溃重连），引擎通过 HTTP 端点挂载
+    //（Claude）或 customTools 投影（pi）消费。必须在 express.json() 之后
+    // 挂载（body 预解析透传给 MCP transport）。
+    const mcpGateway = getMcpGateway();
+    const MCP_MOUNT_PATH = '/api/mcp';
+    mcpGateway.attachToExpress(app, MCP_MOUNT_PATH);
+    // endpoint 供引擎构造 HTTP 挂载 URL；0.0.0.0 监听时引擎仍走本机回环。
+    // 配置了 API Key 认证时附在 query（认证中间件支持 req.query.apiKey）。
+    const gatewayHost = (config.server?.host ?? '127.0.0.1') === '0.0.0.0' ? '127.0.0.1' : config.server?.host ?? '127.0.0.1';
+    mcpGateway.setEndpoint(
+        `http://${gatewayHost}:${port}${MCP_MOUNT_PATH}` +
+        (config.auth?.apiKey ? `?apiKey=${encodeURIComponent(config.auth.apiKey)}` : '')
+    );
+    // 平台 REST 面：pi RPC 子进程内的 adw 扩展经此拉取工具目录/回传工具调用
+    //（MCP 清单单一事实来源不变；受全局 apiKey 中间件保护）
+    const PLATFORM_API_PATH = '/api/platform';
+    mcpGateway.attachPlatformApi(app, PLATFORM_API_PATH);
+    mcpGateway.setPlatformEndpoint(
+        `http://${gatewayHost}:${port}${PLATFORM_API_PATH}`,
+        config.auth?.apiKey,
+    );
+    // 预热上游连接（后台执行，失败静默——熔断冷却自管理）：
+    // 避免任务首次 MCP 交互等待各 server 冷启动（Windows 下 npx 启动可达数十秒）
+    mcpGateway.warmUp().catch(() => { /* 预热失败不影响服务启动 */ });
+
     const workspaceService = new WorkspaceService();
     const cliRunnerService = new CLIRunnerService(config.cliProvider?.active);
     const testExecutorService = new TestExecutorService();
@@ -238,7 +268,7 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/agent-execution', createAgentExecutionRoutes({
         cliRunner: cliRunnerService,
         memoryService,
-    }, workspaceService));
+    }, workspaceService, mineruService));
     app.use('/api/model-providers', createModelProviderRoutes(modelProviderStore));
     app.use('/api/prompts', createPromptsRoutes(cliRunnerService));
 
@@ -281,6 +311,7 @@ export async function createServer(port: number): Promise<http.Server> {
             const cleanup = async () => {
                 await taskScheduler.dispose();
                 await cliRunnerService.dispose();
+                await mcpGateway.dispose();
                 await sandboxService.cleanup();
                 server.close();
                 process.exit(0);

@@ -14,6 +14,7 @@
 import {useState, useEffect, useCallback} from 'react';
 import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiDelete} from '../api';
+import {useAppStore} from '../stores/app-store';
 import {cn} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {Input} from '../components/ui/input';
@@ -90,6 +91,8 @@ function emptyForm() {
  */
 export default function ModelProvidersPage() {
     const {t} = useTranslation();
+    // pi 引擎的原生检测结果（启动时 detect 拉取）：供应商/凭证由 pi 体系自管
+    const piMeta = useAppStore((s) => s.piMeta);
 
     // 列表与外部源状态
     const [providers, setProviders] = useState<SafeModelProviderRecord[]>([]);
@@ -412,6 +415,38 @@ export default function ModelProvidersPage() {
                 </div>
             </div>
 
+            {/* Pi 原生供应商区（只读）：pi 引擎的供应商/凭证由 pi 体系自管，
+                此处仅展示检测结果，引导用户在 pi 侧完成配置 */}
+            <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="h-3.5 w-3.5 text-muted-foreground"/>
+                    <span className="text-xs font-medium text-muted-foreground">
+                        {t('modelProviders.piNativeTitle')}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground/70">
+                        {t('modelProviders.piNativeHint')}
+                    </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                    {(piMeta?.availableProviders || []).length === 0 ? (
+                        <div className="w-full rounded-lg border border-border/50 px-3 py-2 text-xs text-muted-foreground">
+                            {t('modelProviders.piNativeNone')}
+                        </div>
+                    ) : (
+                        piMeta!.availableProviders.map((p) => (
+                            <span
+                                key={p}
+                                className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-mono text-emerald-600"
+                                title="~/.pi/agent/auth.json 或环境变量已配置"
+                            >
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"/>
+                                {p}
+                            </span>
+                        ))
+                    )}
+                </div>
+            </div>
+
             {/* 主体：列表 + 表单 */}
             <div className="flex-1 flex gap-4 min-h-0">
                 {/* 左侧供应商列表 */}
@@ -461,6 +496,16 @@ export default function ModelProvidersPage() {
                                             <Badge variant={sourceBadge.variant} className="text-[10px]">
                                                 {t(sourceBadge.labelKey)}
                                             </Badge>
+                                            {/* pi 类型记录：兼容模式徽标（运行时注入 key，建议迁移 pi 原生配置） */}
+                                            {provider.kind === 'pi' && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="text-[10px] border-amber-500/40 text-amber-600"
+                                                    title={t('modelProviders.piCompatHint')}
+                                                >
+                                                    {t('modelProviders.piCompatBadge')}
+                                                </Badge>
+                                            )}
                                             <span
                                                 className="text-[11px] text-muted-foreground truncate font-mono">{provider.id}</span>
                                         </div>
@@ -545,6 +590,13 @@ export default function ModelProvidersPage() {
                                             );
                                         })}
                                     </div>
+                                    {/* pi 类型引导：供应商与凭证以 pi 原生体系为准 */}
+                                    {form.kind === 'pi' && (
+                                        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-600">
+                                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0"/>
+                                            <p>{t('modelProviders.piCompatHint')}</p>
+                                        </div>
+                                    )}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div>
                                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">

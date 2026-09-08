@@ -771,69 +771,8 @@ export default function ExecutionPage() {
                         </Card>
                     )}
 
-                    {/* 控制按钮栏：暂停、重试、跳过、中止、重新执行、清除 */}
-                    {activeId && (
-                        <div className="flex items-center gap-2" data-tour="exec-controls">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handlePause}
-                                disabled={!isRunning} // 仅运行中可暂停
-                            >
-                                <Pause className="h-4 w-4 mr-1.5"/>
-                                {t('execution.pause')}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleRetry}
-                                disabled={!isPaused && !isFailed} // 仅暂停或失败时可重试
-                            >
-                                <RotateCcw className="h-4 w-4 mr-1.5"/>
-                                {t('execution.retry')}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleSkip}
-                                disabled={!isPaused && !isFailed} // 仅暂停或失败时可跳过
-                            >
-                                <SkipForward className="h-4 w-4 mr-1.5"/>
-                                {t('execution.skip')}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleAbort}
-                                disabled={isDone || (!isRunning && !isPaused)} // 已结束或未运行时不可中止
-                                className="text-destructive hover:text-destructive"
-                            >
-                                <Square className="h-4 w-4 mr-1.5"/>
-                                {t('execution.abort')}
-                            </Button>
-                            {/* 执行完成后显示重新执行按钮 */}
-                            {isDone && detail?.planId && (
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={handleReExecute}
-                                    className="ml-1"
-                                >
-                                    <Play className="h-4 w-4 mr-1.5"/>
-                                    {t('execution.reExecute')}
-                                </Button>
-                            )}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={clearExecutionLogs}
-                                className="ml-auto text-muted-foreground"
-                            >
-                                <Trash2 className="h-4 w-4 mr-1.5"/>
-                                {t('execution.clear')}
-                            </Button>
-                        </div>
-                    )}
+                    {/* 控制按钮已收敛到下方回复输入框区域（data-tour 保留供引导定位） */}
+                    <div data-tour="exec-controls" className="hidden"/>
 
                     {/* 回复输入区域：向 Claude 发送交互消息 */}
                     {activeId && (
@@ -874,18 +813,95 @@ export default function ExecutionPage() {
                       wrapperClassName="flex-1"
                       className="bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
                   />
-                                    <Button
-                                        onClick={handleReply}
-                                        disabled={!replyText.trim() || replying || isRunning} // 无内容、发送中或运行中时禁用
-                                        className="self-end"
-                                        size="sm"
-                                    >
-                                        {replying ? (
-                                            <Loader2 className="h-4 w-4 animate-spin"/>
-                                        ) : (
-                                            <Send className="h-4 w-4"/>
-                                        )}
-                                    </Button>
+                                    {/* 统一控制按钮（收敛自顶部控制栏）：
+                                        运行中 = 暂停/中止；暂停或失败 = 重试/跳过/中止；完成 = 重新执行；空闲 = 发送 */}
+                                    {isRunning ? (
+                                        <>
+                                            <Button
+                                                onClick={handlePause}
+                                                className="self-end shrink-0"
+                                                size="sm"
+                                            >
+                                                <Pause className="h-4 w-4 mr-1"/>
+                                                {t('execution.pause')}
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                onClick={handleAbort}
+                                                className="self-end shrink-0 text-destructive hover:text-destructive"
+                                                size="sm"
+                                            >
+                                                <Square className="h-4 w-4 mr-1"/>
+                                                {t('execution.abort')}
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {(isPaused || isFailed) && (
+                                                <>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={handleRetry}
+                                                        className="self-end shrink-0"
+                                                        size="sm"
+                                                    >
+                                                        <RotateCcw className="h-4 w-4 mr-1"/>
+                                                        {t('execution.retry')}
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={handleSkip}
+                                                        className="self-end shrink-0"
+                                                        size="sm"
+                                                    >
+                                                        <SkipForward className="h-4 w-4 mr-1"/>
+                                                        {t('execution.skip')}
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={handleAbort}
+                                                        className="self-end shrink-0 text-destructive hover:text-destructive"
+                                                        size="sm"
+                                                    >
+                                                        <Square className="h-4 w-4 mr-1"/>
+                                                        {t('execution.abort')}
+                                                    </Button>
+                                                </>
+                                            )}
+                                            {isDone && detail?.planId && (
+                                                <Button
+                                                    variant="outline"
+                                                    onClick={handleReExecute}
+                                                    className="self-end shrink-0"
+                                                    size="sm"
+                                                >
+                                                    <Play className="h-4 w-4 mr-1"/>
+                                                    {t('execution.reExecute')}
+                                                </Button>
+                                            )}
+                                            <Button
+                                                onClick={handleReply}
+                                                disabled={!replyText.trim() || replying}
+                                                className="self-end shrink-0"
+                                                size="sm"
+                                            >
+                                                {replying ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin"/>
+                                                ) : (
+                                                    <Send className="h-4 w-4"/>
+                                                )}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                onClick={clearExecutionLogs}
+                                                className="self-end shrink-0 text-muted-foreground"
+                                                size="sm"
+                                                title={t('execution.clear')}
+                                            >
+                                                <Trash2 className="h-4 w-4"/>
+                                            </Button>
+                                        </>
+                                    )}
                                 </div>
                                 {/* 无会话时显示提示信息 */}
                                 {!detail?.sessionId && !isRunning && (
@@ -914,6 +930,7 @@ export default function ExecutionPage() {
                                 isStreaming={isRunning}
                                 emptyText={activeId ? t('execution.waitingOutput') : t('execution.noOutput')}
                                 onClear={clearExecutionLogs}
+                                showJumpBar
                             />
                         </div>
                     )}

@@ -22,17 +22,22 @@ const REASONING_EFFORTS = [
     {value: 'max', label: 'Max'},
 ] as const;
 
-/** Pi 支持的底层 LLM 提供商字典（pi 特定领域知识，仅 pi 区块使用） */
-const PI_LLM_PROVIDERS = [
-    {value: 'anthropic', label: 'Anthropic'},
-    {value: 'openai', label: 'OpenAI'},
-    {value: 'deepseek', label: 'DeepSeek'},
-    {value: 'google', label: 'Google Gemini'},
-    {value: 'groq', label: 'Groq'},
-    {value: 'xai', label: 'xAI'},
-    {value: 'openrouter', label: 'OpenRouter'},
-    {value: 'ollama', label: 'Ollama (本地)'},
-];
+/**
+ * pi 供应商友好名称映射（仅展示用）。
+ * 供应商列表本身完全由后端 detect 动态返回（pi 的 ModelRuntime 凭证检测
+ * + 平台自有 pi:* 记录合并）——pi 目录有 40 个 provider，不在此枚举的
+ *（如 zai-coding-cn、kimi-coding）直接显示原始 id。
+ */
+const PI_PROVIDER_LABELS: Record<string, string> = {
+    anthropic: 'Anthropic',
+    openai: 'OpenAI',
+    deepseek: 'DeepSeek',
+    google: 'Google Gemini',
+    groq: 'Groq',
+    xai: 'xAI',
+    openrouter: 'OpenRouter',
+    ollama: 'Ollama (本地)',
+};
 
 interface ModelConfigModalProps {
     open: boolean;
@@ -191,6 +196,17 @@ function ProviderConfigPanel({
         : [];
     const hasDetected = detectedProviders.length > 0;
 
+    // pi 供应商下拉选项：完全由检测结果驱动（含平台自有 pi:* 记录，后端已合并）。
+    // 检测到的（已配置）排前面；基础映射表中未检测到的保留可选（先选后配 key）。
+    const providerOptions = [
+        ...detectedProviders,
+        ...Object.keys(PI_PROVIDER_LABELS).filter((v) => !detectedProviders.includes(v)),
+    ];
+    // 保底：当前选中值不在选项中（检测失效但配置存了自定义 id）时补一项，避免下拉显示空白
+    if (config.modelProvider && !providerOptions.includes(config.modelProvider)) {
+        providerOptions.unshift(config.modelProvider);
+    }
+
     // pi：当前模型不在可用列表中时，自动选第一个（延迟到下个渲染周期，避免 render 中 setState）
     if (isPi && currentModels.length > 0 && config.model && !currentModels.some(m => m.id === config.model)) {
         setTimeout(() => onChange({model: currentModels[0].id}), 0);
@@ -218,9 +234,9 @@ function ProviderConfigPanel({
                         onChange={(e) => onChange({modelProvider: e.target.value})}
                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                     >
-                        {PI_LLM_PROVIDERS.map(p => (
-                            <option key={p.value} value={p.value}>
-                                {p.label}{detectedProviders.includes(p.value) ? ' ✓ 已配置' : ''}
+                        {providerOptions.map(v => (
+                            <option key={v} value={v}>
+                                {PI_PROVIDER_LABELS[v] || v}{detectedProviders.includes(v) ? ' ✓ 已配置' : ''}
                             </option>
                         ))}
                     </select>

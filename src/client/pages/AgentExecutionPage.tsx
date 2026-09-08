@@ -25,6 +25,7 @@ import {
     XCircle,
     AlertCircle,
     Play,
+    Zap,
     Square,
     Sparkles,
     Brain,
@@ -225,17 +226,35 @@ export default function AgentExecutionPage() {
     const [stepsExpanded, setStepsExpanded] = useState(true);
     const [expandedStepLogs, setExpandedStepLogs] = useState<Set<string>>(new Set());
 
-    // 工具权限确认弹框（agent 执行中 canUseTool 触发）
-    const [permConfirm, setPermConfirm] = useState<{
-        open: boolean;
-        permissionRequestId?: string;
+    // 工具权限确认队列（agent 执行中 canUseTool 触发）。
+    // 队列化：并行工具会连续产生多个权限请求，单弹窗 state 会互相覆盖导致
+    // 请求丢失（后端挂着等确认 → 任务"无声卡死"）；逐个出队确认。
+    // 每项携带自己的 executionId：后台任务的权限请求也允许确认，不受当前激活项限制。
+    const [permQueue, setPermQueue] = useState<Array<{
+        executionId: string;
+        permissionRequestId: string;
         toolName?: string;
         toolInput?: Record<string, unknown>;
         title?: string;
-    }>({open: false});
+    }>>([]);
 
     // AskUserQuestion 答案收集
     const [askUserAnswers, setAskUserAnswers] = useState<Record<string, string>>({});
+
+    // 创建对话框：附加文档路径（相对工作区）
+    const [docPaths, setDocPaths] = useState<string[]>([]);
+    const [docInput, setDocInput] = useState('');
+
+    // 运行中的排队消息（本地镜像：发送即排队，当前轮结束后自动处理）
+    const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+    const [processingNow, setProcessingNow] = useState(false);
+
+    // 执行状态离开 running 时清空排队显示（消息已消费或执行结束）
+    useEffect(() => {
+        if (detail?.status && detail.status !== 'running') {
+            setQueuedMessages([]);
+        }
+    }, [detail?.status]);
 
     // DOM 引用
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -382,8 +401,11 @@ export default function AgentExecutionPage() {
                 requirementNumber: requirementNumber || undefined,
                 requirementTitle: requirementTitle || undefined,
                 workspacePath,
+                documentPaths: docPaths.length > 0 ? docPaths : undefined,
             });
             closeCreateDialog();
+            setDocPaths([]);
+            setDocInput('');
             await loadDetail(res.executionId);
             loadHistory();
             loadWorkspaceHistory();
@@ -423,7 +445,11 @@ export default function AgentExecutionPage() {
         const message = replyText.trim();
         setReplyText('');
         try {
-            await apiPost(`/agent-execution/${activeId}/reply`, {message});
+            const res = await apiPost<{queued?: boolean}>(`/agent-execution/${activeId}/reply`, {message});
+            if (res.queued) {
+                // 运行中：消息已排队，等待当前轮结束自动处理
+                setQueuedMessages((q) => [...q, message]);
+            }
             loadDetail(activeId);
         } catch (err) {
             console.error('回复失败:', err);
@@ -432,14 +458,30 @@ export default function AgentExecutionPage() {
         }
     };
 
-    // 确认工具权限：decision=allow/deny，remember 仅 allow 时生效（本次执行内同类工具自动放行）
+    /** 立即处理排队消息：中止当前轮，自动带新消息续跑 */
+    const handleProcessNow = async () => {
+        if (!activeId || processingNow) return;
+        setProcessingNow(true);
+        try {
+            await apiPost(`/agent-execution/${activeId}/process-now`, {});
+            setQueuedMessages([]);
+        } catch (err) {
+            console.error('立即处理失败:', err);
+        } finally {
+            setProcessingNow(false);
+        }
+    };
+
+    // 确认工具权限：decision=allow/deny，remember 仅 allow 时生效（本次执行内同类工具自动放行）。
+    // 处理队首请求并出队，确认发往该请求所属的 executionId（不依赖当前激活项）
     const handleConfirmTool = async (decision: 'allow' | 'deny', remember = false, modifiedInput?: Record<string, unknown>) => {
-        if (!activeId || !permConfirm.permissionRequestId) return;
-        const permissionRequestId = permConfirm.permissionRequestId;
-        setPermConfirm({open: false});
+        const head = permQueue[0];
+        if (!head) return;
+        const permissionRequestId = head.permissionRequestId;
+        setPermQueue((q) => q.slice(1));
         setAskUserAnswers({});
         try {
-            await apiPost(`/agent-execution/${activeId}/confirm-tool`, {
+            await apiPost(`/agent-execution/${head.executionId}/confirm-tool`, {
                 permissionRequestId,
                 decision,
                 remember,
@@ -490,20 +532,28 @@ export default function AgentExecutionPage() {
 
         const handler = (e: Event) => {
             const {type, executionId, ...data} = (e as CustomEvent).detail;
-            if (executionId !== activeId) return;
 
-            // 工具权限请求：单独弹确认框，不写入 detail
+            // 工具权限请求：入确认队列（在 activeId 过滤之前处理——
+            // 后台执行的任务同样需要确认，否则弹窗被吞、后端挂到超时）
             if (type === 'permission_request') {
-                setPermConfirm({
-                    open: true,
-                    permissionRequestId: data.permissionRequestId as string,
-                    toolName: data.toolName as string,
-                    toolInput: data.toolInput as Record<string, unknown>,
-                    title: (data.title as string) || (data.displayName as string) || '',
-                });
-                setAskUserAnswers({});
+                const permissionRequestId = data.permissionRequestId as string;
+                if (permissionRequestId) {
+                    setPermQueue((q) =>
+                        q.some((p) => p.permissionRequestId === permissionRequestId)
+                            ? q
+                            : [...q, {
+                                executionId: executionId as string,
+                                permissionRequestId,
+                                toolName: data.toolName as string,
+                                toolInput: data.toolInput as Record<string, unknown>,
+                                title: (data.title as string) || (data.displayName as string) || '',
+                            }],
+                    );
+                }
                 return;
             }
+
+            if (executionId !== activeId) return;
 
             setDetail(prev => {
                 if (!prev) return prev;
@@ -717,16 +767,7 @@ export default function AgentExecutionPage() {
                                 </div>
                             )}
                             {canStart && (
-                                <Button onClick={handleStart} size="sm">
-                                    <Play className="h-3.5 w-3.5 mr-1.5"/>
-                                    开始
-                                </Button>
-                            )}
-                            {canAbort && (
-                                <Button onClick={handleAbort} variant="outline" size="sm" className="text-destructive">
-                                    <Square className="h-3.5 w-3.5 mr-1.5"/>
-                                    中止
-                                </Button>
+                                <span className="text-[11px] text-muted-foreground">在下方输入框描述任务后点击「开始执行」</span>
                             )}
                         </div>
                     </div>
@@ -940,6 +981,7 @@ export default function AgentExecutionPage() {
                                 isStreaming={isRunning}
                                 emptyText={isRunning ? 'Agent正在执行...' : '等待执行...'}
                                 onClear={() => activeId && setAgentExecutionLogs(activeId, [])}
+                                showJumpBar
                             />
 
                             {/* --- 底部消息输入 --- */}
@@ -955,6 +997,30 @@ export default function AgentExecutionPage() {
                                             onSuggestNewSession={handleNewSession}
                                         />
                                     </div>
+                                    {/* 排队消息条：运行中发送的消息在此排队，当前轮结束后自动处理 */}
+                                    {isRunning && queuedMessages.length > 0 && (
+                                        <div className="mb-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-1.5 text-xs text-amber-600 min-w-0">
+                                                    <Clock className="h-3.5 w-3.5 shrink-0"/>
+                                                    <span className="shrink-0">{queuedMessages.length} 条消息排队中</span>
+                                                    <span className="truncate text-amber-600/70">
+                                                        （当前轮结束后自动处理：{queuedMessages[queuedMessages.length - 1].slice(0, 40)}）
+                                                    </span>
+                                                </div>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={handleProcessNow}
+                                                    disabled={processingNow}
+                                                    className="h-6 shrink-0 text-[11px] border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                                                >
+                                                    {processingNow ? <Loader2 className="h-3 w-3 animate-spin"/> : <Zap className="h-3 w-3 mr-1"/>}
+                                                    立即处理
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="flex gap-2">
                                         <ExpandableTextarea
                                             value={replyText}
@@ -962,27 +1028,71 @@ export default function AgentExecutionPage() {
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                                                     e.preventDefault();
-                                                    handleReply();
+                                                    if (canStart) {
+                                                        handleStart();
+                                                    } else {
+                                                        handleReply();
+                                                    }
                                                 }
                                             }}
-                                            placeholder="输入回复或补充信息... (Ctrl+Enter发送)"
+                                            placeholder={
+                                                canStart
+                                                    ? '描述任务详情... (Ctrl+Enter 开始执行)'
+                                                    : isRunning
+                                                        ? '发送消息将排队，当前轮结束后自动处理... (Ctrl+Enter)'
+                                                        : '输入回复或补充信息... (Ctrl+Enter发送)'
+                                            }
                                             rows={2}
-                                            disabled={isRunning}
                                             title="发送消息给 Agent"
                                             optimizable
                                             optimizePurpose="reply"
                                             wrapperClassName="flex-1"
                                             className="bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
                                         />
-                                        <Button
-                                            onClick={handleReply}
-                                            disabled={!replyText.trim() || replying || isRunning}
-                                            className="self-end"
-                                            size="sm"
-                                        >
-                                            {replying ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                                <Send className="h-4 w-4"/>}
-                                        </Button>
+                                        {/* 统一控制按钮：就绪=开始执行；运行中=排队发送 + 终止；其余=发送 */}
+                                        {canStart ? (
+                                            <Button
+                                                onClick={handleStart}
+                                                disabled={!replyText.trim() && !activeId}
+                                                className="self-end shrink-0"
+                                                size="sm"
+                                            >
+                                                <Play className="h-4 w-4 mr-1"/>
+                                                开始执行
+                                            </Button>
+                                        ) : isRunning ? (
+                                            <>
+                                                <Button
+                                                    onClick={handleReply}
+                                                    disabled={!replyText.trim() || replying}
+                                                    className="self-end shrink-0"
+                                                    size="sm"
+                                                >
+                                                    {replying ? <Loader2 className="h-4 w-4 animate-spin"/> :
+                                                        <Send className="h-4 w-4 mr-1"/>}
+                                                    排队
+                                                </Button>
+                                                <Button
+                                                    onClick={handleAbort}
+                                                    variant="outline"
+                                                    className="self-end shrink-0 text-destructive hover:text-destructive"
+                                                    size="sm"
+                                                >
+                                                    <Square className="h-4 w-4 mr-1"/>
+                                                    终止
+                                                </Button>
+                                            </>
+                                        ) : (
+                                            <Button
+                                                onClick={handleReply}
+                                                disabled={!replyText.trim() || replying}
+                                                className="self-end shrink-0"
+                                                size="sm"
+                                            >
+                                                {replying ? <Loader2 className="h-4 w-4 animate-spin"/> :
+                                                    <Send className="h-4 w-4"/>}
+                                            </Button>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -1216,6 +1326,70 @@ export default function AgentExecutionPage() {
                                 </p>
                             </div>
                         )}
+
+                        {/* 附加文档：内容解析后进入执行需求（模型直接看到，无需自己找文件） */}
+                        <div>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                                附加文档 <span className="text-muted-foreground/60">
+                                    （可选，相对工作区的文件路径；md/txt 直读，docx/xlsx/pdf 需启用 MinerU）
+                                </span>
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={docInput}
+                                    onChange={(e) => setDocInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            const v = docInput.trim();
+                                            if (v && !docPaths.includes(v)) {
+                                                setDocPaths([...docPaths, v]);
+                                            }
+                                            setDocInput('');
+                                        }
+                                    }}
+                                    placeholder="例如 docs/需求说明.docx（回车添加，最多 5 个）"
+                                    className="flex-1 h-8 rounded-md border border-input bg-transparent px-3 py-1 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() => {
+                                        const v = docInput.trim();
+                                        if (v && !docPaths.includes(v) && docPaths.length < 5) {
+                                            setDocPaths([...docPaths, v]);
+                                        }
+                                        setDocInput('');
+                                    }}
+                                >
+                                    添加
+                                </Button>
+                            </div>
+                            {docPaths.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                    {docPaths.map((p) => (
+                                        <span
+                                            key={p}
+                                            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[11px] font-mono"
+                                        >
+                                            <FileText className="h-3 w-3 text-muted-foreground"/>
+                                            {p}
+                                            <button
+                                                type="button"
+                                                onClick={() => setDocPaths(docPaths.filter((x) => x !== p))}
+                                                className="text-muted-foreground hover:text-destructive"
+                                                aria-label={`移除 ${p}`}
+                                            >
+                                                ×
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* 操作按钮 */}
@@ -1233,16 +1407,25 @@ export default function AgentExecutionPage() {
                 </div>
             </dialog>
 
-            {/* 工具权限确认弹框（agent 执行中 canUseTool 触发） */}
-            {permConfirm.open && permConfirm.permissionRequestId && (
+            {/* 工具权限确认弹框（agent 执行中 canUseTool 触发）——队列逐个确认。
+                注意：旧实现的"仅关闭不决策"会让后端挂到超时，关闭按钮现在等价于拒绝 */}
+            {permQueue.length > 0 && (
                 <PermissionDialog
-                    permConfirm={permConfirm}
+                    permConfirm={{
+                        open: true,
+                        permissionRequestId: permQueue[0].permissionRequestId,
+                        toolName: permQueue[0].toolName,
+                        toolInput: permQueue[0].toolInput,
+                        title: permQueue.length > 1
+                            ? `${permQueue[0].title || ''}（其后还有 ${permQueue.length - 1} 个待确认）`
+                            : permQueue[0].title,
+                    }}
                     askUserAnswers={askUserAnswers}
                     setAskUserAnswers={setAskUserAnswers}
                     onConfirm={handleConfirmTool}
                     onClose={() => {
-                        setPermConfirm({open: false});
-                        setAskUserAnswers({});
+                        // 关闭即拒绝（防止后端永久等待）
+                        handleConfirmTool('deny');
                     }}
                 />
             )}

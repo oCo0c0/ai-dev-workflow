@@ -116,6 +116,8 @@ export class MCPRegistryService {
             env,
             enabled: config.enabled ?? true,
             source: config.source ?? 'manual',
+            // 可选工作目录（部分 server 按 cwd 推断项目位置），空值不落盘
+            ...(typeof config.cwd === 'string' && config.cwd.trim() ? {cwd: config.cwd} : {}),
         });
         this.save(list);
         return list[list.length - 1];
