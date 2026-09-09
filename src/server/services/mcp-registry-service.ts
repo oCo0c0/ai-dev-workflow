@@ -28,7 +28,7 @@ export interface RegistryServerConfig extends MCPServerConfig {
     source?: string;
 }
 
-/** 注册中心文件内部结构 */
+/** 注册中心文件内部结构（旧格式；仅向后兼容读取，保存一律写标准 mcpServers 格式） */
 interface RegistryFile {
     version: number;
     servers: RegistryServerConfig[];
@@ -238,24 +238,74 @@ export class MCPRegistryService {
 
     // === 私有方法 ===
 
-    /** 读取注册中心文件 */
+    /**
+     * 读取注册中心文件
+     * @description 磁盘格式与 Claude/Cursor 的标准 mcpServers 方言一致：
+     *   {"mcpServers": {"memory": {"type":"stdio","command":"cmd","args":[...]}}}
+     *   停用服务器写 "disabled": true；非手动导入的来源保留 "source" 标记。
+     *   兼容读取旧版 {version, servers:[...]} / 纯数组格式（下次保存自动迁移）。
+     */
     private load(): RegistryServerConfig[] {
         if (!fs.existsSync(this.registryFile)) return [];
         try {
-            const raw = JSON.parse(fs.readFileSync(this.registryFile, 'utf-8'));
-            if (raw && Array.isArray(raw.servers)) return raw.servers as RegistryServerConfig[];
-            if (Array.isArray(raw)) return raw as RegistryServerConfig[]; // 兼容纯数组格式
+            const raw: unknown = JSON.parse(fs.readFileSync(this.registryFile, 'utf-8'));
+            // 标准格式：{mcpServers: {name: {command, args, env, disabled?, cwd?, source?}}}
+            if (raw && typeof raw === 'object' && !Array.isArray(raw)
+                && typeof (raw as {mcpServers?: unknown}).mcpServers === 'object'
+                && (raw as {mcpServers?: unknown}).mcpServers !== null) {
+                const out: RegistryServerConfig[] = [];
+                for (const [name, cfg] of Object.entries((raw as {mcpServers: Record<string, Record<string, unknown>>}).mcpServers)) {
+                    const command = typeof cfg?.command === 'string' ? cfg.command : '';
+                    if (command.trim() === '') continue; // 本注册中心只管 stdio 型；http 型条目跳过
+                    out.push({
+                        name,
+                        type: inferServerType(command),
+                        command,
+                        args: Array.isArray(cfg.args) ? cfg.args.map(String) : [],
+                        env: validateMcpEnv(cfg.env ?? {}),
+                        enabled: cfg.disabled !== true,
+                        source: typeof cfg.source === 'string' && cfg.source !== '' ? cfg.source : 'manual',
+                        ...(typeof cfg.cwd === 'string' && cfg.cwd.trim() !== '' ? {cwd: cfg.cwd} : {}),
+                    });
+                }
+                return out;
+            }
+            // 旧格式兼容：{version, servers: [...]} 或纯数组
+            const legacy = raw && Array.isArray((raw as RegistryFile).servers)
+                ? (raw as RegistryFile).servers
+                : Array.isArray(raw) ? raw as RegistryServerConfig[] : undefined;
+            if (legacy) {
+                return legacy.map(s => ({
+                    ...s,
+                    args: Array.isArray(s.args) ? s.args : [],
+                    env: s.env ?? {},
+                    enabled: s.enabled ?? true,
+                    source: s.source ?? 'manual',
+                }));
+            }
         } catch {
             // 解析失败按空处理
         }
         return [];
     }
 
-    /** 写入注册中心文件 */
+    /** 写入注册中心文件（标准 mcpServers 格式） */
     private save(servers: RegistryServerConfig[]): void {
         fs.mkdirSync(path.dirname(this.registryFile), {recursive: true});
-        const data: RegistryFile = {version: 1, servers};
-        fs.writeFileSync(this.registryFile, JSON.stringify(data, null, 2), 'utf-8');
+        const mcpServers: Record<string, Record<string, unknown>> = {};
+        for (const s of servers) {
+            const entry: Record<string, unknown> = {
+                type: 'stdio',
+                command: s.command,
+            };
+            if (s.args.length > 0) entry.args = s.args;
+            if (Object.keys(s.env).length > 0) entry.env = s.env;
+            if (typeof s.cwd === 'string' && s.cwd.trim() !== '') entry.cwd = s.cwd;
+            if (s.enabled === false) entry.disabled = true; // 启用态不落盘（标准格式默认启用）
+            if (s.source && s.source !== 'manual') entry.source = s.source;
+            mcpServers[s.name] = entry;
+        }
+        fs.writeFileSync(this.registryFile, JSON.stringify({mcpServers}, null, 2), 'utf-8');
     }
 
     /**

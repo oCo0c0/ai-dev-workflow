@@ -11,8 +11,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import type {
+  MCPServerConfig,
   Requirement,
-  RequirementSourceEntry,
   SavedRequirement,
 } from '@along/adw-requirement-core'
 import * as api from './api.ts'
@@ -84,7 +84,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 export function AdwPanel(props: { controller: PanelController; services: PanelServices }): React.JSX.Element {
   const { controller, services } = props
 
-  const [sources, setSources] = useState<RequirementSourceEntry[]>([])
+  const [servers, setServers] = useState<MCPServerConfig[]>([])
   const [serverName, setServerName] = useState('')
   const [input, setInput] = useState('')
   const [view, setView] = useState<View>({ kind: 'list' })
@@ -98,7 +98,7 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
   /** Reload the saved list (and sources when asked). */
   const reload = useCallback(async (withSources = false): Promise<void> => {
     try {
-      if (withSources) setSources(await api.listSources())
+      if (withSources) setServers(await api.listServers())
       setReqs(await api.listRequirements())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -127,8 +127,10 @@ export function AdwPanel(props: { controller: PanelController; services: PanelSe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Configured server options across sources. */
-  const serverOptions = sources.flatMap(s => s.servers.map(name => ({ value: name, label: `${s.label} · ${name}` })))
+  /** Enabled server options (agent-mediated fetch mounts all when auto). */
+  const serverOptions = servers
+    .filter(s => s.enabled)
+    .map(s => ({ value: s.name, label: s.name }))
 
   /** Run one requirement development through a real session. */
   const runExecution = useCallback(async (req: SavedRequirement, target: ExecuteTarget, prompt: string): Promise<void> => {
@@ -307,7 +309,7 @@ function ListPage(props: {
     return (
       <div className="adw-firstRun">
         <div className="adw-firstRunTitle">从配置一个需求源开始</div>
-        <div className="adw-hint">打开 设置 → 插件 →「需求源」配置 ONES / GitHub / 自定义 MCP；</div>
+        <div className="adw-hint">打开 设置 → 插件 →「需求源」添加一个 MCP 服务器（ONES / GitHub / GitLab / 任意源，stdio 或 http(s)）；</div>
         <div className="adw-hint">配置完成后回到这里，在上方输入需求号 / issue key / 链接拉取需求。</div>
       </div>
     )

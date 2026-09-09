@@ -8,7 +8,6 @@
 import type {
   MCPServerConfig,
   Requirement,
-  RequirementSourceEntry,
   SavedRequirement,
   ExecutionLink,
 } from '@along/adw-requirement-core'
@@ -41,12 +40,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-/** GET /sources — requirement source catalog. */
-export function listSources(): Promise<RequirementSourceEntry[]> {
-  return call('/sources')
-}
-
-/** POST /fetch — fetch one requirement by input dialect and save it. */
+/** POST /fetch — fetch one requirement by input dialect and save it (agent-mediated). */
 export function fetchRequirement(input: string, serverName?: string): Promise<SavedRequirement> {
   return call('/fetch', { method: 'POST', body: JSON.stringify({ input, serverName }) })
 }
@@ -132,14 +126,6 @@ export function settleExecution(
   })
 }
 
-/** POST /sources/:adapterId/install — one-click source install. */
-export function installSource(adapterId: string, env: Record<string, string>): Promise<{ serverName: string; connectionTest?: { ok: boolean; message: string } }> {
-  return call(`/sources/${encodeURIComponent(adapterId)}/install`, {
-    method: 'POST',
-    body: JSON.stringify({ env }),
-  })
-}
-
 /** POST /servers/:name/test — connection test. */
 export function testServer(name: string): Promise<{ ok: boolean; message: string }> {
   return call(`/servers/${encodeURIComponent(name)}/test`, { method: 'POST' })
@@ -150,7 +136,7 @@ export function removeServer(name: string): Promise<{ success: boolean }> {
   return call(`/servers/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
 
-/** GET /servers — all configured MCP servers (catalog-installed + custom). */
+/** GET /servers — all configured MCP servers. */
 export function listServers(): Promise<MCPServerConfig[]> {
   return call('/servers')
 }

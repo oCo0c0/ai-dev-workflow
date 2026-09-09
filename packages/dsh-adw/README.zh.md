@@ -3,10 +3,11 @@
 把 adw（ai-dev-workbench）的需求能力做成 DeepSeek Harness（DSH）的可插拔插件：
 
 - **侧边栏「需求工作台」入口**：DSH Web GUI 中列打开需求面板；
-- **需求文档自动获取**：从需求源（ONES / GitHub Issues / 自定义 MCP）按需求号 / issue key / 链接拉取需求详情（描述、验收标准、附件），**无需手动录入**；
-- **需求源完全自管**：ONES / GitHub 各自独立配置，凭据保存在插件自己的文件 `~/.dsh/dsh-adw/mcp-servers.json`（修改即时生效），**不读写任何其它工具的配置**（`~/.claude` 等），互不影响；
-- **标准 MCP 配置方言**：自定义 MCP 服务器支持两种形态——本地 stdio（`npx` / `python` / `docker` / 任意可执行；Windows 自动 `cmd /c` 归一化，npx 不再 ENOENT）与远程 http(s) URL（Streamable HTTP 优先、SSE 自动回退；env 映射为请求头可放 token）；与 Claude/Cursor 的 `mcpServers` 片段直接兼容，粘进来即可用；
-- **官方设置页专属 tab**：设置 → 插件 →「需求源」tab（官方 `settings.plugins.tab` 槽位）——**全部配置集中于此**：ONES / GitHub 源、自定义 MCP（stdio / http url）、MinerU 服务地址；需求工作台面板本身**没有任何配置入口**，只做拉取与开发；
+- **需求文档自动获取**：按需求号 / issue key / 链接拉取需求详情（描述、验收标准、附件），**无需手动录入**；
+- **agent 中介拉取（标准 MCP 消费模式）**：拉取/搜索由 AI 引擎驱动——动态面对已挂载的 MCP 工具，读 schema、自主选择与调用、失败换参换工具自愈，统一 JSON 契约输出；与 adw 本体（`src/server/services/requirement-agent-fetch.ts`）同一架构，**零源硬编码**——新增需求源（GitLab / Jira / 任意 MCP server）只需配置 server，不用改一行代码；
+- **模型运行时**：复用官方 `ctx.llm`（LlmRuntime，provider 中立流式协议）；模型解析顺序 = 插件设置（`agentProvider`+`agentModel`）> 宿主默认模型（`agentDefaultModel.currentSelection()`）> 首个注册 provider 的首个模型；每次会话惰性解析，改设置即时生效；
+- **MCP 配置完全自管**：支持本地 stdio（`npx` / `python` / `docker` / 任意可执行；Windows 自动 `cmd /c` 归一化，npx 不再 ENOENT）与远程 http(s) URL（Streamable HTTP 优先、SSE 自动回退；env 映射为请求头可放 token）两种形态，与 Claude/Cursor 的 `mcpServers` 片段直接兼容；凭据保存在插件自己的文件 `~/.dsh/dsh-adw/mcp-servers.json`（修改即时生效），**不读写任何其它工具的配置**，互不影响；
+- **官方设置页专属 tab**：设置 → 插件 →「需求源」tab（官方 `settings.plugins.tab` 槽位）——**全部配置集中于此**：MCP 服务器管理（stdio / http url）、MinerU 服务地址；需求工作台面板本身**没有任何配置入口**，只做拉取与开发；
 - **附件图片本地化**：拉取时自动下载需求内图片（wiki token / 富文本内嵌 / 直连三段策略），描述与附件改写为本地地址（`/api/dsh-adw/requirements/<id>/images/<file>`，仅本机回环可访问），面板直接内嵌展示，不回源泄露地址；
 - **附件就地解析**：需求详情的附件栏每个附件带「解析」按钮——MinerU 解析结果（Markdown）直接拼在该附件行下方展示，配置一次服务处处可用；
 - **MinerU 文档解析**：配置 MinerU 服务地址后，`adw_parse_document` 工具把 PDF / Word / PPT / Excel / 截图解析为 Markdown（OCR、表格、公式、版面分析）——输入支持本地绝对路径、http(s) URL、以及已保存需求的附件引用 `adw-image://<需求id>/<文件名>`，正好补上「DSH 无视觉能力 + 需求附件是 PRD 截图」的场景；
@@ -20,7 +21,8 @@
 
 ```sh
 cd packages/adw-requirement-core
-pnpm install --ignore-workspace && pnpm run build     # 内核（适配器 + MCP 桥接 + 存储 + MinerU 客户端）
+pnpm install --ignore-workspace && pnpm run build     # 内核（agent 拉取 + MCP 传输桥 + 存储 + MinerU 客户端）
+pnpm test                                             # vitest（agent-fetch / store 单测）
 
 cd ../dsh-adw
 pnpm install --ignore-workspace && pnpm run build     # 插件（tsc 类型检查 ×2 + esbuild 双 bundle）
@@ -31,8 +33,7 @@ pnpm install --ignore-workspace && pnpm run build     # 插件（tsc 类型检�
 验证（可选）：
 
 ```sh
-node packages/adw-requirement-core/scripts/smoke.mjs   # 内核 11 组断言
-node packages/dsh-adw/scripts/smoke.mjs                # 宿主半断言（路由/工具/栅栏/存储/自定义 MCP/MinerU 降级）
+node packages/dsh-adw/scripts/smoke.mjs                # 宿主半断言（路由/工具/栅栏/存储/MCP 服务器/MinerU 降级）
 ```
 
 ## 安装 / 卸载
@@ -53,13 +54,13 @@ dsh plugin --profile web remove @along/dsh-adw
 安装并重启后，一键验证（在 `packages/dsh-adw` 下）：
 
 ```sh
-node scripts/verify-install.mjs [port]    # 默认 3080；检查源目录/需求列表/浏览器半三组接口
+node scripts/verify-install.mjs [port]    # 默认 3080；检查 MCP 服务器/需求列表/浏览器半三组接口
 ```
 
 脚本通过后，人工检查浏览器（刷新页面）：
 
-1. 侧边栏「新会话」下方出现「需求工作台」→ 面板顶栏选源、输入需求号（如 `CWXT-130341`）点「拉取」→ 详情页「执行开发」→ 选工作区 → 确认执行 → 会话真实跑完、卡片回写「已完成/已失败」；
-2. 设置 → 插件 →「需求源」tab 可见，与官方「可配置插件」tab 并排；tab 内可配置 ONES / GitHub 源、添加自定义 MCP（stdio/url）、配置 MinerU 地址并健康检查；需求工作台面板顶栏无「源」按钮；
+1. 侧边栏「新会话」下方出现「需求工作台」→ 面板顶栏选 MCP server（或自动解析）、输入需求号（如 `CWXT-130341`）点「拉取」→ agent 中介拉取成功（需已配置模型与至少一个 server）→ 详情页「执行开发」→ 选工作区 → 确认执行 → 会话真实跑完、卡片回写「已完成/已失败」；
+2. 设置 → 插件 →「需求源」tab 可见，与官方「可配置插件」tab 并排；tab 内可添加/测试/移除 MCP 服务器（stdio/url）、配置 MinerU 地址并健康检查；需求工作台面板顶栏无「源」按钮；
 3. 任意会话输入「列出已保存的需求」→ agent 调用 `adw_list_requirements`；
 4. 配置 MinerU 后会话输入「用 MinerU 解析 xx.pdf」→ agent 调用 `adw_parse_document`；
 5. 会话里 agent 知道「需求工作台」的存在（公告段 `plugin:dsh-adw`）。
@@ -74,16 +75,20 @@ node scripts/verify-install.mjs [port]    # 默认 3080；检查源目录/需求
 | `announceToAgent` | 系统提示公告开关 |
 | `devPromptTemplate` | 开发 Prompt 模板（占位符 `{{title}}/{{number}}/{{description}}/{{acceptanceCriteria}}` 等） |
 | `defaultServerName` | 默认需求源（MCP 服务器名；空 = 自动解析） |
+| `agentProvider` | 拉取/搜索 agent 的模型 provider 路由（空 = 跟随宿主默认模型） |
+| `agentModel` | 拉取/搜索 agent 的模型 id（需与 `agentProvider` 同时设置） |
 | `mineruUrl` | MinerU 服务地址（如 `http://127.0.0.1:8000`；空 = 禁用文档解析） |
+| `mineruBackend` | MinerU 解析后端（默认 `pipeline` 纯 CPU；`vlm*` / `hybrid*` 需服务端有 GPU 设备） |
+| `mineruLang` | MinerU OCR 语言（默认 `ch`；逗号分隔如 `ch,en`） |
 
 ## 结构
 
 ```
 packages/
 ├── adw-requirement-core/   # 需求内核（零 DSH 依赖；adw 本体未来可改为复用）
-│   └── src/ requirement-sources/（适配器）· mcp-bridge（stdio+http 传输）· mcp-config · mineru-client · store · engine
+│   └── src/ agent-fetch（AgentLlm 端口 + agent 循环 + JSON 契约）· requirement-sources/（中立数据模型 + 契约映射器）· mcp-bridge（纯传输池：stdio+http）· mcp-config · ones-image-service · mineru-client · store · engine
 └── dsh-adw/                # 双面插件
-    ├── src/index.ts        # 宿主半：引擎 + /api/dsh-adw/* 路由 + agent 工具 + 公告 + 设置
-    ├── src/host/           # routes · tools（含 adw_parse_document）· mineru · loopback
+    ├── src/index.ts        # 宿主半：引擎 + ctx.llm 接线 + /api/dsh-adw/* 路由 + agent 工具 + 公告 + 设置
+    ├── src/host/           # agent-llm（AgentLlm → ctx.llm 适配）· routes · tools（含 adw_parse_document）· mineru · loopback
     └── src/client/         # 浏览器半：侧边栏入口 + 面板 + 设置卡 + 执行服务 + api client
 ```

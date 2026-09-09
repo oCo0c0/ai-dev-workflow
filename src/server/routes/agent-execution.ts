@@ -231,16 +231,22 @@ export function createAgentExecutionRoutes(
                 return res.status(404).json({code: 'NOT_FOUND', message: 'Execution not found'});
             }
 
-            // 添加用户消息到日志（JSON 格式，避免字符串前缀误判）
-            const userMsg = JSON.stringify({type: 'user', content: message});
-            await store.addLog(id, userMsg);
-
             if (execution.status === 'running') {
-                // 运行中：消息进入排队（本轮结束后由 coordinator 自动续跑消费）
+                // 运行中：消息进入 pendingReplies 排队，不写对话日志——
+                // 消费时（自动续跑/立即处理）才落日志上屏，避免插入当前轮输出导致顺序错乱
+                await store.queueReply(id, message);
                 coordinator.markQueuedReply(id);
                 res.json({success: true, queued: true});
                 return;
             }
+
+            // 非 running：立即写入对话日志（此场景下消息马上被消费，上屏时机即消费时机）
+            const userMsg = JSON.stringify({type: 'user', content: message});
+            await store.addLog(id, userMsg);
+            broadcast({
+                type: 'agent-execution:log',
+                data: {executionId: id, log: userMsg},
+            });
 
             // 如果执行已完成/失败/中止，直接重新执行（coordinator 内部会设 running 并广播）
             if (execution.status === 'completed' || execution.status === 'failed' || execution.status === 'aborted') {

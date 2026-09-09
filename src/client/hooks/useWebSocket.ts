@@ -367,18 +367,10 @@ export function useWebSocket() {
                         break;
 
                     // Agent执行页 - 状态变更
+                    // 状态由页面徽章展示，不再写「🚀 状态: xxx」日志行（避免冗余刷屏）
                     case 'agent-execution:status':
                         const execStatus = message.data?.status;
                         if (execStatus) {
-                            const statusEmoji = execStatus === 'analyzing' ? '🔍' :
-                                execStatus === 'ready' ? '✅' :
-                                    execStatus === 'running' ? '🚀' :
-                                        execStatus === 'paused' ? '⏸️' :
-                                            execStatus === 'completed' ? '🎉' :
-                                                execStatus === 'failed' ? '❌' : '⏹️';
-                            if (typeof message.data?.executionId === 'string') {
-                                addAgentLogToExecution(message.data.executionId, `${statusEmoji} 状态: ${execStatus}`);
-                            }
                             window.dispatchEvent(new CustomEvent('agent-execution:update', {
                                 detail: {type: 'status', executionId: message.data?.executionId, status: execStatus}
                             }));
@@ -386,14 +378,14 @@ export function useWebSocket() {
                         break;
 
                     // Agent执行页 - 完成通知
+                    // 正常完成不打日志（状态徽章已表达）；仅中止/失败保留一条可追溯提示
                     case 'agent-execution:complete':
                         const completeStatus = message.data?.status;
                         if (typeof message.data?.executionId === 'string') {
-                            const statusEmoji2 = completeStatus === 'completed' ? '🎉 Agent执行完成！' :
-                                completeStatus === 'aborted' ? '⏹️ Agent执行已中止' :
-                                    completeStatus === 'failed' ? '❌ Agent执行失败' : '';
-                            if (statusEmoji2) {
-                                addAgentLogToExecution(message.data.executionId, statusEmoji2);
+                            const completeNote = completeStatus === 'aborted' ? '⏹️ Agent执行已中止' :
+                                completeStatus === 'failed' ? '❌ Agent执行失败' : '';
+                            if (completeNote) {
+                                addAgentLogToExecution(message.data.executionId, completeNote);
                             }
                         }
                         if (message.data?.executionId && message.data?.status) {

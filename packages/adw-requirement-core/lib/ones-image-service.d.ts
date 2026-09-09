@@ -12,11 +12,12 @@
  *
  *   认证 session 会缓存直到过期。
  */
+import type { AttachmentImageService } from './requirement-sources/types.js';
 /**
  * ONES 图片下载服务
  * @description 封装 ONES PKCE 认证和 wiki 图片下载逻辑，session 和 wiki page token 自动缓存复用。
  */
-export declare class OnesImageService {
+export declare class OnesImageService implements AttachmentImageService {
     private readonly apiBase;
     private readonly email;
     private readonly password;
@@ -25,7 +26,7 @@ export declare class OnesImageService {
     private readonly wikiPageCache;
     /** GraphQL 查询任务的 relatedWikiPages */
     private static readonly TASK_DETAIL_QUERY;
-    /** GraphQL 查询任务原始富文本描述（用于提取 <img> 附件 URL） */
+    /** GraphQL 查询任务原始富文本描述（用于提取 <img> 附件 URL 与 wiki 页链接） */
     private static readonly TASK_RICH_TEXT_QUERY;
     constructor(apiBase: string, email: string, password: string);
     /**
@@ -43,8 +44,10 @@ export declare class OnesImageService {
      * 通过 GraphQL 查询任务关联的 wiki page UUID 列表
      * @description 两个来源取并集：
      *   1. GraphQL relatedWikiPages（wiki 挂在任务关联上）
-     *   2. 任务描述富文本中的 wiki 页链接（ai-dev-requirements 0.3.1 起对
+     *   2. 任务描述文本中的 wiki 页链接（ai-dev-requirements 0.3.1 起对
      *      子需求等条目，wiki 链接只出现在描述正文里，relatedWikiPages 为空）
+     *      路由形态与 ONES 前端一致：/team/{t}/page/{uuid}，space 段可选
+     *      （子需求正文里的链接普遍缺 space 段，旧行为因此匹配不到）
      * @param taskUuid - 任务/需求 UUID
      */
     getWikiPageUuids(taskUuid: string): Promise<string[]>;
@@ -132,4 +135,13 @@ export declare class OnesImageService {
     /** 下载文件到本地（无认证） */
     private downloadFile;
 }
+/**
+ * 按 MCP server 配置的 env 检测构建附件图片服务
+ * @description agent 中介拉取源零硬编码；唯一例外是附件图片认证下载——
+ *   ONES 的 wiki 图片需要 PKCE 认证，按 env 痕迹（ONES_API_BASE /
+ *   ONES_ACCOUNT / ONES_PASSWORD 齐备）检测构建。未命中返回 undefined。
+ */
+export declare function createAttachmentImageService(config: {
+    env?: Record<string, string>;
+} | undefined): AttachmentImageService | undefined;
 //# sourceMappingURL=ones-image-service.d.ts.map

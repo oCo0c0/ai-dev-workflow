@@ -1,7 +1,9 @@
 /**
  * Agent tools: every dsh session's agent can fetch requirement documents
- * through the same engine the web UI uses. A host configured in the GUI is
- * immediately operable by any agent, and vice versa — the user can say
+ * through the same agent-mediated engine the web UI uses (the AI engine
+ * dynamically reads mounted MCP tool schemas and drives the fetch itself —
+ * standard MCP consumption, zero per-source code). A host configured in the
+ * GUI is immediately operable by any agent, and vice versa — the user can say
  * "拉取 CWXT-130341 并开发" and the agent fetches the document itself.
  *
  * Output schemas use the dsh-tools value-schema DSL (per-property
@@ -81,11 +83,12 @@ function renderDetail(req: SavedRequirement): string {
 export function adwFetchTool(engine: RequirementEngine) {
   return defineTool({
     name: 'adw_fetch_requirement',
-    description: 'Fetch one requirement document from a configured requirement source (ONES / GitHub Issues / generic MCP) by input dialect — ONES link / plain number / issue key (CWXT-130341) / owner/repo#N — and save it to the local requirement store. ' +
+    description: 'Fetch one requirement document from a configured requirement source (ONES / GitHub Issues / GitLab / any MCP server) by input dialect — ONES link / plain number / issue key (CWXT-130341) / owner/repo#N — and save it to the local requirement store. ' +
+      'The fetch is agent-mediated: the engine mounts the source MCP tools, and an AI model reads the tool schemas and drives the calls itself. ' +
       'Returns the full document (title, description, acceptance criteria, attachments). Triggers: the user mentions a requirement, ticket, issue number, or asks to pull/develop a requirement.',
     parameters: {
       input: { type: 'string', required: true, description: 'Requirement locator in the source dialect: ONES link, plain/`#`number, issue key, or owner/repo#N.' },
-      serverName: { type: 'string', description: 'Optional target MCP server (from the source catalog); omit for auto-resolution.' },
+      serverName: { type: 'string', description: 'Optional target MCP server (from the configured servers); omit for auto-resolution.' },
     },
     output: {
       schema: {
@@ -184,7 +187,7 @@ export function adwListTool(engine: RequirementEngine) {
 export function adwSearchTool(engine: RequirementEngine) {
   return defineTool({
     name: 'adw_search_requirements',
-    description: 'Search requirements in an external requirement source through MCP (query-only, nothing is saved). Use it to locate a requirement id before fetching, or to answer "有哪些相关的需求".',
+    description: 'Search requirements in an external requirement source (agent-mediated over MCP, query-only, nothing is saved). Use it to locate a requirement id before fetching, or to answer "有哪些相关的需求".',
     parameters: {
       query: { type: 'string', required: true, description: 'Search keyword (title/id matching depends on the source).' },
       serverName: { type: 'string', description: 'Optional target MCP server; omit for auto-resolution.' },

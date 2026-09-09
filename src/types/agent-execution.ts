@@ -71,4 +71,10 @@ export interface AgentExecution extends AgentExecutionSummary {
     logs: string[];
     error?: string;
     sessionId?: string;
+    /**
+     * 运行中排队的用户回复（尚未消费）。
+     * 排队期间不写入 logs——消费时（自动续跑/立即处理/手动 start）
+     * 由 coordinator 统一落日志，保证消息上屏时机=实际执行时机。
+     */
+    pendingReplies?: string[];
 }

@@ -3,7 +3,7 @@
  *   node scripts/verify-install.mjs [port]     # 默认 3080
  *
  * 检查四件事：
- *   1. GET /api/dsh-adw/sources            → 源目录 JSON（ones / github）
+ *   1. GET /api/dsh-adw/servers          → MCP 服务器列表（agent 中介拉取的源）
  *   2. GET /api/dsh-adw/requirements       → 已保存需求 JSON
  *   3. GET /plugins/ui-dsh-adw/client.js   → 浏览器半被服务（__ModuleLoader__ 包装）
  *   4. 前三项通过后提示人工检查项（侧边栏入口 / 拉取 / 执行）
@@ -46,10 +46,11 @@ async function getJson(path) {
 
 console.log(`dsh-adw 安装验证（${base}）\n`)
 
-const sourcesOk = await check('GET /api/dsh-adw/sources（源目录）', async () => {
-  const sources = await getJson('/api/dsh-adw/sources')
-  if (!Array.isArray(sources) || sources.length < 2) throw new Error('源目录为空或少于 2 项')
-  return sources.map(s => `${s.adapterId}${s.servers.length ? '[' + s.servers.join(',') + ']' : '[未配置]'}`).join(' ')
+const sourcesOk = await check('GET /api/dsh-adw/servers（MCP 服务器）', async () => {
+  const servers = await getJson('/api/dsh-adw/servers')
+  if (!Array.isArray(servers)) throw new Error('不是数组')
+  if (servers.length === 0) throw new Error('未配置任何 MCP server（到 设置 → 插件 → 需求源 添加）')
+  return servers.map(s => `${s.name}[${s.enabled ? '启用' : '停用'}]`).join(' ')
 })
 
 await check('GET /api/dsh-adw/requirements（已保存需求）', async () => {
@@ -79,5 +80,5 @@ if (failed > 0) {
 
 console.log('接口层全部通过。请继续人工检查浏览器端（刷新页面后）：')
 console.log('  1. 侧边栏「新会话」下方出现「需求工作台」入口')
-if (sourcesOk) console.log('  2. 输入需求号（如 CWXT-130341）→ 拉取 → 详情 → 执行开发 → 选工作区 → 确认执行')
+if (sourcesOk) console.log('  2. 输入需求号（如 CWXT-130341）→ 拉取（agent 中介，需模型已配置）→ 详情 → 执行开发 → 选工作区 → 确认执行')
 console.log('  3. 任意会话输入「列出已保存的需求」→ agent 调用 adw_list_requirements')

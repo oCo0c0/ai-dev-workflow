@@ -325,6 +325,45 @@ export class AgentExecutionStore {
     }
 
     /**
+     * 运行中的用户回复入队：写入 pendingReplies，不落对话日志。
+     * 消费时由 drainPendingReplies 统一写入，保证上屏时机=执行时机。
+     */
+    async queueReply(executionId: string, message: string): Promise<void> {
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+
+            execution.pendingReplies = [...(execution.pendingReplies ?? []), message];
+            await this.saveInternal(execution);
+        });
+    }
+
+    /**
+     * 消费排队回复：逐条写入 user 日志（JSON 格式）并清空队列。
+     * @returns 本次消费的消息（保持入队顺序；无排队时为空数组）
+     */
+    async drainPendingReplies(executionId: string): Promise<string[]> {
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+
+            const pending = execution.pendingReplies ?? [];
+            if (pending.length === 0) return [];
+
+            for (const message of pending) {
+                execution.logs.push(JSON.stringify({type: 'user', content: message}));
+            }
+            execution.pendingReplies = [];
+            await this.saveInternal(execution);
+            return pending;
+        });
+    }
+
+    /**
      * 更新子任务状态
      */
     async updateSubTask(executionId: string, subTaskId: string, updates: Partial<SubTask>): Promise<void> {

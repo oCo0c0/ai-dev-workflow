@@ -93,9 +93,9 @@ function toStored(name, config) {
     const env = validateMcpEnv(config.env);
     if (config.url !== undefined && config.url.trim() !== '') {
         validateMcpUrl(config.url.trim());
-        const stored = { url: config.url.trim() };
+        const stored = { type: 'http', url: config.url.trim() };
         if (Object.keys(env).length > 0)
-            stored.env = env;
+            stored.headers = env; // http 型认证头用标准 headers 键
         return stored;
     }
     if (config.command === undefined || config.command.trim() === '') {
@@ -103,21 +103,21 @@ function toStored(name, config) {
     }
     validateMcpCommand(config.command);
     const args = validateMcpArgs(config.args);
-    const stored = { command: config.command };
+    const stored = { type: 'stdio', command: config.command };
     if (args.length > 0)
         stored.args = args;
     if (Object.keys(env).length > 0)
         stored.env = env;
     return stored;
 }
-/** 存储形态 → 完整配置（含类型推断）。 */
+/** 存储形态 → 完整配置（含类型推断；headers（标准）优先，兼容旧 env 键）。 */
 function fromStored(name, stored) {
     if (stored.url !== undefined && stored.url.trim() !== '') {
-        return { name, type: 'http', command: '', args: [], env: stored.env ?? {}, url: stored.url.trim(), enabled: true, status: 'disconnected' };
+        return { name, type: 'http', command: '', args: [], env: stored.headers ?? stored.env ?? {}, url: stored.url.trim(), enabled: stored.disabled !== true, status: 'disconnected' };
     }
     const command = stored.command ?? '';
     const args = stored.args ?? [];
-    return { name, type: inferType(command, args), command, args, env: stored.env ?? {}, enabled: true, status: 'disconnected' };
+    return { name, type: inferType(command, args), command, args, env: stored.env ?? {}, enabled: stored.disabled !== true, status: 'disconnected' };
 }
 /**
  * MCP 配置服务类

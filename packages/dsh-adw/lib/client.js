@@ -22238,9 +22238,6 @@ async function call(path2, init) {
   }
   return body;
 }
-function listSources() {
-  return call("/sources");
-}
 function fetchRequirement(input, serverName) {
   return call("/fetch", { method: "POST", body: JSON.stringify({ input, serverName }) });
 }
@@ -22288,12 +22285,6 @@ function settleExecution(id, executionId, outcome, error) {
     body: JSON.stringify({ outcome, error })
   });
 }
-function installSource(adapterId, env2) {
-  return call(`/sources/${encodeURIComponent(adapterId)}/install`, {
-    method: "POST",
-    body: JSON.stringify({ env: env2 })
-  });
-}
 function testServer(name2) {
   return call(`/servers/${encodeURIComponent(name2)}/test`, { method: "POST" });
 }
@@ -22332,7 +22323,7 @@ var OUTCOME_LABEL = {
 };
 function AdwPanel(props) {
   const { controller, services } = props;
-  const [sources, setSources] = (0, import_react2.useState)([]);
+  const [servers, setServers] = (0, import_react2.useState)([]);
   const [serverName, setServerName] = (0, import_react2.useState)("");
   const [input, setInput] = (0, import_react2.useState)("");
   const [view, setView] = (0, import_react2.useState)({ kind: "list" });
@@ -22342,7 +22333,7 @@ function AdwPanel(props) {
   const [running, setRunning] = (0, import_react2.useState)(/* @__PURE__ */ new Set());
   const reload = (0, import_react2.useCallback)(async (withSources = false) => {
     try {
-      if (withSources) setSources(await listSources());
+      if (withSources) setServers(await listServers());
       setReqs(await listRequirements());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -22366,7 +22357,7 @@ function AdwPanel(props) {
       }
     })();
   }, []);
-  const serverOptions = sources.flatMap((s2) => s2.servers.map((name2) => ({ value: name2, label: `${s2.label} \xB7 ${name2}` })));
+  const serverOptions = servers.filter((s2) => s2.enabled).map((s2) => ({ value: s2.name, label: s2.name }));
   const runExecution = (0, import_react2.useCallback)(async (req, target, prompt) => {
     const title = `[ADW] ${req.number ?? req.id} ${req.title}`.trim();
     setRunning((prev) => new Set(prev).add(req.id));
@@ -22534,7 +22525,7 @@ function ListPage(props) {
   if (reqs.length === 0 && !anyConfigured) {
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "adw-firstRun", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-firstRunTitle", children: "\u4ECE\u914D\u7F6E\u4E00\u4E2A\u9700\u6C42\u6E90\u5F00\u59CB" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-hint", children: "\u6253\u5F00 \u8BBE\u7F6E \u2192 \u63D2\u4EF6 \u2192\u300C\u9700\u6C42\u6E90\u300D\u914D\u7F6E ONES / GitHub / \u81EA\u5B9A\u4E49 MCP\uFF1B" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-hint", children: "\u6253\u5F00 \u8BBE\u7F6E \u2192 \u63D2\u4EF6 \u2192\u300C\u9700\u6C42\u6E90\u300D\u6DFB\u52A0\u4E00\u4E2A MCP \u670D\u52A1\u5668\uFF08ONES / GitHub / GitLab / \u4EFB\u610F\u6E90\uFF0Cstdio \u6216 http(s)\uFF09\uFF1B" }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "adw-hint", children: "\u914D\u7F6E\u5B8C\u6210\u540E\u56DE\u5230\u8FD9\u91CC\uFF0C\u5728\u4E0A\u65B9\u8F93\u5165\u9700\u6C42\u53F7 / issue key / \u94FE\u63A5\u62C9\u53D6\u9700\u6C42\u3002" })
     ] });
   }
@@ -23062,9 +23053,7 @@ var import_react4 = require("react");
 var import_react3 = require("react");
 var import_jsx_runtime4 = require("react/jsx-runtime");
 function SourceConfigBody(props) {
-  const { sources, onChanged } = props;
-  const [openId, setOpenId] = (0, import_react3.useState)("");
-  const [env2, setEnv] = (0, import_react3.useState)({});
+  const { onChanged } = props;
   const [busy, setBusy] = (0, import_react3.useState)("");
   const [note, setNote] = (0, import_react3.useState)(void 0);
   const run = (0, import_react3.useCallback)((key, fn) => {
@@ -23082,94 +23071,6 @@ function SourceConfigBody(props) {
     })();
   }, [onChanged]);
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-srcList", children: [
-    sources.map((source) => {
-      const configured = source.servers.length > 0;
-      const expanded = openId === source.adapterId;
-      const key = source.adapterId;
-      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-srcRow", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-srcRowHead", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { children: source.label }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-badge", "data-tone": configured ? "succeeded" : "", children: configured ? source.servers.join("\u3001") : "\u672A\u914D\u7F6E" }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-srcSpacer" }),
-          configured ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              "button",
-              {
-                type: "button",
-                className: "adw-btn adw-btnSm",
-                disabled: busy !== "",
-                onClick: () => run(key, async () => {
-                  const r = await testServer(source.servers[0]);
-                  return r.ok ? "\u8FDE\u63A5\u6210\u529F" : `\u8FDE\u63A5\u5931\u8D25\uFF1A${r.message}`;
-                }),
-                children: "\u6D4B\u8BD5"
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              "button",
-              {
-                type: "button",
-                className: "adw-btn adw-btnSm adw-btnDanger",
-                disabled: busy !== "",
-                onClick: () => run(key, async () => {
-                  await removeServer(source.servers[0]);
-                  return "\u5DF2\u79FB\u9664\u914D\u7F6E";
-                }),
-                children: "\u79FB\u9664"
-              }
-            )
-          ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
-            setOpenId(expanded ? "" : key);
-            setEnv({});
-            setNote(void 0);
-          }, children: expanded ? "\u6536\u8D77" : "\u914D\u7F6E" })
-        ] }),
-        expanded && source.installTemplate !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "adw-srcForm", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-formGrid", children: [
-          source.installTemplate.envSpecs.map((spec) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_react3.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "adw-formLabel", children: [
-              spec.label,
-              spec.required ? " *" : ""
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-formCtrl", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                "input",
-                {
-                  className: "adw-input",
-                  type: spec.secret ? "password" : "text",
-                  value: env2[spec.key] ?? "",
-                  onChange: (e) => setEnv((prev) => ({ ...prev, [spec.key]: e.target.value }))
-                }
-              ),
-              spec.hint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-hint", children: spec.hint })
-            ] })
-          ] }, spec.key)),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-formActions", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              "button",
-              {
-                type: "button",
-                className: "adw-btn adw-btnPrimary adw-btnSm",
-                disabled: busy !== "",
-                onClick: () => run(key, async () => {
-                  const missing = source.installTemplate.envSpecs.filter((s2) => s2.required && (env2[s2.key] ?? "").trim() === "");
-                  if (missing.length > 0) throw new Error(`\u7F3A\u5C11\u5FC5\u586B\u9879\uFF1A${missing.map((m) => m.label).join("\u3001")}`);
-                  const r = await installSource(source.adapterId, env2);
-                  setOpenId("");
-                  return r.connectionTest ? r.connectionTest.ok ? "\u5DF2\u914D\u7F6E\u5E76\u8FDE\u63A5\u6210\u529F" : `\u5DF2\u914D\u7F6E\uFF1B\u8FDE\u63A5\u6D4B\u8BD5\uFF1A${r.connectionTest.message}` : "\u5DF2\u914D\u7F6E";
-                }),
-                children: busy === key ? "\u914D\u7F6E\u4E2D\u2026" : "\u4FDD\u5B58\u5E76\u6D4B\u8BD5"
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
-              setOpenId("");
-              setEnv({});
-            }, children: "\u53D6\u6D88" })
-          ] })
-        ] }) }),
-        busy === key && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "adw-hint", children: "\u5904\u7406\u4E2D\u2026" }),
-        busy !== key && note !== void 0 && note.key === key && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "adw-hint", children: note.text })
-      ] }, key);
-    }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CustomServerSection, { busy, note, run, onChanged }),
     props.mineru !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(MineruConfigRow, { scope: props.mineru.scope })
   ] });
@@ -23391,8 +23292,8 @@ function CustomServerSection(props) {
   }, [reload, onChanged]);
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-customSection", children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "adw-srcRowHead", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { children: "\u81EA\u5B9A\u4E49 MCP \u670D\u52A1\u5668" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-hint", children: "stdio\uFF08npx / python / docker \u2026\uFF09\u6216\u8FDC\u7A0B http(s)\uFF0C\u517C\u5BB9\u6807\u51C6 mcpServers \u914D\u7F6E" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { children: "MCP \u670D\u52A1\u5668\uFF08\u9700\u6C42\u6E90\uFF09" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-hint", children: "\u62C9\u53D6\u7531 AI \u5F15\u64CE\u52A8\u6001\u6D88\u8D39 MCP \u5DE5\u5177\uFF08\u96F6\u6E90\u4EE3\u7801\uFF09\uFF1A\u4EFB\u4F55 stdio\uFF08npx / python / docker \u2026\uFF09\u6216\u8FDC\u7A0B http(s) server \u914D\u597D\u5373\u7528" }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "adw-srcSpacer" }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "adw-btn adw-btnSm", onClick: () => {
         setOpen(!open);
@@ -23474,22 +23375,11 @@ var import_jsx_runtime5 = require("react/jsx-runtime");
 var ADW_SETTINGS_NS = "dsh-adw";
 function AdwSettingsTab(props) {
   const { scope } = props;
-  const [sources, setSources] = (0, import_react4.useState)([]);
   const [error, setError] = (0, import_react4.useState)("");
-  const reload = (0, import_react4.useCallback)(async () => {
-    try {
-      setSources(await listSources());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-  (0, import_react4.useEffect)(() => {
-    void reload();
-  }, [reload]);
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "adw-setTab", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "adw-hint", children: "\u9700\u6C42\u6E90\uFF08ONES / GitHub / \u81EA\u5B9A\u4E49 MCP\uFF09\u51ED\u636E\u4FDD\u5B58\u5728\u63D2\u4EF6\u81EA\u7BA1\u6587\u4EF6 ~/.dsh/dsh-adw/mcp-servers.json\uFF0C\u4FEE\u6539\u5373\u65F6\u751F\u6548\uFF0C\u4E0D\u8BFB\u5199\u4EFB\u4F55\u5176\u5B83\u5DE5\u5177\u7684\u914D\u7F6E\uFF1BMinerU \u5730\u5740\u5B58\u4E8E\u672C\u8BBE\u7F6E\u3002\u914D\u7F6E\u5B8C\u6210\u540E\uFF0C\u5230\u4FA7\u8FB9\u680F\u300C\u9700\u6C42\u5DE5\u4F5C\u53F0\u300D\u62C9\u53D6\u9700\u6C42\u3002" }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "adw-hint", children: "\u9700\u6C42\u6E90 MCP \u914D\u7F6E\u4FDD\u5B58\u5728\u63D2\u4EF6\u81EA\u7BA1\u6587\u4EF6 ~/.dsh/dsh-adw/mcp-servers.json\uFF0C\u4FEE\u6539\u5373\u65F6\u751F\u6548\uFF0C\u4E0D\u8BFB\u5199\u4EFB\u4F55\u5176\u5B83\u5DE5\u5177\u7684\u914D\u7F6E\uFF1BMinerU \u5730\u5740\u5B58\u4E8E\u672C\u8BBE\u7F6E\u3002\u62C9\u53D6\u7531 AI \u5F15\u64CE\u52A8\u6001\u6D88\u8D39 MCP \u5DE5\u5177\uFF08\u96F6\u6E90\u786C\u7F16\u7801\uFF09\uFF0C\u914D\u7F6E\u5B8C\u6210\u540E\u5230\u4FA7\u8FB9\u680F\u300C\u9700\u6C42\u5DE5\u4F5C\u53F0\u300D\u62C9\u53D6\u9700\u6C42\u3002" }),
     error !== "" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "adw-errorText", children: error }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SourceConfigBody, { sources, onChanged: reload, mineru: { scope } })
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SourceConfigBody, { onChanged: () => setError(""), mineru: { scope } })
   ] });
 }
 function createAdwSettingsTab(scope) {

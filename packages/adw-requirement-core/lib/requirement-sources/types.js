@@ -1,12 +1,10 @@
 /**
  * @module requirement-sources/types
- * @description 需求源适配器抽象接口（热插拔）
+ * @description 需求源中立数据模型（源零硬编码）
  *
- * 每个外部需求管理系统（ONES / GitHub Issues / Jira / ...）实现一个适配器，
- * 声明自己的输入方言、MCP 工具解析规则、响应格式解析和附件认证策略。
- * MCP 传输层（MCPBridgeService）只负责连接与调用，所有语义由适配器提供。
- *
- * 扩展方式：实现本接口 + 在 index.ts 注册一行工厂，无需修改任何调用方。
+ * 需求拉取已全面 agent 中介化：AI 引擎动态面对已挂载 MCP 工具（读 schema →
+ * 自主选择与调用 → JSON 契约输出），应用侧不感知任何具体源（ONES / GitHub /
+ * GitLab / Jira / ...）。本文件只保留跨源中立的数据模型与附件图片服务契约。
  */
 export {};
 //# sourceMappingURL=types.js.map

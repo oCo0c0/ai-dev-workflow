@@ -33,7 +33,6 @@ import {ModelProviderStore} from '../model-provider-store.js';
 import {getMcpGateway} from '../../platform/mcp-gateway.js';
 import {
     PiRpcProcess,
-    DEFAULT_PI_TOOLS,
     findSessionFile,
     resolveRpcEntry,
 } from './pi-rpc-process.js';
@@ -67,6 +66,29 @@ const DETECT_SESSION_DIR = path.join(PI_SESSIONS_ROOT, '_detect');
 
 /** adw 平台扩展文件（相对仓库根；rpc-entry 同款向上查找策略） */
 const EXTENSION_REL_PATH = path.join('resources', 'pi-extensions', 'adw-platform.ts');
+
+/**
+ * 从引擎 MCP 注入配置中提取 servers 白名单（网关形态的 ?servers=a,b query）
+ * @description pi 不直接消费 input.mcpServers（平台工具经扩展 REST 面注册），
+ *   但白名单语义需要透传：解析 http 条目 url 的 servers 参数，逗号拼接后
+ *   经 ADW_PLATFORM_SERVERS 传给扩展收敛工具面（与 Claude 侧语义一致）。
+ */
+export function extractMcpServersWhitelist(
+    mcpServers: CLIProviderInput['mcpServers'],
+): string | undefined {
+    if (!mcpServers) return undefined;
+    for (const cfg of Object.values(mcpServers)) {
+        const url = cfg && typeof cfg === 'object' && 'url' in cfg
+            ? String((cfg as {url?: unknown}).url ?? '')
+            : '';
+        if (!url) continue;
+        try {
+            const servers = new URL(url).searchParams.get('servers');
+            if (servers) return servers;
+        } catch { /* 非 URL 形态忽略 */ }
+    }
+    return undefined;
+}
 
 /**
  * 「模型供应商页」provider id → pi 认可的 API key 环境变量名
@@ -273,6 +295,10 @@ export class PiProvider implements CLIProvider {
         // 权限模式与 Claude bridge 语义对齐：调用方未提供 onPermissionRequest
         //（经典 plan/execution 流程）时自动放行；agent-execution 流程走确认弹窗
         env.ADW_PERMISSION_MODE = options?.onPermissionRequest ? 'confirm' : 'auto-allow';
+        // MCP servers 白名单透传：input.mcpServers 的网关形态（?servers=a,b）
+        // 提取后经 ADW_PLATFORM_SERVERS 传给扩展（与 Claude 侧 ?servers= 语义一致）
+        const serversWhitelist = extractMcpServersWhitelist(input.mcpServers);
+        if (serversWhitelist) env.ADW_PLATFORM_SERVERS = serversWhitelist;
         const extensionPath = this.resolveExtensionPath();
         const sessionFile = input.sessionId ? findSessionFile(input.sessionId, sessionDir) : undefined;
         if (input.sessionId && !sessionFile) {
@@ -452,7 +478,11 @@ export class PiProvider implements CLIProvider {
                     provider: model.provider,
                     model: model.model,
                     thinkingLevel: mapReasoningToThinkingLevel(options?.reasoningEffort),
-                    tools: DEFAULT_PI_TOOLS,
+                    // 不传 tools 启用白名单：--tools 是"只启用这些"的硬白名单，
+                    // 会把扩展注册的平台 MCP 工具（<server>__<tool>）静默禁用
+                    //（模型只能看到本地读写/bash 等内置工具）。内置工具面很小
+                    //（read/bash/powershell/edit/write 等），放开无副作用风险，
+                    // 副作用类仍由扩展权限门 confirm 把关。
                     extensionPath,
                     env,
                 },

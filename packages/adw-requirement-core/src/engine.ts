@@ -1,16 +1,19 @@
 /**
  * @file 需求引擎（Facade）
- * @description 组合 MCP 配置、桥接与本地存储，对 dsh-adw 宿主半暴露
- *   「拉取 / 搜索 / 列表 / 刷新 / 执行链接」一体的高层 API。
- *   路由与 agent 工具都只依赖本引擎，不感知适配器与 MCP 细节。
+ * @description 组合 MCP 配置、纯传输桥、agent 中介拉取与本地存储，对 dsh-adw
+ *   宿主半暴露「拉取 / 搜索 / 列表 / 刷新 / 执行链接」一体的高层 API。
+ *   路由与 agent 工具都只依赖本引擎，不感知 MCP 细节。
+ *
+ *   拉取/搜索全面 agent 中介化（AgentFetchService）：AI 引擎动态面对已挂载
+ *   MCP 工具（读 schema → 自主调用 → JSON 契约），零源硬编码。
  */
 
 import {randomUUID} from 'crypto';
 import {join} from 'path';
 import {MCPConfigService} from './mcp-config.js';
-import {MCPBridgeService, type RequirementSourceEntry} from './mcp-bridge.js';
-import {resolveAdapter} from './requirement-sources/index.js';
-import type {Requirement, RequirementDetail} from './requirement-sources/types.js';
+import {MCPBridgeService} from './mcp-bridge.js';
+import {AgentFetchService, type AgentLlm} from './agent-fetch.js';
+import type {Requirement, RequirementDetail} from './requirement-sources/index.js';
 import {RequirementStore, type ExecutionLink, type ParsedAttachment, type SavedRequirement} from './store.js';
 
 /** 拉取选项 */
@@ -23,10 +26,15 @@ export interface FetchOptions {
 export interface EngineOptions {
     /** 数据目录（需求存储与自管 MCP 配置所在，如 ~/.dsh/dsh-adw） */
     dataDir: string;
-    /** 默认 MCP server 名（缺省 'ones-api'） */
+    /** 默认 MCP server 名 */
     defaultServerName?: string;
     /** 本地图片 URL 前缀（默认 /api/dsh-adw/requirements，宿主路由据此服务图片） */
     imageUrlBasePrefix?: string;
+    /**
+     * agent 模型运行时（惰性取值：宿主 llm 服务可能后挂载/热切换）
+     * 缺省时 fetch/search 抛出明确错误（AGENT_UNAVAILABLE 语义）
+     */
+    agentLlm?: () => AgentLlm | undefined;
 }
 
 /**
@@ -36,27 +44,20 @@ export interface EngineOptions {
 export class RequirementEngine {
     private readonly mcpConfig: MCPConfigService;
     private readonly bridge: MCPBridgeService;
+    private readonly agentFetch: AgentFetchService;
     private readonly store: RequirementStore;
-    private readonly defaultServerName?: string;
     private readonly imageUrlBasePrefix: string;
 
     constructor(opts: EngineOptions) {
         // MCP 配置完全自管：存数据目录内，不读写任何其他工具的配置文件
         this.mcpConfig = new MCPConfigService(join(opts.dataDir, 'mcp-servers.json'));
-        this.defaultServerName = opts.defaultServerName;
         this.bridge = new MCPBridgeService(this.mcpConfig, opts.defaultServerName);
+        this.agentFetch = new AgentFetchService({
+            bridge: this.bridge,
+            agentLlm: opts.agentLlm ?? (() => undefined),
+        });
         this.store = new RequirementStore(opts.dataDir);
         this.imageUrlBasePrefix = opts.imageUrlBasePrefix ?? '/api/dsh-adw/requirements';
-    }
-
-    /** 源目录（适配器视角：元数据 + 已配置 servers + 一键安装模板） */
-    listSources(): RequirementSourceEntry[] {
-        return this.bridge.listSources();
-    }
-
-    /** 按适配器模板一键安装源（创建 MCP server + 连接测试） */
-    async installSource(adapterId: string, env: Record<string, string>): Promise<{serverName: string; connectionTest?: {ok: boolean; message: string}}> {
-        return this.bridge.installSource(adapterId, env);
     }
 
     /** 连接测试 */
@@ -88,27 +89,31 @@ export class RequirementEngine {
             enabled: true,
         });
     }
+
     /**
-     * 拉取需求并保存（推荐入口）
+     * 拉取需求并保存（agent 中介：AI 引擎动态消费 MCP 工具）
      * @param input - 用户原始输入（链接 / 编号 / issue key / owner-repo#N）
      * @returns 保存后的完整需求（含溯源 + 既有执行历史）
      */
     async fetchAndSave(input: string, opts?: FetchOptions): Promise<SavedRequirement> {
-        const serverName = this.bridge.getResolvedServerName(opts);
-        const {detail} = await this.bridge.fetchRequirementByInput(input, opts);
+        const fetched = await this.agentFetch.fetchByInput(input, opts);
+        const detail: RequirementDetail = fetched;
+        const serverName = fetched.sourceServer;
+
         // 附件图片富化（尽力而为：下载/改写失败不阻塞需求保存）
         try {
             const imageService = this.bridge.getAttachmentImageService({serverName});
-            await this.store.downloadImages(
-                detail,
-                imageService,
-                `${this.imageUrlBasePrefix}/${encodeURIComponent(detail.id)}/images`,
-            );
+            if (imageService) {
+                await this.store.downloadImages(
+                    detail,
+                    imageService,
+                    `${this.imageUrlBasePrefix}/${encodeURIComponent(detail.id)}/images`,
+                );
+            }
         } catch { /* 图片是增强项，不阻塞主流程 */ }
-        const config = this.mcpConfig.get(serverName);
-        const adapterId = resolveAdapter(serverName, config).id;
+
         return this.store.upsert(detail, {
-            adapterId,
+            adapterId: 'agent',
             serverName,
             input: input.trim(),
             fetchedAt: new Date().toISOString(),
@@ -120,9 +125,9 @@ export class RequirementEngine {
         return this.store.getImagePath(id, filename) ?? undefined;
     }
 
-    /** 源内搜索（不落库） */
+    /** 源内搜索（agent 中介，不落库） */
     async search(query: string, opts?: FetchOptions): Promise<Requirement[]> {
-        return this.bridge.searchRequirements(query, opts);
+        return this.agentFetch.searchByInput(query, opts);
     }
 
     /** 已保存需求列表（最近拉取在前） */

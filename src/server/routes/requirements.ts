@@ -2,36 +2,40 @@
  * @file 需求管理路由模块
  * @module routes/requirements
  * @description 提供需求相关的 RESTful API 路由，包括本地需求存储管理、
- *              通过 MCP（Model Context Protocol）桥接服务获取需求详情与搜索功能。
- *              支持从 MCP 服务器拉取需求并自动保存到本地存储，也支持纯查询模式。
- *              需求源语义（输入方言/响应解析/附件认证）由 requirement-sources 适配器提供，
- *              本路由只做传输编排，新增需求源无需修改。
+ *              agent 中介的需求拉取与搜索（标准 MCP 消费模式：AI 引擎动态
+ *              面对已挂载的 MCP 工具，读 schema → 自主选择与调用，零源硬编码）。
+ *              新增需求源 = 在 MCP 设置页配置 server，本路由零改动。
  */
 
 import {Router} from 'express';
-import {MCPBridgeService} from '../services/mcp-bridge-service.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
+import type {RequirementAgentFetchService} from '../services/requirement-agent-fetch.js';
+import {createAttachmentImageService} from '../services/ones-image-service.js';
+import type {MCPRegistryService} from '../services/mcp-registry-service.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import {mergeParsedIntoDescription} from '../utils/parse-merge.js';
 import {broadcast} from '../websocket.js';
 
 /**
  * 创建需求管理路由
- * @param mcpBridgeService - MCP 桥接服务实例，用于与外部需求管理系统通信
  * @param requirementStore - 需求本地存储服务实例，用于持久化已保存的需求
+ * @param mineruService - MinerU 文档解析服务（可选）
+ * @param agentFetch - agent 中介需求拉取服务（唯一拉取路径）
+ * @param mcpRegistryService - MCP 注册中心（附件认证插件按 server env 构建）
  * @returns 配置好的 Express Router 实例
  *
  * @example
  * ```ts
- * const router = createRequirementsRoutes(mcpBridge, requirementStore);
+ * const router = createRequirementsRoutes(requirementStore, mineruService, agentFetch, mcpRegistry);
  * app.use('/api/requirements', router);
  * ```
  */
 export function createRequirementsRoutes(
-    mcpBridgeService: MCPBridgeService,
     requirementStore: RequirementStoreService,
     mineruService?: MinerUService,
+    agentFetch?: RequirementAgentFetchService,
+    mcpRegistryService?: MCPRegistryService,
 ): Router {
     const router = Router();
 
@@ -321,47 +325,16 @@ export function createRequirementsRoutes(
         }
     });
 
-    // ─── MCP 拉取 + 自动保存 ───────────────────────────────────────────────────
-
-    /**
-     * GET /api/requirements/sources
-     * @description 需求源目录（适配器视角）：每个源系统一个条目，含已配置的
-     *   MCP server 列表与一键安装模板。未配置的源前端展示安装引导；
-     *   工具型 MCP（memory 等）不属于需求源，不会出现。新增适配器注册后自动出现。
-     */
-    router.get('/sources', (_req, res) => {
-        try {
-            res.json(mcpBridgeService.listSources());
-        } catch (err) {
-            res.status(500).json({code: 'SOURCES_ERROR', message: getErrorMessage(err)});
-        }
-    });
-
-    /**
-     * POST /api/requirements/sources/:adapterId/install
-     * @description 按适配器模板一键安装需求源：创建对应 MCP server 并做连接测试。
-     * @param {Record<string,string>} env.body - 凭据键值对（key 见模板 envSpecs）
-     * @returns {{serverName: string, connectionTest?: {ok: boolean, message: string}}}
-     */
-    router.post('/sources/:adapterId/install', async (req, res) => {
-        try {
-            const env = (req.body.env as Record<string, string>) ?? {};
-            const result = await mcpBridgeService.installSource(req.params.adapterId, env);
-            res.json(result);
-        } catch (err) {
-            const message = getErrorMessage(err);
-            const status = /already exists|Missing required/.test(message) ? 409 : 404;
-            res.status(status).json({code: 'INSTALL_ERROR', message});
-        }
-    });
+    // ─── agent 中介拉取 + 自动保存 ─────────────────────────────────────────────
 
     /**
      * POST /api/requirements/fetch
-     * @description 通过 MCP 从外部需求管理系统拉取需求详情，并自动保存到本地存储。
-     *              输入方言由适配器处理（需求号/issue key/链接/owner-repo#N）；
-     *              纯编号会先搜索解析真实 ID。
+     * @description agent 中介拉取需求详情并自动保存到本地存储（唯一拉取路径）。
+     *              AI 引擎动态面对已挂载的 MCP 工具（读 schema → 自主选择与调用，
+     *              失败自行换工具/参数重试），输入方言（链接/需求号/issue key/
+     *              owner-repo#N）由 agent 理解，应用侧零源硬编码。
      * @param {string} id.body - 用户原始输入（必填）
-     * @param {string} [mcpServerName.body] - 可选的需求源（MCP server 名称）
+     * @param {string} [mcpServerName.body] - 可选的 MCP server（限定挂载范围）
      * @returns {Object} 保存后的需求数据
      */
     router.post('/fetch', async (req, res) => {
@@ -371,14 +344,18 @@ export function createRequirementsRoutes(
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'Requirement ID is required'});
                 return;
             }
+            if (!agentFetch) {
+                res.status(503).json({code: 'AGENT_UNAVAILABLE', message: '需求拉取依赖 AI 引擎（agent 中介模式），请先在设置中配置 CLI Provider'});
+                return;
+            }
 
-            const opts = mcpServerName ? {serverName: mcpServerName} : undefined;
+            const agentResult = await agentFetch.fetchByInput(id, mcpServerName);
+            const detail = agentResult;
+            const serverName = agentResult.sourceServer || mcpServerName || '';
 
-            // 完整拉取链路（适配器规整输入 → 编号搜索解析 → 详情 → 回填编号）
-            const {detail, serverName} = await mcpBridgeService.fetchRequirementByInput(id, opts);
-
-            // 适配器按源认证策略构建附件图片服务（无则跳过认证下载）
-            const imageService = mcpBridgeService.getAttachmentImageService(opts);
+            // 附件认证插件：按实际使用的 server env 检测（如 ONES PKCE）
+            const serverConfig = serverName ? mcpRegistryService?.get(serverName) : undefined;
+            const imageService = createAttachmentImageService(serverConfig?.env);
 
             // 解析文档附件（PDF/DOCX/PPTX/XLSX）为 Markdown（需前端显式请求）
             if (parseDocuments && mineruService?.isEnabled()) {
@@ -422,15 +399,15 @@ export function createRequirementsRoutes(
                 });
             }
         } catch (err) {
-            res.status(500).json({code: 'MCP_ERROR', message: getErrorMessage(err)});
+            res.status(500).json({code: 'AGENT_FETCH_ERROR', message: getErrorMessage(err)});
         }
     });
 
     /**
      * GET /api/requirements/search?q=&server=
-     * @description 通过 MCP 搜索需求（纯查询模式，不会自动保存到本地存储）
+     * @description agent 中介搜索需求（纯查询模式，不会自动保存到本地存储）
      * @param {string} q.query - 搜索关键词（必填）
-     * @param {string} [server.query] - 可选的需求源（MCP server 名称）
+     * @param {string} [server.query] - 可选的 MCP server（限定挂载范围）
      * @returns {Object[]} 匹配的需求结果列表
      */
     router.get('/search', async (req, res) => {
@@ -440,18 +417,22 @@ export function createRequirementsRoutes(
                 res.status(400).json({code: 'VALIDATION_ERROR', message: 'Query parameter "q" is required'});
                 return;
             }
+            if (!agentFetch) {
+                res.status(503).json({code: 'AGENT_UNAVAILABLE', message: '需求搜索依赖 AI 引擎（agent 中介模式），请先在设置中配置 CLI Provider'});
+                return;
+            }
             const server = req.query.server as string | undefined;
-            const results = await mcpBridgeService.searchRequirements(query, server ? {serverName: server} : undefined);
+            const results = await agentFetch.searchByInput(query, server);
             res.json(results);
         } catch (err) {
-            res.status(500).json({code: 'MCP_ERROR', message: getErrorMessage(err)});
+            res.status(500).json({code: 'AGENT_FETCH_ERROR', message: getErrorMessage(err)});
         }
     });
 
     /**
      * GET /api/requirements/:id
-     * @description 根据ID获取需求详情。优先从本地存储查找，若未找到则回退到 MCP 实时获取。
-     *              回退模式下不会自动保存到本地存储。
+     * @description 根据ID获取需求详情。优先从本地存储查找，若未找到则回退
+     *              agent 中介实时拉取（不自动保存到本地存储）。
      * @param {string} id.path - 需求的唯一标识符
      * @returns {Object} 需求详情数据
      */
@@ -463,11 +444,15 @@ export function createRequirementsRoutes(
                 res.json(local);
                 return;
             }
-            // 本地未找到时，回退到 MCP 实时获取
-            const detail = await mcpBridgeService.fetchRequirementDetail(req.params.id);
+            // 本地未找到时，回退 agent 中介实时拉取
+            if (!agentFetch) {
+                res.status(404).json({code: 'NOT_FOUND', message: `Requirement ${req.params.id} not found in local store`});
+                return;
+            }
+            const detail = await agentFetch.fetchByInput(req.params.id);
             res.json(detail);
         } catch (err) {
-            res.status(500).json({code: 'MCP_ERROR', message: getErrorMessage(err)});
+            res.status(500).json({code: 'AGENT_FETCH_ERROR', message: getErrorMessage(err)});
         }
     });
 

@@ -1,8 +1,8 @@
 /**
- * /api/dsh-adw route family: requirement source catalog, fetch/search, saved
- * requirement CRUD, dev-prompt rendering, and execution-link reporting from
- * the browser half. Every route carries the loopback-only trust fence plus
- * browser same-origin markers.
+ * /api/dsh-adw route family: MCP server management, agent-mediated
+ * fetch/search, saved requirement CRUD, dev-prompt rendering, and
+ * execution-link reporting from the browser half. Every route carries the
+ * loopback-only trust fence plus browser same-origin markers.
  *
  * WebRoute hands us every method on the path — each handler checks its own
  * method and path params (no express-style :param extraction exists).
@@ -113,26 +113,7 @@ export function makeRoutes(deps: AdwRoutesDeps): WebRoute[] {
     const parts = tail(req)
     const head = parts[0] ?? ''
 
-    // ── 源目录与安装 ──────────────────────────────────────────────
-    if (head === 'sources' && parts.length === 1) {
-      if (!guard(req, res, 'GET')) return
-      writeJson(res, 200, engine.listSources())
-      return
-    }
-    if (head === 'sources' && parts.length === 3 && parts[2] === 'install') {
-      if (!guard(req, res, 'POST')) return
-      const body = await readJsonBody(req)
-      const env = (body?.env as Record<string, string>) ?? {}
-      try {
-        writeJson(res, 200, await engine.installSource(parts[1], env))
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        const status = /already exists|Missing required/.test(message) ? 409 : 404
-        writeJson(res, status, { code: 'INSTALL_ERROR', message })
-      }
-      return
-    }
-    // ── 自定义 MCP 服务器管理（stdio / http url） ────────────────
+    // ── MCP 服务器管理（stdio / http url；拉取 agent 中介，零源硬编码） ──
     if (head === 'servers' && parts.length === 1) {
       if (req.method === 'POST') {
         const body = await readJsonBody(req)

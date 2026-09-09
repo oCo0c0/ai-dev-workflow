@@ -21,6 +21,26 @@ import https from 'https';
 import {downloadFile as httpDownloadFile} from '../utils/http-utils.js';
 import {TIMEOUTS} from '../utils/constants.js';
 import {LruCache} from '../utils/lru-cache.js';
+import type {AttachmentImageService} from './requirement-sources/index.js';
+
+/**
+ * 附件图片认证插件工厂：按 MCP server 的 env 检测认证形态
+ * @description agent 中介拉取返回的附件 URL 可能需要源特定认证才能下载。
+ *   目前唯一形态是 ONES PKCE（env 含 ONES_API_BASE/ONES_ACCOUNT/ONES_PASSWORD）；
+ *   其余源（公开 URL / token in URL）返回 null 跳过认证下载。
+ *   新增认证形态 = 在此追加一个分支，不属于 per-source 适配器（无工具/解析知识）。
+ */
+export function createAttachmentImageService(
+    env: Record<string, string> | undefined,
+): AttachmentImageService | undefined {
+    const apiBase = env?.ONES_API_BASE?.trim();
+    const account = env?.ONES_ACCOUNT?.trim();
+    const password = env?.ONES_PASSWORD?.trim();
+    if (apiBase && account && password) {
+        return new OnesImageService(apiBase, account, password);
+    }
+    return undefined;
+}
 
 /** ONES 认证后的会话信息 */
 interface OnesSession {
@@ -65,7 +85,7 @@ function base64Url(buf: Buffer): string {
  * ONES 图片下载服务
  * @description 封装 ONES PKCE 认证和 wiki 图片下载逻辑，session 和 wiki page token 自动缓存复用。
  */
-export class OnesImageService {
+export class OnesImageService implements AttachmentImageService {
     private readonly apiBase: string;
     private readonly email: string;
     private readonly password: string;
@@ -87,11 +107,12 @@ export class OnesImageService {
         }
     `;
 
-    /** GraphQL 查询任务原始富文本描述（用于提取 <img> 附件 URL） */
+    /** GraphQL 查询任务原始富文本描述（用于提取 <img> 附件 URL 与 wiki 页链接） */
     private static readonly TASK_RICH_TEXT_QUERY = `
         query Task($key: Key) {
             task(key: $key) {
                 description
+                descriptionText
             }
         }
     `;
@@ -334,8 +355,10 @@ export class OnesImageService {
      * 通过 GraphQL 查询任务关联的 wiki page UUID 列表
      * @description 两个来源取并集：
      *   1. GraphQL relatedWikiPages（wiki 挂在任务关联上）
-     *   2. 任务描述富文本中的 wiki 页链接（ai-dev-requirements 0.3.1 起对
+     *   2. 任务描述文本中的 wiki 页链接（ai-dev-requirements 0.3.1 起对
      *      子需求等条目，wiki 链接只出现在描述正文里，relatedWikiPages 为空）
+     *      路由形态与 ONES 前端一致：/team/{t}/page/{uuid}，space 段可选
+     *      （子需求正文里的链接普遍缺 space 段，旧行为因此匹配不到）
      * @param taskUuid - 任务/需求 UUID
      */
     async getWikiPageUuids(taskUuid: string): Promise<string[]> {
@@ -352,13 +375,20 @@ export class OnesImageService {
         }
 
         try {
-            const rich = await this.graphql<{data?: {task?: {description?: string}}}>(
+            const rich = await this.graphql<{data?: {task?: {description?: string; descriptionText?: string}}}>(
                 OnesImageService.TASK_RICH_TEXT_QUERY,
                 {key: `task-${taskUuid}`},
             );
-            const html = rich.data?.task?.description ?? '';
-            for (const match of html.matchAll(/\/wiki\/#\/team\/[^/\s"']+\/space\/[^/\s"']+\/page\/([A-Za-z0-9]+)/g)) {
-                if (!uuids.includes(match[1])) uuids.push(match[1]);
+            const texts = [rich.data?.task?.description ?? '', rich.data?.task?.descriptionText ?? ''];
+            for (const text of texts) {
+                // 与 ai-dev-requirements 的路由解析对齐：space 段可选，标识符可能被 URL 编码
+                for (const match of text.matchAll(/\/team\/([A-Za-z0-9_-]+)\/(?:space\/([A-Za-z0-9_-]+)\/)?page\/([A-Za-z0-9_-]+)/g)) {
+                    let pageUuid = match[3];
+                    try {
+                        pageUuid = decodeURIComponent(pageUuid);
+                    } catch { /* 保持原样 */ }
+                    if (pageUuid && !uuids.includes(pageUuid)) uuids.push(pageUuid);
+                }
             }
         } catch { /* 富文本拉取失败不影响已得结果 */ }
         return uuids;

@@ -22,7 +22,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 
 | 文件 | 前缀 | 说明 |
 |------|------|------|
-| `requirements.ts` | `/api/requirements` | 需求 CRUD + MCP 拉取 + 搜索 + 图片服务 |
+| `requirements.ts` | `/api/requirements` | 需求 CRUD + agent 中介拉取/搜索 + 图片服务 |
 | `workspace.ts` | `/api/workspace` | 工作区管理 + 文件浏览 + Git 全操作 |
 | `plan.ts` | `/api/plan` | 计划生成/回复/暂停/恢复/重生成/技能队列/任务导出 xlsx |
 | `execution.ts` | `/api/execution` | 代码执行/暂停/中止/重试/跳步/技能队列 + 自动触发测试 |
@@ -52,7 +52,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `cli-providers/pi-provider.ts` | `PiProvider` | Pi Provider——RPC 子进程 harness（`pi --mode rpc`），process-per-run，会话文件续接 |
 | `cli-providers/pi-rpc-process.ts` | `PiRpcProcess` | pi RPC 子进程管理：JSONL 命令/应答（id 关联）、事件流回调、优雅退出/强杀、rpc-entry 解析 |
 | `config-service.ts` | `ConfigService` | 全局配置管理（`~/.ai-dev-workbench/config.json`） |
-| `mcp-bridge-service.ts` | `MCPBridgeService` | MCP 桥接服务，与外部需求管理系统通信 |
+| `requirement-agent-fetch.ts` | `RequirementAgentFetchService` | agent 中介需求拉取/搜索（标准 MCP 消费模式：AI 引擎动态面对已挂载 MCP 工具，读 schema → 自主选择与调用，JSON 契约输出；零源硬编码，新增需求源只需配置 MCP server） |
 | `mcp-config-service.ts` | `MCPConfigService` | MCP 服务器配置管理 |
 | `workspace-service.ts` | `WorkspaceService` | 工作区文件系统操作 + Git 命令 |
 | `task-scheduler-service.ts` | `TaskScheduler` | 多任务并行调度器（Coordinator 模式） |
@@ -80,7 +80,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `test-executor-service.ts` | `TestExecutorService` | 测试执行器（多框架自动检测） |
 | `sandbox-service.ts` | `SandboxService` | Daytona 沙箱管理 |
 | `mineru-service.ts` | `MinerUService` | MinerU 文档解析 |
-| `ones-image-service.ts` | `OnesImageService` | ONES 平台图片下载 |
+| `ones-image-service.ts` | `OnesImageService` | ONES 平台图片下载（PKCE 认证插件；`createAttachmentImageService` 按 server env 检测构建） |
 | `memory/memory-service.ts` | `MemoryService` | 记忆子系统（项目事实/反馈日志/用户画像） |
 | `memory/project-facts-store.ts` | `ProjectFactsStore` | 项目事实存储 |
 | `memory/feedback-log-store.ts` | `FeedbackLogStore` | 反馈日志存储 |
@@ -88,18 +88,15 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `analytics-service.ts` | `AnalyticsService` | 数据分析服务 |
 | `skill-derivation-service.ts` | `SkillDerivationService` | （已废弃）技能自动派生 — 不再实例化 |
 
-**需求源适配器**（热插拔，与 cli-providers 同构）：
+**需求文档模型**（源中立，`requirement-sources/`）：
 
 | 文件 | 说明 |
 |------|------|
-| `requirement-sources/types.ts` | `RequirementSourceAdapter` 接口：目录元数据 + installTemplate（一键配置模板）+ 输入方言/工具命名/响应解析/附件认证 |
-| `requirement-sources/index.ts` | 适配器注册表：registerRequirementSource 工厂注册 + resolveAdapter 自动路由 + listCatalogAdapters 目录视图（排除 generic） |
-| `requirement-sources/ones-adapter.ts` | ONES 适配器（链接/issue key 方言、get_work_item 工具族、ONES 章节表、PKCE 图片服务） |
-| `requirement-sources/github-adapter.ts` | GitHub Issues 适配器（owner/repo#N 方言、get_issue 工具族、REST JSON 解析） |
-| `requirement-sources/generic-adapter.ts` | 通用兜底适配器（宽松工具命名 + JSON 优先解析，永不认领） |
-| `requirement-sources/parsers.ts` | 共享解析器（MCP content 提取、JSON 映射、参数化 Markdown 解析） |
+| `requirement-sources/types.ts` | 中立数据模型（`Requirement`/`RequirementDetail`）与附件图片服务契约（`AttachmentImageService`） |
+| `requirement-sources/parsers.ts` | 共享解析器（agent JSON 契约 → 数据模型映射，兼容驼峰/下划线） |
+| `requirement-sources/index.ts` | 纯 re-export（types + parsers） |
 
-`mcp-bridge-service.ts` 已重构为纯传输层：连接池（按 serverName 缓存）、listTools 动态发现、按能力调用工具；输入规整/参数构建/响应解析/附件认证全部委托命中的适配器。新增需求源 = 实现适配器 + 注册一行，无需改动桥接/路由/前端。
+需求拉取已全面 agent 中介化：`requirement-agent-fetch.ts` 让 AI 引擎动态面对已挂载的 MCP 工具（读 schema → 自主选择与调用 → JSON 契约输出），应用侧零源硬编码。原 per-source 适配器（ones/github/generic）与 `mcp-bridge-service.ts` 已删除——新增需求源（GitLab/Jira/任意 MCP）只需在 MCP 设置页配置 server，零代码。唯一源特定残留是附件图片认证插件（`createAttachmentImageService` 按 server env 检测，如 ONES PKCE）。
 
 **测试 Provider**：
 
@@ -168,4 +165,8 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-07-23 | 修复 | 附件面板=解析输入清单：`requirement-store-service.downloadImages` 只保留「真实 http URL」或「已本地化且被文档引用」的附件；下载集=真实 URL 附件+`[Image:]` 引用（不再盲收全部无 URL hash 资源）；下载失败改写为明示未下载；`mcp-registry-service` 磁盘格式标准化 mcpServers 方言（兼容读旧格式，保存自动迁移） |
+| 2026-07-23 | 修复 | ONES wiki 图片 0/N 全挂：任务描述 wiki 链接为 `/team/{t}/page/{uuid}`（无 space 段），`ones-image-service.getWikiPageUuids` 旧正则强制 space 段匹配不到 → 兜底拿任务 UUID 当 wiki 页必 404；放宽路由正则与 ai-dev-requirements 对齐（space 可选 + descriptionText 扫描 + URL 解码）。`requirement-store-service` 附件本地化范围收敛为图片 + Excel（xls/xlsx/xlsm），其他格式保留源链接；fetch prompt 加"图片标记原样保留"约束 |
+| 2026-07-23 | 修复 | pi 引擎"agent 拉取看不到 MCP 工具"三重根因：① spawn 传 `--tools` 硬白名单静默禁用扩展平台工具（主因，已移除）；② 扩展工具注册从 `session_start` 挪到 async factory 顶层（pi 官方 await 语义，rpc 模式下 session_start 注册不进首轮模型工具清单）；③ 冷启动容错（网关 per-server 软超时 + 降级目录短冷却 + 扩展空目录重试 + `?servers=` 白名单定向枚举） |
+| 2026-07-23 | 更新 | 需求拉取全面 agent 中介化：新增 `requirement-agent-fetch.ts`，删除 per-source 适配器（ones/github/generic）与 `mcp-bridge-service.ts`；pi 平台扩展读写权限分离 + servers 白名单 |
 | 2026-07-21 | 创建 | 初始化模块文档 |

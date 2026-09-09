@@ -192,18 +192,32 @@ export class RequirementStore {
         const imgDir = this.getImageDir(req.id);
         fs.mkdirSync(imgDir, { recursive: true });
         const localUrl = (filename) => `${imageUrlBase}/${encodeURIComponent(filename)}`;
-        // 从附件与 [Image: x] 标记收集图片资源
+        // 自动本地化的附件范围：文档中的图片 + Excel 表格（其他格式保持源链接，不下载）
+        const downloadableRe = /\.(png|jpe?g|gif|svg|webp|bmp|xlsx|xlsm|xls)$/i;
+        // 有效 URL 判定：http(s) 才算（空串与"（ONES Wiki 附件…）"类占位文本都视同无 URL）
+        const isHttpUrl = (url) => /^https?:\/\//i.test(url);
+        // 文档正文实际引用的图片（[Image: xxx] 标记）——wiki 源会把整页历史图都挂进
+        // 附件列表（无 URL 的 hash 资源），只有被文档引用的才下载、才有展示价值
+        const referencedNames = new Set();
+        for (const match of req.description.matchAll(/\[Image:\s*([^\]]+)\]/g)) {
+            const name = match[1].trim();
+            if (name !== '')
+                referencedNames.add(name);
+        }
+        // 下载集 = ① 有真实 http URL 且属于图片/Excel 的附件（真实附件，直连/签名下载）
+        //        + ② 文档引用的图片标记（wiki hash 资源无 URL，按名走 token 下载）
         const imageResources = new Map();
         for (const att of req.attachments) {
-            if (att.url && /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name)) {
+            if (downloadableRe.test(att.name) && (isHttpUrl(att.url) || referencedNames.has(att.name))) {
                 imageResources.set(att.name, att.name);
             }
         }
-        for (const match of req.description.matchAll(/\[Image:\s*([^\]]+)\]/g)) {
-            const name = match[1].trim();
+        for (const name of referencedNames) {
             if (!imageResources.has(name))
                 imageResources.set(name, name);
         }
+        // 记录"原本有真实远程 URL"的附件（供清洗判定：改写为本地 URL 后 http 判定会失效）
+        const hadRemoteUrl = new Set(req.attachments.filter(a => isHttpUrl(a.url)).map(a => a.name));
         const urlMap = new Map();
         for (const att of req.attachments) {
             if (att.url)
@@ -271,15 +285,15 @@ export class RequirementStore {
                 return `![${img.uuid}](${localUrl(img.filename)})`;
             });
         }
-        // [Image: filename.png] → 本地/远程 markdown 图片
+        // [Image: filename.png] → 本地 markdown 图片（无文件无有效远程地址时明示未下载，不伪造链接）
         desc = desc.replace(/\[Image:\s*([^\]]+)\]/g, (_match, imageName) => {
             const trimmed = imageName.trim();
             const remoteUrl = req.attachments.find(a => a.name === trimmed)?.url || '';
             if (fs.existsSync(path.join(imgDir, trimmed)))
                 return `![${trimmed}](${localUrl(trimmed)})`;
-            if (remoteUrl)
+            if (isHttpUrl(remoteUrl))
                 return `![${trimmed}](${remoteUrl})`;
-            return `![${trimmed}](${localUrl(trimmed)})`;
+            return `[图片未下载：${trimmed}]`;
         });
         // [Embed: drawio] 等嵌入物提示
         desc = desc.replace(/\[Embed:\s*([^\]]+)\]/g, (_m, embedType) => `> 📎 嵌入内容: ${embedType.trim()}（请在源系统中查看）`);
@@ -292,18 +306,20 @@ export class RequirementStore {
             return `![${alt}](${url})`;
         });
         req.description = desc;
-        // 附件图片 URL 指向本地（图片型只要本地有文件就改写，含原本无 URL 的条目）
+        // 附件 URL 指向本地（图片 + Excel 只要本地有文件就改写，含原本无 URL 的条目）
         for (const att of req.attachments) {
-            if (/\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name) || att.type.startsWith('image/')) {
+            if (downloadableRe.test(att.name) || att.type.startsWith('image/')) {
                 if (fs.existsSync(path.join(imgDir, att.name))) {
                     att.url = localUrl(att.name);
                 }
             }
         }
         // === 附件清洗 ===
-        // 1) 同名同址去重（源侧可能把同一内嵌图列多遍）；
-        // 2) 图片型死条目移除：URL 为空（源侧「URL omitted」）且本地也没有文件的，
-        //    既不能展示也不能解析，留着只会误导。
+        // 1) 同名同 URL 去重（源侧可能把同一内嵌图列多遍）；
+        // 2) 死条目移除——附件面板就是「解析」的输入清单，只保留真正可用的：
+        //    ① 原本有真实远程 URL 的（未本地化时解析端可按 URL 下载）；
+        //    ② 已下载到本地且被文档引用的（url 已改写为本地地址）。
+        //    无 URL 的 wiki hash 资源若未被文档引用（源侧整页历史图）一律不列。
         const seen = new Set();
         req.attachments = req.attachments.filter(att => {
             const key = `${att.name}\n${att.url}`;
@@ -312,14 +328,9 @@ export class RequirementStore {
             seen.add(key);
             return true;
         });
-        req.attachments = req.attachments.filter(att => {
-            const looksImage = /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name) || att.type.startsWith('image/');
-            if (!looksImage)
-                return true;
-            if (att.url !== '')
-                return true;
-            return fs.existsSync(path.join(imgDir, att.name));
-        });
+        req.attachments = req.attachments.filter(att => hadRemoteUrl.has(att.name)
+            || (fs.existsSync(path.join(imgDir, att.name))
+                && (referencedNames.has(att.name) || req.description.includes(att.name))));
     }
     /** 落盘（写临时文件后 rename，原子替换） */
     persist() {
@@ -348,12 +359,15 @@ export class RequirementStore {
 function sanitizeSegment(segment) {
     return segment.replace(/[\\/]/g, '-').replace(/\.{2,}/g, '');
 }
-/** 总体超时包装（图片下载不卡主流程） */
+/** 总体超时包装（图片下载不卡主流程；竞争结束即清理定时器，不滞留事件循环） */
 function withTimeout(promise, ms) {
-    return Promise.race([
-        promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
-    ]);
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), ms);
+    });
+    return Promise.race([promise, timeout])
+        .finally(() => { if (timer !== undefined)
+        clearTimeout(timer); });
 }
 // ── 解析结果合并（纯函数，可独立测试） ─────────────────────────────────
 /** 合并标记：注释形态，渲染与 agent 侧均不可见；按附件名成对出现 */

@@ -19,7 +19,7 @@ import {errorHandler} from './middleware/validation.js';
 
 // 服务层
 import {MCPRegistryService} from './services/mcp-registry-service.js';
-import {MCPBridgeService} from './services/mcp-bridge-service.js';
+import {RequirementAgentFetchService} from './services/requirement-agent-fetch.js';
 import {WorkspaceService} from './services/workspace-service.js';
 import {CLIRunnerService} from './services/cli-runner-service.js';
 import {TestExecutorService} from './services/test-executor-service.js';
@@ -131,7 +131,6 @@ export async function createServer(port: number): Promise<http.Server> {
     } catch (err) {
         console.warn(`[mcp-registry] import failed: ${err instanceof Error ? err.message : err}`);
     }
-    const mcpBridgeService = new MCPBridgeService(mcpRegistryService);
 
     // MCP 聚合网关：平台统一管理 MCP 的唯一入口。
     // 上游连接由网关持有（懒连接 + 崩溃重连），引擎通过 HTTP 端点挂载
@@ -161,6 +160,12 @@ export async function createServer(port: number): Promise<http.Server> {
 
     const workspaceService = new WorkspaceService();
     const cliRunnerService = new CLIRunnerService(config.cliProvider?.active);
+    // agent 中介需求拉取（标准 MCP 消费模式：AI 引擎动态面对已挂载的 MCP 工具，
+    // 零源硬编码；新增需求源只需配置 MCP server）
+    const requirementAgentFetchService = new RequirementAgentFetchService({
+        cliRunner: cliRunnerService,
+        mcpService: mcpRegistryService,
+    });
     const testExecutorService = new TestExecutorService();
     const skillsService = new SkillsService();
 
@@ -215,7 +220,7 @@ export async function createServer(port: number): Promise<http.Server> {
     // 注入流水线依赖，让 TaskScheduler 内部编排完整 plan→execution→test
     taskScheduler.setDependencies({
         requirementStore,
-        mcpBridgeService,
+        agentFetchService: requirementAgentFetchService,
         pipelineService,
         memoryService,
         workspaceService,
@@ -253,9 +258,11 @@ export async function createServer(port: number): Promise<http.Server> {
     }
 
     // 注册 API 路由
-    app.use('/api/requirements', createRequirementsRoutes(mcpBridgeService, requirementStore, mineruService));
+    app.use('/api/requirements', createRequirementsRoutes(
+        requirementStore, mineruService, requirementAgentFetchService, mcpRegistryService,
+    ));
     app.use('/api/workspace', createWorkspaceRoutes(workspaceService));
-    app.use('/api/plan', createPlanRoutes(cliRunnerService, mcpBridgeService, pipelineService, memoryService, mineruService));
+    app.use('/api/plan', createPlanRoutes(cliRunnerService, requirementAgentFetchService, pipelineService, memoryService, mineruService));
     app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService));
     app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService));
     app.use('/api/skills', createSkillsRoutes(skillsService));

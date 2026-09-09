@@ -1,69 +1,118 @@
 /**
  * 内核冒烟验证（沙箱内 vitest/esbuild 不可用时的替代验证）
  * 运行：node scripts/smoke.mjs
- * 覆盖：适配器路由 / 输入方言 / JSON 解析 / 存储往返 / prompt 渲染 / MCP 配置读取
+ * 覆盖：JSON 契约映射 / prompt 构建 / agent 中介拉取（fake LLM + fake 桥）/
+ *       存储往返 / prompt 渲染 / MCP 配置自管 / 引擎门面 / 图片下载策略
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-    resolveAdapter, getAdapter,
+    AgentFetchService, buildFetchPrompt, buildSearchPrompt,
+    mapJsonToDetailBase, mapJsonToRequirement,
     RequirementStore, RequirementEngine, renderDevPrompt,
-    MCPConfigService,
+    MCPConfigService, createAttachmentImageService,
 } from '../lib/index.js';
 
 let passed = 0;
 const ok = (name) => { passed++; console.log(`  ok - ${name}`); };
 
-const makeConfig = (o) => ({ type: 'custom', command: 'npx', args: [], env: {}, enabled: true, ...o });
-
-// --- 适配器路由 ---
-assert.equal(resolveAdapter('ones-api', makeConfig({ name: 'ones-api', command: 'cmd', args: ['/c', 'npx', '-y', 'ai-dev-requirements@latest'] })).id, 'ones');
-ok('ones-api 服务器路由到 ones 适配器');
-assert.equal(resolveAdapter('gh-tools', makeConfig({ name: 'gh-tools', args: ['-y', '@modelcontextprotocol/server-github'] })).id, 'github');
-assert.equal(resolveAdapter('whatever', undefined).id, 'generic');
-ok('github 认领 / 无配置落 generic');
-
-// --- ONES 输入方言 ---
-const ones = getAdapter('ones');
-assert.equal(ones.normalizeInput('#302'), '302');
-assert.equal(ones.normalizeInput('CWXT-129686'), '129686');
-assert.equal(ones.normalizeInput('https://1s.oristand.com/wiki#/team/x/page/y'), 'https://1s.oristand.com/wiki#/team/x/page/y');
-ok('ONES 输入方言规整');
-
-// --- GitHub JSON 解析 ---
-const gh = getAdapter('github');
-const detail = gh.parseDetail([{ type: 'text', text: JSON.stringify({
-    number: 42, title: 'Fix login', state: 'open',
+// --- agent JSON 契约映射（拉取详情 + 搜索摘要，与主应用同契约） ---
+const detail = mapJsonToDetailBase({
+    sourceServer: 'ones-api', id: 'KPHW', number: 42, title: 'Fix login', state: 'open',
     body: 'Steps:\n- [ ] reproduce\n- [ ] fix', user: { login: 'alice' }, assignee: { login: 'bob' },
-    updated_at: '2026-01-02T03:04:05Z',
-}) }]);
-assert.equal(detail.id, '42');
+    updated_at: '2026-01-02T03:04:05Z', acceptanceCriteria: ['reproduce', 'fix'],
+    attachments: [{ name: 'a.png', url: 'https://x/a.png' }],
+    relatedIssues: [{ id: 'CWXT-1', title: '关联', status: '进行中' }],
+});
+assert.equal(detail.id, 'KPHW');
+assert.equal(detail.number, '42');
 assert.equal(detail.acceptanceCriteria.join(','), 'reproduce,fix');
-ok('GitHub issue JSON → 中立模型（含验收标准提取）');
+assert.equal(detail.attachments[0].name, 'a.png');
+assert.equal(detail.relatedIssues[0].id, 'CWXT-1');
+ok('agent 详情 JSON → 中立模型（含验收标准提取）');
+const summary = mapJsonToRequirement({ id: 'KPHW', number: 'CWXT-42', title: 'Fix login', state: 'open' });
+assert.equal(summary.number, 'CWXT-42');
+assert.equal(summary.status, 'open');
+ok('agent 搜索 JSON → 中立摘要（含 number）');
+
+// --- prompt 构建（只读纪律 / JSON 契约 / 失败换路） ---
+const fetchPrompt = buildFetchPrompt('CWXT-129290');
+assert.ok(fetchPrompt.includes('<input>\nCWXT-129290\n</input>'));
+assert.ok(fetchPrompt.includes('换参数或换工具再试'));
+assert.ok(fetchPrompt.includes('sourceServer'));
+const searchPrompt = buildSearchPrompt('登录');
+assert.ok(searchPrompt.includes('<query>\n登录\n</query>'));
+assert.ok(searchPrompt.includes('"title"'));
+ok('拉取/搜索 prompt 构建（契约内嵌）');
+
+// --- agent 中介拉取：fake LLM + fake 桥（读 schema → 调工具 → JSON 契约） ---
+{
+    const toolCalls = [];
+    const mounted = [];
+    const fakeBridge = {
+        listEnabledServers: () => [{ name: 'ones-api', enabled: true }],
+        listServerTools: async (server) => {
+            mounted.push(server);
+            return [{ name: 'get_work_item', description: '拉详情', inputSchema: { type: 'object', properties: { id: { type: 'string' } } } }];
+        },
+        callServerTool: async (server, tool, args) => {
+            toolCalls.push({ server, tool, args });
+            return { text: 'ok', isError: false };
+        },
+        getAttachmentImageService: () => undefined,
+        getServerConfig: () => undefined,
+    };
+    const sent = [];
+    const fakeLlm = {
+        createChat({ tools }) {
+            assert.ok(tools.some(t => t.name === 'ones-api__get_work_item' && String(t.description).includes('ones-api')), '工具面带 <server>__ 前缀');
+            return {
+                async send(content) {
+                    sent.push(content);
+                    if (toolCalls.length === 0) {
+                        return { blocks: [{ type: 'tool-call', id: 'c1', name: 'ones-api__get_work_item', arguments: '{"id":"KPHW"}' }], stopKind: 'tool-calls' };
+                    }
+                    return { blocks: [{ type: 'text', text: JSON.stringify({ sourceServer: 'ones-api', ...detailJson }) }], stopKind: 'stop' };
+                },
+            };
+        },
+    };
+    const detailJson = {
+        id: 'KPHW', number: 'CWXT-42', title: 'Fix login', status: 'open',
+        description: '正文', acceptanceCriteria: ['reproduce'],
+    };
+    const service = new AgentFetchService({ bridge: fakeBridge, agentLlm: () => fakeLlm });
+    const result = await service.fetchByInput('CWXT-42');
+    assert.equal(result.id, 'KPHW');
+    assert.equal(result.sourceServer, 'ones-api');
+    assert.deepEqual(mounted, ['ones-api']);
+    assert.deepEqual(toolCalls, [{ server: 'ones-api', tool: 'get_work_item', args: { id: 'KPHW' } }]);
+    assert.equal(sent[1][0].toolCallId, 'c1');
+    // 缺 LLM：明确报错
+    const noLlm = new AgentFetchService({ bridge: fakeBridge, agentLlm: () => undefined });
+    await assert.rejects(() => noLlm.fetchByInput('X'), /agent LLM 运行时不可用/);
+    ok('agent 中介拉取循环（前缀路由 / 工具结果回喂 / LLM 缺失报错）');
+}
 
 // --- 存储往返 ---
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adw-core-'));
 const store = new RequirementStore(dir);
-const saved = store.upsert(detail, { adapterId: 'github', serverName: 'gh', input: 'foo/bar#42', fetchedAt: '2026-01-01T00:00:00Z' });
-assert.equal(store.get('42').title, 'Fix login');
-const { executionId } = (() => {
-    const r = { executionId: 'e1' };
-    store.addExecution('42', { executionId: 'e1', sessionId: 's1', workspaceId: 'w1', prompt: 'p', startedAt: '2026-01-02T00:00:00Z' });
-    return r;
-})();
-store.settleExecution('42', 'e1', 'succeeded');
-const after = store.get('42');
+const saved = store.upsert(detail, { adapterId: 'agent', serverName: 'ones-api', input: 'CWXT-42', fetchedAt: '2026-01-01T00:00:00Z' });
+assert.equal(store.get('KPHW').title, 'Fix login');
+store.addExecution('KPHW', { executionId: 'e1', sessionId: 's1', workspaceId: 'w1', prompt: 'p', startedAt: '2026-01-02T00:00:00Z' });
+store.settleExecution('KPHW', 'e1', 'succeeded');
+const after = store.get('KPHW');
 assert.equal(after.executions[0].outcome, 'succeeded');
 assert.ok(after.executions[0].endedAt);
 // 详情更新保留执行历史
-store.upsert({ ...detail, title: 'Fix login v2' }, { adapterId: 'github', serverName: 'gh', input: 'foo/bar#42', fetchedAt: '2026-02-01T00:00:00Z' });
-assert.equal(store.get('42').executions.length, 1);
-assert.equal(store.get('42').title, 'Fix login v2');
+store.upsert({ ...detail, title: 'Fix login v2' }, { adapterId: 'agent', serverName: 'ones-api', input: 'CWXT-42', fetchedAt: '2026-02-01T00:00:00Z' });
+assert.equal(store.get('KPHW').executions.length, 1);
+assert.equal(store.get('KPHW').title, 'Fix login v2');
 ok('存储往返：upsert / 执行链接 / 结局回写 / 详情更新保留历史');
-assert.equal(store.delete('42'), true);
-assert.equal(store.delete('42'), false);
+assert.equal(store.delete('KPHW'), true);
+assert.equal(store.delete('KPHW'), false);
 ok('删除语义');
 
 // --- prompt 渲染 ---
@@ -89,13 +138,23 @@ ok('开发 prompt 占位符渲染');
     ok('MCP 配置自管：add / get / 持久化 / delete（独立文件，不读 ~/.claude）');
 }
 
-// --- 引擎实例化（不连接）：配置自管文件就在 dataDir 内 ---
-const engine = new RequirementEngine({ dataDir: dir });
-assert.ok(Array.isArray(engine.listSources()));
-assert.equal(engine.listSources().length >= 2, true);
-console.log(`  info - 源目录: ${engine.listSources().map(s => `${s.adapterId}[${s.servers.join('/') || '未配置'}]`).join(' ')}`);
-await engine.dispose();
-ok('引擎实例化 + 源目录');
+// --- 附件图片服务工厂：按 server env 检测 ---
+assert.equal(createAttachmentImageService(undefined), undefined);
+assert.equal(createAttachmentImageService({ env: { ONES_API_BASE: 'https://x' } }), undefined);
+assert.ok(createAttachmentImageService({ env: { ONES_API_BASE: 'https://x', ONES_ACCOUNT: 'a', ONES_PASSWORD: 'p' } }), '凭据齐备才建服务');
+ok('附件图片服务工厂（ONES env 检测）');
+
+// --- 引擎门面：配置自管文件就在 dataDir 内；缺 server/缺 LLM 报错语义 ---
+{
+    const engine = new RequirementEngine({ dataDir: dir });
+    assert.deepEqual(engine.listServers(), []);
+    await assert.rejects(() => engine.fetchAndSave('CWXT-42'), /未配置任何 MCP server/);
+    engine.addServer({ name: 'ones-api', command: 'npx', args: ['-y', 'ai-dev-requirements@latest'] });
+    assert.equal(engine.listServers().length, 1);
+    await assert.rejects(() => engine.fetchAndSave('CWXT-42'), /agent LLM 运行时不可用/);
+    await engine.dispose();
+    ok('引擎门面：listServers / addServer / 分级报错');
+}
 
 // --- 附件图片：三段下载策略 + 描述/附件改写 + 路径安全 ---
 {
@@ -162,3 +221,4 @@ ok('引擎实例化 + 源目录');
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n全部通过：${passed} 组断言`);
+console.log('active resources:', process.getActiveResourcesInfo().join(', '));

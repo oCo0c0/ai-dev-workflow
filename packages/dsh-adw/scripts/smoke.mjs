@@ -39,7 +39,7 @@ process.env.DSH_HOME = tmp
       description: '![shot.png](/api/dsh-adw/requirements/img-r1/images/shot.png)',
       acceptanceCriteria: [],
       attachments: [{ name: 'shot.png', url: '/api/dsh-adw/requirements/img-r1/images/shot.png', type: 'image/png' }],
-      source: { adapterId: 'ones', serverName: 'ones-api', input: 'R-1', fetchedAt: '2026-01-01T00:00:00Z' },
+      source: { adapterId: 'agent', serverName: 'ones-api', input: 'R-1', fetchedAt: '2026-01-01T00:00:00Z' },
       executions: [],
     }],
   }), 'utf8')
@@ -101,15 +101,12 @@ const handler = registered.routes[0].handler
   console.log('  ok - GET /requirements → seeded img-r1')
 }
 
-// GET /sources
+// GET /sources — 目录端点已随 agent 中介化移除（源 = MCP server 管理）
 {
   const res = makeRes()
   await handler(makeReq('GET', '/api/dsh-adw/sources'), res)
-  assert.equal(res.statusCode, 200)
-  const sources = JSON.parse(res.body)
-  assert.ok(sources.length >= 2, 'at least ones+github catalog entries')
-  assert.ok(sources.some(s => s.adapterId === 'ones' && s.installTemplate !== undefined))
-  console.log(`  ok - GET /sources → ${sources.map(s => s.adapterId + (s.servers.length ? '[' + s.servers.join(',') + ']' : '[unconfigured]')).join(' ')}`)
+  assert.equal(res.statusCode, 404)
+  console.log('  ok - GET /sources → 404 (catalog removed; servers replace it)')
 }
 
 // POST /fetch 缺参数
@@ -120,7 +117,7 @@ const handler = registered.routes[0].handler
   console.log('  ok - POST /fetch without input → 400')
 }
 
-// POST /fetch 不存在的 server → 明确错误（不静默切换）
+// POST /fetch 不存在的 server → 明确错误（agent 挂载工具面时命名报错，不静默切换）
 {
   const req = makeReq('POST', '/api/dsh-adw/fetch', '127.0.0.1', JSON.stringify({ input: 'CWXT-1', serverName: 'no-such-server' }))
   req.headers['content-type'] = 'application/json'

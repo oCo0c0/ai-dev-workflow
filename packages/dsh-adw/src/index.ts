@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { RequirementEngine, type SavedRequirement } from '@along/adw-requirement-core'
+import { DshAgentLlm, makeModelResolver } from './host/agent-llm.ts'
 import { makeRoutes } from './host/routes.ts'
 import { adwFetchTool, adwListTool, adwSearchTool, adwParseDocumentTool } from './host/tools.ts'
 import { mountOnce } from './mount-once.ts'
@@ -26,7 +27,7 @@ import { mountOnce } from './mount-once.ts'
 export const name = 'dsh-adw'
 
 /** Services required before the adw surfaces can mount. */
-export const inject = ['webServer', 'tools', 'systemPrompt']
+export const inject = ['webServer', 'tools', 'systemPrompt', 'llm']
 
 /**
  * Settings namespace of the adw capability — the section a settings surface
@@ -60,6 +61,10 @@ export interface Config {
   devPromptTemplate?: string
   /** Default requirement source (MCP server name); empty = auto-resolution. */
   defaultServerName?: string
+  /** Agent model provider route for fetch/search (overrides the host default; empty = auto). */
+  agentProvider?: string
+  /** Agent model id for fetch/search (requires agentProvider; empty = auto). */
+  agentModel?: string
   /** MinerU document-parse service base URL (e.g. http://127.0.0.1:8000); empty = disabled. */
   mineruUrl?: string
   /** MinerU parse backend (default pipeline = pure CPU, works everywhere; vlm/hybrid need a GPU device server-side). */
@@ -73,6 +78,8 @@ export const Config: z<Config> = z.object({
   announceToAgent: z.boolean().default(true),
   devPromptTemplate: z.string().default(DEFAULT_DEV_PROMPT_TEMPLATE),
   defaultServerName: z.string().default(''),
+  agentProvider: z.string().default(''),
+  agentModel: z.string().default(''),
   mineruUrl: z.string().default(''),
   mineruBackend: z.string().default('pipeline'),
   mineruLang: z.string().default('ch'),
@@ -82,7 +89,7 @@ export const Config: z<Config> = z.object({
 const SECTION_ORDER = 160
 
 /** Model-facing announcement: plugin presence, capabilities, and limits. */
-export const ADW_GUIDANCE = '本机已安装 dsh-adw 插件（adw 需求工作台）：侧边栏「需求工作台」入口；在 adw 仓库（packages/dsh-adw + packages/adw-requirement-core）维护。能力：从需求源（ONES / GitHub Issues / 自定义 MCP，支持 stdio（npx/python/docker 等）与远程 http(s) 两种形态；配置由插件自管，存 ~/.dsh/dsh-adw/mcp-servers.json，用户在设置页「插件」分组中配置，与其它工具互不影响）拉取需求文档——adw_fetch_requirement 按链接/编号/issue key 拉取并保存、adw_list_requirements 列已保存需求（含执行状态）、adw_search_requirements 源内搜索；已配置 MinerU 服务时 adw_parse_document 可将 PDF/Word/截图等文档或需求附件（adw-image://需求id/文件名）解析为 Markdown（OCR/表格/公式）；需求保存在 ~/.dsh/dsh-adw/；用户可在 GUI 中选择工作区对需求执行开发（真实 dsh 会话，执行记录回写需求）。限制：插件路由仅本机回环可用；拉取消耗外部系统配额；文档解析会把文件内容发送到用户配置的 MinerU 服务。用户提到「需求 / 拉需求 / 需求工作台 / CWXT-xxx / issue / 解析文档」时即指本插件，请据此协作。'
+export const ADW_GUIDANCE = '本机已安装 dsh-adw 插件（adw 需求工作台）：侧边栏「需求工作台」入口；在 adw 仓库（packages/dsh-adw + packages/adw-requirement-core）维护。能力：从需求管理系统拉取需求文档——agent 中介模式（标准 MCP 消费：AI 引擎动态面对已挂载 MCP 工具，读 schema 自主选择与调用，零源硬编码）；MCP server 支持 stdio（npx/python/docker 等）与远程 http(s) 两种形态，配置由插件自管，存 ~/.dsh/dsh-adw/mcp-servers.json，用户在设置页「插件」分组中配置，与其它工具互不影响。工具：adw_fetch_requirement 按链接/编号/issue key（ONES 链接 / CWXT-129290 / owner/repo#N）拉取并保存、adw_list_requirements 列已保存需求（含执行状态）、adw_search_requirements 源内搜索；已配置 MinerU 服务时 adw_parse_document 可将 PDF/Word/截图等文档或需求附件（adw-image://需求id/文件名）解析为 Markdown（OCR/表格/公式）。需求保存在 ~/.dsh/dsh-adw/；用户可在 GUI 中选择工作区对需求执行开发（真实 dsh 会话，执行记录回写需求）。限制：插件路由仅本机回环可用；拉取经由模型 + 外部系统配额；文档解析会把文件内容发送到用户配置的 MinerU 服务。用户提到「需求 / 拉需求 / 需求工作台 / CWXT-xxx / issue / 解析文档」时即指本插件，请据此协作。'
 
 /** Re-exported for the browser half's type-only imports. */
 export type { SavedRequirement }
@@ -93,6 +100,8 @@ interface ResolvedConfig {
   announceToAgent: boolean
   devPromptTemplate: string
   defaultServerName: string
+  agentProvider: string
+  agentModel: string
   mineruUrl: string
   mineruBackend: string
   mineruLang: string[]
@@ -117,6 +126,8 @@ function applyImpl(ctx: Context, config?: Config): void {
       announceToAgent: value.announceToAgent ?? true,
       devPromptTemplate: template !== undefined && template.trim() !== '' ? template : DEFAULT_DEV_PROMPT_TEMPLATE,
       defaultServerName: value.defaultServerName ?? '',
+      agentProvider: value.agentProvider ?? '',
+      agentModel: value.agentModel ?? '',
       mineruUrl: value.mineruUrl ?? '',
       mineruBackend: value.mineruBackend !== undefined && value.mineruBackend.trim() !== '' ? value.mineruBackend : 'pipeline',
       mineruLang: (value.mineruLang ?? '').split(/[,，\s]+/).map(s => s.trim()).filter(s => s !== ''),
@@ -127,9 +138,33 @@ function applyImpl(ctx: Context, config?: Config): void {
 
   // dsh home: the same root the profiles live under (DSH_HOME wins when set).
   const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  // agent 模型运行时：ctx.llm（官方插件 LLM 服务）+ 模型解析
+  // （设置项 > 宿主默认模型 > 首个注册 provider；每次会话惰性解析，热切换生效）
+  const modelResolver = makeModelResolver({
+    getExplicit: () => {
+      const value = resolve()
+      if (value.agentProvider !== '' && value.agentModel !== '') {
+        return {provider: value.agentProvider, model: value.agentModel}
+      }
+      return undefined
+    },
+    getDefault: () => {
+      const service = (ctx as Context & {
+        agentDefaultModel?: {currentSelection(): {provider: string; model: string; reasoningEffort?: string} | undefined}
+      }).agentDefaultModel
+      try {
+        return service?.currentSelection()
+      } catch {
+        return undefined
+      }
+    },
+    llm: () => ctx.llm,
+  })
+  const agentLlm = new DshAgentLlm(() => ctx.llm, modelResolver)
   const engine = new RequirementEngine({
     dataDir: join(dshHome, 'dsh-adw'),
     defaultServerName: resolve().defaultServerName || undefined,
+    agentLlm: () => agentLlm,
   })
   ctx.effect(() => () => { void engine.dispose() }, 'dsh-adw: engine')
 

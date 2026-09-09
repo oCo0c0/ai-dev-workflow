@@ -3,7 +3,7 @@
  * @description MCP 聚合网关单元测试（不连接真实上游进程）
  */
 
-import {describe, it, expect, afterEach} from 'vitest';
+import {describe, it, expect, afterEach, vi} from 'vitest';
 import express from 'express';
 import type {Server} from 'http';
 import {McpGateway, PLATFORM_MCP_SERVER_NAME, normalizeWindowsCommand} from './mcp-gateway.js';
@@ -190,6 +190,99 @@ describe('McpGateway 平台 REST 面（/api/platform）', () => {
             expect(payload.text).toContain('炸了');
         } finally {
             registry.unregister('test__boom');
+        }
+    });
+
+    it('GET /tools?servers= 白名单：只枚举白名单内上游并按前缀过滤', async () => {
+        const gateway = new McpGateway(emptyRegistry());
+        // 打桩上游枚举：断言 (a) 只枚举白名单 server（冷启动不陪跑慢 server）
+        // (b) 返回目录只含白名单前缀
+        const enumerateArgs: Array<string[] | undefined> = [];
+        vi.spyOn(gateway, 'listUpstreamTools').mockImplementation(async (allowed?: string[]) => {
+            enumerateArgs.push(allowed);
+            return [
+                {name: 'ones__get_work_item', label: 'Get', description: 'd', inputSchema: {type: 'object'}, async execute() { return {text: ''}; }} as PlatformToolDefinition,
+                {name: 'github__get_issue', label: 'GH', description: 'd', inputSchema: {type: 'object'}, async execute() { return {text: ''}; }} as PlatformToolDefinition,
+            ];
+        });
+        const app = express();
+        app.use(express.json());
+        gateway.attachPlatformApi(app, '/api/platform');
+        const base = await listen(app);
+
+        try {
+            // 白名单只留 ones：定向枚举 + 前缀过滤
+            const filtered = await fetch(`${base}/api/platform/tools?servers=ones`);
+            const list = await filtered.json() as Array<{name: string}>;
+            expect(list.map(t => t.name)).toEqual(['ones__get_work_item']);
+            expect(enumerateArgs[0]).toEqual(['ones']);
+
+            // 不带 query → 全量缓存目录（allowed 为 undefined）
+            await fetch(`${base}/api/platform/tools`);
+            expect(enumerateArgs[1]).toBeUndefined();
+        } finally {
+            vi.restoreAllMocks();
+        }
+    });
+
+    it('单上游慢启动不拖累整张目录：就绪的先入目录（per-server 软超时）', async () => {
+        const registry = {
+            list: () => [
+                {name: 'fast', type: 'custom', command: 'x', args: [], env: {}, enabled: true},
+                {name: 'slow', type: 'custom', command: 'x', args: [], env: {}, enabled: true},
+            ],
+        } as unknown as MCPRegistryService;
+        const gateway = new McpGateway(registry);
+        // fast 立即就绪；slow 永不连接（模拟 npx 冷启动超过软超时）
+        vi.spyOn(gateway as never as {ensureUpstream(name: string): Promise<unknown>}, 'ensureUpstream')
+            .mockImplementation((name: string) => name === 'fast'
+                ? Promise.resolve({tools: [{name: 'tool_a', description: 'd'}]})
+                : new Promise(() => undefined));
+
+        const tools = await gateway.listUpstreamTools();
+        expect(tools.map(t => t.name)).toEqual(['fast__tool_a']);
+        vi.restoreAllMocks();
+    }, 12_000);
+
+    it('降级目录（上游软超时）只短冷却：过期后重试上游恢复工具', async () => {
+        const gateway = new McpGateway(emptyRegistry());
+        // 打桩上游枚举：第一次拒绝（模拟软超时降级），之后返回工具
+        let upstreamCalls = 0;
+        vi.spyOn(gateway, 'listUpstreamTools').mockImplementation(async () => {
+            upstreamCalls++;
+            if (upstreamCalls === 1) throw new Error('soft timeout');
+            return [{
+                name: 'ones-api__get_work_item',
+                label: 'Get',
+                description: 'd',
+                inputSchema: {type: 'object', properties: {}},
+                async execute() {
+                    return {text: 'ok'};
+                },
+            } as PlatformToolDefinition];
+        });
+        const app = express();
+        app.use(express.json());
+        gateway.attachPlatformApi(app, '/api/platform');
+        const base = await listen(app);
+
+        try {
+            // 第一次：上游超时 → 降级空目录
+            const first = await (await fetch(`${base}/api/platform/tools`)).json() as Array<{name: string}>;
+            expect(first).toEqual([]);
+            expect(upstreamCalls).toBe(1);
+
+            // 等待降级冷却（2s）过期后重试：上游已就绪 → 目录恢复
+            await new Promise((r) => setTimeout(r, 2_100));
+            const second = await (await fetch(`${base}/api/platform/tools`)).json() as Array<{name: string}>;
+            expect(second.map(t => t.name)).toEqual(['ones-api__get_work_item']);
+            expect(upstreamCalls).toBe(2);
+
+            // 正常目录走 30s 缓存：再次请求不再枚举上游
+            await fetch(`${base}/api/platform/tools`);
+            expect(upstreamCalls).toBe(2);
+        } finally {
+            vi.restoreAllMocks();
         }
     });
 });

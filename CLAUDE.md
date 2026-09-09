@@ -102,7 +102,7 @@ pnpm start   # 或 adw
 
 | 前缀 | 模块文件 | 主要功能 |
 |------|----------|----------|
-| `/api/requirements` | `routes/requirements.ts` | 需求 CRUD、MCP 拉取、搜索、图片服务 |
+| `/api/requirements` | `routes/requirements.ts` | 需求 CRUD、agent 中介拉取/搜索（MCP 全量挂载给引擎，零源硬编码）、图片服务 |
 | `/api/workspace` | `routes/workspace.ts` | 工作区管理、文件浏览、Git 操作（分支/合并/stash） |
 | `/api/plan` | `routes/plan.ts` | 计划生成（AI）、多轮对话、技能队列、任务导出 xlsx |
 | `/api/execution` | `routes/execution.ts` | 代码执行（AI）、暂停/中止/重试、自动触发测试 |
@@ -134,17 +134,14 @@ pnpm start   # 或 adw
 
 - **测试框架**：Vitest，配置文件 `vitest.config.ts`
 - **测试位置**：与服务文件同目录，命名为 `*.test.ts`
-- **已有测试**（10 个）：
-  - `cli-runner-service.test.ts`
-  - `mcp-config-service.test.ts`
-  - `workspace-service.test.ts`
-  - `skills-service.test.ts`
-  - `pipeline-service.test.ts`
-  - `mcp-bridge-service.test.ts`
-  - `config-service.test.ts`
-  - `test-executor-service.test.ts`
-  - `hermes-system.test.ts`
-  - `sandbox-service.test.ts`
+- **已有测试**（17 个）：
+  - `cli-runner-service.test.ts` / `cli-providers/pi-provider.test.ts` / `cli-providers/pi-rpc-process.test.ts`
+  - `mcp-config-service.test.ts` / `mcp-registry-service.test.ts` / `platform/mcp-gateway.test.ts`
+  - `platform/tool-catalog.test.ts` / `platform/tool-registry.test.ts`
+  - `requirement-agent-fetch.test.ts`（agent 中介需求拉取/搜索）
+  - `workspace-service.test.ts` / `skills-service.test.ts` / `pipeline-service.test.ts`
+  - `config-service.test.ts` / `test-executor-service.test.ts` / `hermes-system.test.ts`
+  - `sandbox-service.test.ts` / `model-provider-store.test.ts`
 - **测试缺失**：路由层、CLI Provider 实现（claude-provider/codex-provider）、bridge、前端组件/页面、agent-coordinator
 
 ## 编码规范
@@ -169,5 +166,11 @@ pnpm start   # 或 adw
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-07-23 | 修复 | 附件面板重定义「解析输入清单」语义（主应用 + 插件内核 store 同步）：只保留 ① 原有真实 http URL 的附件（解析端可按 URL 下载）② 已本地化且被文档引用的（URL 改写为本地地址）；wiki 源整页历史图（无 URL hash 资源）未被文档引用的一律不下载不列出；收集/改写不再要求附件自带 URL（空 URL 的 `[Image:]` 引用也能走 wiki token 下载）；下载失败的标记改写为明示 `[图片未下载：x]` 不再伪造本地链接；占位文本 URL（非 http）视同无 URL。契约 prompt 加「无真实 URL 时省略 url 字段」。实测 CWXT-129290 附件 9→2（文档实际引用数），全部本地 URL |
+| 2026-07-23 | 修复 | MCP 注册中心文件格式标准化为 mcpServers 方言（用户反馈自造格式）：`~/.ai-dev-workbench/mcp-servers.json` 读写 `{"mcpServers":{name:{type:"stdio",command,args,env}}}`，停用写 `disabled:true`、非手动导入保留 `source`；兼容读取旧 `{version,servers:[...]}` 并在下次保存自动迁移（真实文件已迁移）；插件内核 mcp-config 补显式 `type`、http 型标准 `headers` 键、`disabled` 读取 |
+| 2026-07-23 | 修复 | ONES wiki 图片 0/N 全挂：任务描述里的 wiki 链接是 `/team/{t}/page/{uuid}`（无 space 段），`getWikiPageUuids` 旧正则强制 space 段匹配不到 → 兜底拿任务 UUID 当 wiki 页必 404；放宽路由正则与 ai-dev-requirements 对齐（space 可选 + descriptionText 一并扫描 + URL 解码），主应用与插件内核双份同步；附件本地化范围收敛为图片 + Excel（xls/xlsx/xlsm），其他格式保留源链接不下载；fetch prompt 加"图片标记原样保留"约束（模型压缩正文丢 `[Image:]` 标记）。实测 CWXT-129290：9/9 张图落盘、附件全本地化 |
+| 2026-07-23 | 更新 | dsh-adw 插件同步主应用 agent 中介架构（`packages/dsh-adw` 0.4.0 + `packages/adw-requirement-core` 0.3.0）：内核删 per-source 适配器（`requirement-sources` 收敛为中立数据模型 + JSON 契约映射器），新增 `agent-fetch.ts`（AgentLlm 端口 + agent 循环 + 与本体同款 JSON 契约 prompt）；`mcp-bridge.ts` 重写为纯 MCP 传输池（listServerTools/callServerTool，`<server>__<tool>` 前缀路由）；宿主新增 `host/agent-llm.ts`（ctx.llm 适配 + 模型解析：设置项 > agentDefaultModel > 首个 provider），inject 增加 `llm`；路由删 sources 目录/安装端点、客户端收敛为纯 MCP 服务器管理；顺手修复 store `withTimeout` 定时器泄漏 |
+| 2026-07-23 | 修复 | pi 引擎 agent 拉取"看不到 MCP 工具"：移除 spawn 的 `--tools` 硬白名单（静默禁用扩展平台工具，主因）；平台扩展工具注册挪到 async factory 顶层（rpc 模式下 `session_start` 注册不进首轮模型工具清单）；网关/扩展冷启动容错（per-server 软超时、降级目录短冷却、空目录重试、白名单定向枚举） |
+| 2026-07-23 | 更新 | 需求拉取全面 agent 中介化（`requirement-agent-fetch.ts`，标准 MCP 消费模式）：AI 引擎动态面对已挂载 MCP 工具读 schema 自主调用；删除 per-source 适配器与 `mcp-bridge-service.ts`，新增需求源零代码（配置 MCP server 即可） |
 | 2026-07-22 | 更新 | Pi 后端重构为 RPC 子进程 harness（process-per-run + adw 平台扩展）；平台层新增 `/api/platform` REST 面；README.md / README_ZH.md 按真实架构重写（删除虚构的 Agent 系统章节） |
 | 2026-07-21 | 创建 | 初始化架构文档，全仓扫描完成 |

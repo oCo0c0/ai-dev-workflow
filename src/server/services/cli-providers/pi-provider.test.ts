@@ -130,10 +130,11 @@ describe('PiProvider（RPC harness）', () => {
         const toolResult = outputs.find((o) => o.meta?.type === 'tool_result');
         expect(toolResult?.data).toBe('文件内容');
 
-        // 启动参数：模型与工具白名单注入
+        // 启动参数：模型注入；不再传 tools 启用白名单（--tools 会静默禁用
+        // 扩展注册的平台 MCP 工具）
         expect(getOpts()?.provider).toBe('deepseek');
         expect(getOpts()?.model).toBe('deepseek-chat');
-        expect(getOpts()?.tools).toContain('grep');
+        expect(getOpts()?.tools).toBeUndefined();
     });
 
     it('权限确认往返：extension_ui_request → confirmPermission → extension_ui_response', async () => {
@@ -235,7 +236,7 @@ describe('adw 平台扩展（resources/pi-extensions/adw-platform.ts）', () => 
     let confirmResult: boolean;
     let notifies: string[];
 
-    function setup(permissionMode = 'confirm'): void {
+    function setup(permissionMode = 'confirm'): Promise<void> {
         handlers = {};
         registered = [];
         confirms = [];
@@ -248,7 +249,9 @@ describe('adw 平台扩展（resources/pi-extensions/adw-platform.ts）', () => 
             },
             registerTool: (tool: Record<string, unknown>) => registered.push(tool),
         };
-        adwPlatformExtension(pi as never);
+        // factory 为 async（pi 官方语义：pi await factory 后才继续启动）；
+        // 未设置 ADW_PLATFORM_URL 时立即返回（权限门仍同步注册）
+        return adwPlatformExtension(pi as never) as Promise<void>;
     }
 
     const confirmCtx = () => ({
@@ -277,14 +280,35 @@ describe('adw 平台扩展（resources/pi-extensions/adw-platform.ts）', () => 
         expect(confirms).toHaveLength(2);
     });
 
-    it('平台工具（含 __ 分隔名）需确认；拒绝时返回 block', async () => {
+    it('平台工具按读写区分：写类需确认（拒绝返回 block），读类直接放行', async () => {
         setup();
+        // 写类：确认 + 拒绝时返回 block
         confirmResult = false;
         const blocked = await handlers['tool_call'](
             {toolName: 'ones__create_issue', input: {title: 't'}},
             confirmCtx(),
         );
         expect(blocked).toEqual({block: true, reason: '用户拒绝了该工具调用'});
+        expect(confirms).toHaveLength(1);
+        expect(confirms[0].title).toBe('ones__create_issue');
+
+        // 读类（get/search/list 等命名前缀）：直接放行不弹窗（agent 拉取等纯查询场景）
+        confirmResult = false; // 即使会拒绝也不该走到 confirm
+        const readPass1 = await handlers['tool_call'](
+            {toolName: 'ones-api__get_work_item', input: {id: '302'}},
+            confirmCtx(),
+        );
+        expect(readPass1).toBeUndefined();
+        const readPass2 = await handlers['tool_call'](
+            {toolName: 'ones-api__search_requirements', input: {query: 'x'}},
+            confirmCtx(),
+        );
+        expect(readPass2).toBeUndefined();
+        expect(confirms).toHaveLength(1);
+
+        // 无法判断语义的平台工具（非读前缀且未命中写词）：保守确认
+        await handlers['tool_call']({toolName: 'ones-api__wiki_tree', input: {}}, confirmCtx());
+        expect(confirms).toHaveLength(2);
     });
 
     it('ADW_PERMISSION_MODE=auto-allow 时全部放行（经典流程未接权限回调）', async () => {
@@ -297,12 +321,12 @@ describe('adw 平台扩展（resources/pi-extensions/adw-platform.ts）', () => 
         expect(confirms).toHaveLength(0);
     });
 
-    it('session_start 从网关拉取工具目录并注册；execute 回连 /call', async () => {
-        setup();
+    it('factory 顶层拉取工具目录并注册；execute 回连 /call', async () => {
+        await setup();
         const calls: Array<{url: string}> = [];
         const fetchMock = vi.fn(async (url: string | URL, _init?: RequestInit) => {
             calls.push({url: String(url)});
-            if (String(url).endsWith('/tools')) {
+            if (String(url).includes('/tools')) {
                 return new Response(JSON.stringify([
                     {name: 'ones__search', label: 'ones.search', description: '搜索', inputSchema: {type: 'object', properties: {q: {type: 'string'}}, required: ['q']}},
                 ]), {status: 200});
@@ -313,7 +337,11 @@ describe('adw 平台扩展（resources/pi-extensions/adw-platform.ts）', () => 
         process.env.ADW_PLATFORM_URL = 'http://127.0.0.1:3000/api/platform';
 
         try {
-            await handlers['session_start']({}, {ui: {notify: (m: string) => notifies.push(m)}});
+            // 重新加载 factory（带 env），模拟 pi await factory 的启动路径
+            await adwPlatformExtension({
+                on: () => undefined,
+                registerTool: (tool: Record<string, unknown>) => registered.push(tool),
+            } as never);
             expect(registered).toHaveLength(1);
             expect(registered[0].name).toBe('ones__search');
             expect(registered[0].parameters).toEqual({type: 'object', properties: {q: {type: 'string'}}, required: ['q']});
@@ -327,30 +355,112 @@ describe('adw 平台扩展（resources/pi-extensions/adw-platform.ts）', () => 
             expect(calls.some((c) => c.url.endsWith('/call'))).toBe(true);
         } finally {
             delete process.env.ADW_PLATFORM_URL;
+            delete process.env.ADW_PLATFORM_SERVERS;
             vi.unstubAllGlobals();
         }
     });
 
-    it('网关不可达时降级：不注册工具，notify 告警', async () => {
-        setup();
+    it('ADW_PLATFORM_SERVERS 白名单：拉目录时附加 ?servers= query', async () => {
+        await setup();
+        const urls: string[] = [];
+        vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+            urls.push(String(url));
+            return new Response(JSON.stringify([{name: 'ones-api__get_work_item'}]), {status: 200});
+        }));
+        process.env.ADW_PLATFORM_URL = 'http://127.0.0.1:3000/api/platform';
+        process.env.ADW_PLATFORM_SERVERS = 'ones-api,github';
+        try {
+            await adwPlatformExtension({
+                on: () => undefined,
+                registerTool: (tool: Record<string, unknown>) => registered.push(tool),
+            } as never);
+            expect(urls[0]).toBe('http://127.0.0.1:3000/api/platform/tools?servers=ones-api%2Cgithub');
+            // 非空目录不触发重试
+            expect(urls).toHaveLength(1);
+            expect(registered).toHaveLength(1);
+            expect(registered[0].name).toBe('ones-api__get_work_item');
+        } finally {
+            delete process.env.ADW_PLATFORM_URL;
+            delete process.env.ADW_PLATFORM_SERVERS;
+            delete process.env.ADW_CATALOG_RETRY_DELAY_MS;
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('空目录（上游冷启动）自动重试：退避后再拉到工具并注册', async () => {
+        await setup();
+        process.env.ADW_CATALOG_RETRY_DELAY_MS = '1';
+        let calls = 0;
+        vi.stubGlobal('fetch', vi.fn(async () => {
+            calls++;
+            // 前两次空目录（模拟网关软超时降级），第三次上游就绪
+            const body = calls <= 2 ? '[]' : JSON.stringify([{name: 'ones-api__search_requirements'}]);
+            return new Response(body, {status: 200});
+        }));
+        process.env.ADW_PLATFORM_URL = 'http://127.0.0.1:3000/api/platform';
+        try {
+            await adwPlatformExtension({
+                on: () => undefined,
+                registerTool: (tool: Record<string, unknown>) => registered.push(tool),
+            } as never);
+            expect(calls).toBe(3);
+            expect(registered).toHaveLength(1);
+            expect(registered[0].name).toBe('ones-api__search_requirements');
+        } finally {
+            delete process.env.ADW_PLATFORM_URL;
+            delete process.env.ADW_CATALOG_RETRY_DELAY_MS;
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('重试后仍为空目录：不注册任何工具', async () => {
+        await setup();
+        process.env.ADW_CATALOG_RETRY_DELAY_MS = '1';
+        let calls = 0;
+        vi.stubGlobal('fetch', vi.fn(async () => {
+            calls++;
+            return new Response('[]', {status: 200});
+        }));
+        process.env.ADW_PLATFORM_URL = 'http://127.0.0.1:3000/api/platform';
+        try {
+            await adwPlatformExtension({
+                on: () => undefined,
+                registerTool: (tool: Record<string, unknown>) => registered.push(tool),
+            } as never);
+            expect(calls).toBe(4); // CATALOG_RETRY_COUNT 次后放弃
+            expect(registered).toHaveLength(0);
+        } finally {
+            delete process.env.ADW_PLATFORM_URL;
+            delete process.env.ADW_CATALOG_RETRY_DELAY_MS;
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('网关不可达时降级：不注册工具，不阻塞启动', async () => {
+        await setup();
         vi.stubGlobal('fetch', vi.fn(async () => {
             throw new Error('ECONNREFUSED');
         }));
         process.env.ADW_PLATFORM_URL = 'http://127.0.0.1:9/api/platform';
         try {
-            await handlers['session_start']({}, {ui: {notify: (m: string) => notifies.push(m)}});
+            await adwPlatformExtension({
+                on: () => undefined,
+                registerTool: (tool: Record<string, unknown>) => registered.push(tool),
+            } as never);
             expect(registered).toHaveLength(0);
-            expect(notifies.some((n) => n.includes('平台工具加载失败'))).toBe(true);
         } finally {
             delete process.env.ADW_PLATFORM_URL;
+            delete process.env.ADW_PLATFORM_SERVERS;
             vi.unstubAllGlobals();
         }
     });
 
     it('未配置 ADW_PLATFORM_URL 时跳过注册（无网关环境）', async () => {
-        setup();
         delete process.env.ADW_PLATFORM_URL;
-        await handlers['session_start']({}, {ui: {notify: (m: string) => notifies.push(m)}});
+        await adwPlatformExtension({
+            on: () => undefined,
+            registerTool: (tool: Record<string, unknown>) => registered.push(tool),
+        } as never);
         expect(registered).toHaveLength(0);
     });
 });

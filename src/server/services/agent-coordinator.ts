@@ -113,6 +113,13 @@ export class AgentCoordinator {
         try {
             while (true) {
                 this.queuedReplyFlags.delete(executionId);
+                // 消费排队消息：此刻才写入对话日志（上屏时机=消费时机，
+                // 避免消息在发送瞬间插入当前轮输出导致显示顺序错乱）
+                const drained = await this.store.drainPendingReplies(executionId).catch(() => [] as string[]);
+                for (const message of drained) {
+                    this.broadcastLog(executionId, JSON.stringify({type: 'user', content: message}));
+                }
+
                 const outcome = await this.runOnce(executionId);
 
                 if (outcome === 'aborted' && this.interruptFlags.has(executionId)) {
@@ -204,8 +211,8 @@ export class AgentCoordinator {
     }
 
     /**
-     * 运行中的用户回复入队：消息已由 routes 写入 user 日志，
-     * 本轮结束后由 execute 外层循环自动续跑消费
+     * 运行中的用户回复入队标志：消息本体在 store.pendingReplies 中，
+     * 由 execute 外层循环消费（drainPendingReplies 落日志）后续跑
      */
     markQueuedReply(executionId: string): void {
         this.queuedReplyFlags.add(executionId);

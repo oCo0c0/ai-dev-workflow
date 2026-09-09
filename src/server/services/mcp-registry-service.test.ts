@@ -76,9 +76,20 @@ describe('MCPRegistryService', () => {
             expect(() => service.add({name: 'x', command: 'node', args: ['a', 1 as unknown as string]})).toThrow('must be an array of strings');
         });
 
-        it('persists to the registry file', () => {
-            service.add({name: 'persist-me', command: 'python server.py'});
-            expect(JSON.parse(fs.readFileSync(registryFile, 'utf-8')).servers).toHaveLength(1);
+        it('persists in standard mcpServers format and reloads', () => {
+            service.add({name: 'persist-me', command: 'python server.py', args: ['server.py'], env: {K: 'V'}});
+
+            // 磁盘格式 = 标准 mcpServers 方言（Claude/Cursor 可直接消费）
+            const onDisk = JSON.parse(fs.readFileSync(registryFile, 'utf-8')) as {
+                mcpServers: Record<string, {type?: string; command?: string; args?: string[]; env?: Record<string, string>}>;
+            };
+            expect(onDisk.mcpServers['persist-me']).toMatchObject({
+                type: 'stdio',
+                command: 'python server.py',
+            });
+            expect(onDisk.mcpServers['persist-me'].args).toEqual(['server.py']);
+            expect(onDisk.mcpServers['persist-me'].env).toEqual({K: 'V'});
+            expect(onDisk.servers).toBeUndefined(); // 不再写旧版 {version, servers:[...]}
 
             // 新实例读取同一文件
             const reloaded = new MCPRegistryService({
@@ -88,6 +99,36 @@ describe('MCPRegistryService', () => {
                 piSettingsFile,
             });
             expect(reloaded.get('persist-me')?.command).toBe('python server.py');
+            expect(reloaded.get('persist-me')?.enabled).toBe(true);
+        });
+
+        it('reads legacy {version, servers:[...]} format and migrates on save', () => {
+            fs.writeFileSync(registryFile, JSON.stringify({
+                version: 1,
+                servers: [{name: 'legacy', type: 'custom', command: 'node', args: ['s.mjs'], env: {}, enabled: false, source: 'claude'}],
+            }), 'utf-8');
+
+            expect(service.get('legacy')?.command).toBe('node');
+            expect(service.get('legacy')?.enabled).toBe(false);
+            expect(service.get('legacy')?.source).toBe('claude');
+
+            // 触发保存 → 文件迁移为标准格式（disabled / source 保留）
+            service.add({name: 'extra', command: 'python'});
+            const onDisk = JSON.parse(fs.readFileSync(registryFile, 'utf-8')) as {
+                mcpServers: Record<string, {disabled?: boolean; source?: string}>;
+            };
+            expect(onDisk.mcpServers.legacy).toMatchObject({disabled: true, source: 'claude'});
+            expect(onDisk.mcpServers.extra).toBeDefined();
+        });
+
+        it('round-trips disabled state through standard format', () => {
+            service.add({name: 'toggle-me', command: 'node', args: ['s.mjs']});
+            service.update('toggle-me', {enabled: false});
+            const onDisk = JSON.parse(fs.readFileSync(registryFile, 'utf-8')) as {
+                mcpServers: Record<string, {disabled?: boolean}>;
+            };
+            expect(onDisk.mcpServers['toggle-me'].disabled).toBe(true);
+            expect(service.get('toggle-me')?.enabled).toBe(false);
         });
 
         it('returns empty list when registry file is corrupted', () => {

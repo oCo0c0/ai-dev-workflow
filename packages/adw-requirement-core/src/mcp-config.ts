@@ -105,21 +105,13 @@ export interface MCPServerConfig {
 /**
  * MCP 服务器配置文件结构
  * @interface McpServersFile
- * @description 自管配置文件（如 ~/.dsh/dsh-adw/mcp-servers.json）的结构
+ * @description 自管配置文件（如 ~/.dsh/dsh-adw/mcp-servers.json）的结构，
+ *   与 Claude/Cursor 的标准 mcpServers 方言一致
  * @internal
  */
 interface McpServersFile {
     /** MCP 服务器配置映射表，key 为服务器名称 */
-    mcpServers?: Record<string, {
-        /** 启动命令（stdio 型） */
-        command?: string;
-        /** 命令参数（可选） */
-        args?: string[];
-        /** 环境变量（可选） */
-        env?: Record<string, string>;
-        /** 远程服务器地址（http/sse 型，与 command 二选一） */
-        url?: string;
-    }>;
+    mcpServers?: Record<string, StoredServer>;
 }
 
 /**
@@ -137,16 +129,28 @@ function validateMcpUrl(url: string): void {
     }
 }
 
-/** 存储条目（文件内形态）。command（stdio）与 url（http/sse）二选一。 */
-type StoredServer = {command?: string; args?: string[]; env?: Record<string, string>; url?: string};
+/**
+ * 存储条目（文件内形态，标准 mcpServers 方言）。
+ * stdio 型：command/args/env；http 型：url/headers（认证头）。
+ * disabled: true 表示停用（缺省 = 启用）。
+ */
+type StoredServer = {
+    type?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
+    disabled?: boolean;
+};
 
 /** 归一化并校验：url 型不校验 command；stdio 型 command 必填。 */
 function toStored(name: string, config: {command?: string; args?: string[]; env?: Record<string, string>; url?: string}): StoredServer {
     const env = validateMcpEnv(config.env);
     if (config.url !== undefined && config.url.trim() !== '') {
         validateMcpUrl(config.url.trim());
-        const stored: StoredServer = {url: config.url.trim()};
-        if (Object.keys(env).length > 0) stored.env = env;
+        const stored: StoredServer = {type: 'http', url: config.url.trim()};
+        if (Object.keys(env).length > 0) stored.headers = env; // http 型认证头用标准 headers 键
         return stored;
     }
     if (config.command === undefined || config.command.trim() === '') {
@@ -154,20 +158,20 @@ function toStored(name: string, config: {command?: string; args?: string[]; env?
     }
     validateMcpCommand(config.command);
     const args = validateMcpArgs(config.args);
-    const stored: StoredServer = {command: config.command};
+    const stored: StoredServer = {type: 'stdio', command: config.command};
     if (args.length > 0) stored.args = args;
     if (Object.keys(env).length > 0) stored.env = env;
     return stored;
 }
 
-/** 存储形态 → 完整配置（含类型推断）。 */
+/** 存储形态 → 完整配置（含类型推断；headers（标准）优先，兼容旧 env 键）。 */
 function fromStored(name: string, stored: StoredServer): MCPServerConfig {
     if (stored.url !== undefined && stored.url.trim() !== '') {
-        return {name, type: 'http', command: '', args: [], env: stored.env ?? {}, url: stored.url.trim(), enabled: true, status: 'disconnected'};
+        return {name, type: 'http', command: '', args: [], env: stored.headers ?? stored.env ?? {}, url: stored.url.trim(), enabled: stored.disabled !== true, status: 'disconnected'};
     }
     const command = stored.command ?? '';
     const args = stored.args ?? [];
-    return {name, type: inferType(command, args), command, args, env: stored.env ?? {}, enabled: true, status: 'disconnected'};
+    return {name, type: inferType(command, args), command, args, env: stored.env ?? {}, enabled: stored.disabled !== true, status: 'disconnected'};
 }
 
 /**

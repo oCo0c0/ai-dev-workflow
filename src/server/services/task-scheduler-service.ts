@@ -21,7 +21,7 @@ import {MCPRegistryService} from './mcp-registry-service.js';
 import {broadcast} from '../websocket.js';
 import type {MemoryService} from './memory/memory-service.js';
 import type {PipelineService} from './pipeline-service.js';
-import type {MCPBridgeService} from './mcp-bridge-service.js';
+import type {RequirementAgentFetchService} from './requirement-agent-fetch.js';
 import type {RequirementStoreService} from './requirement-store-service.js';
 
 // === 类型定义 ===
@@ -65,7 +65,7 @@ interface RunningTask {
 /** 流水线编排所需的依赖注入 */
 export interface PipelineDependencies {
     requirementStore: RequirementStoreService;
-    mcpBridgeService: MCPBridgeService;
+    agentFetchService: RequirementAgentFetchService;
     pipelineService: PipelineService;
     memoryService?: MemoryService;
     workspaceService?: import('./workspace-service.js').WorkspaceService;
@@ -395,7 +395,7 @@ export class TaskScheduler {
         const task = this.tasks.get(taskId);
         if (!task || !this.deps) return;
 
-        const {requirementStore, mcpBridgeService, pipelineService, memoryService} = this.deps;
+        const {requirementStore, agentFetchService, pipelineService, memoryService} = this.deps;
 
         // 直接使用项目目录（不使用 worktree）
         const cwd = task.workspacePath;
@@ -408,7 +408,7 @@ export class TaskScheduler {
         const {
             title,
             description
-        } = await this.getRequirementContent(task.requirementId, requirementStore, mcpBridgeService);
+        } = await this.getRequirementContent(task.requirementId, requirementStore, agentFetchService);
 
         const promptText = renderPrompt(PROMPTS.plan, {title, description});
 
@@ -529,17 +529,17 @@ export class TaskScheduler {
     }
 
     /**
-     * 获取需求内容（本地 store 优先，fallback MCP）
+     * 获取需求内容（本地 store 优先，fallback agent 中介拉取）
      */
     private async getRequirementContent(
         requirementId: string,
         reqStore: RequirementStoreService,
-        mcpBridgeService: MCPBridgeService,
+        agentFetchService: RequirementAgentFetchService,
     ): Promise<{ title: string; description: string }> {
         const saved = reqStore.get(requirementId);
         // 工作副本（编辑 + 解析合并的成果）优先于源描述
         if (saved) return {title: saved.title, description: saved.workingDescription ?? saved.description};
-        const detail = await mcpBridgeService.fetchRequirementDetail(requirementId);
+        const detail = await agentFetchService.fetchByInput(requirementId);
         return {title: detail.title, description: detail.description};
     }
 

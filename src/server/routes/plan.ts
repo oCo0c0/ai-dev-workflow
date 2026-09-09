@@ -17,7 +17,7 @@ import os from 'os';
 import AdmZip from 'adm-zip';
 import XLSX from 'xlsx';
 import {CLIRunnerService} from '../services/cli-runner-service.js';
-import {MCPBridgeService} from '../services/mcp-bridge-service.js';
+import {RequirementAgentFetchService} from '../services/requirement-agent-fetch.js';
 import {MCPRegistryService} from '../services/mcp-registry-service.js';
 import {PipelineService} from '../services/pipeline-service.js';
 import {validateBody, validateWorkspacePath, validateOutputPath} from '../middleware/validation.js';
@@ -618,13 +618,13 @@ function resolvePlanMcpWithWarn(
  * 获取需求详情：优先从本地 store 读取已保存的版本，避免重新获取导致内容不一致
  * @param requirementId - 需求ID
  * @param reqStore - 本地需求存储服务
- * @param mcpBridgeService - MCP 桥接服务（fallback）
+ * @param agentFetch - agent 中介需求拉取服务（fallback）
  * @returns 需求的 title 和 description
  */
 async function getRequirementContent(
     requirementId: string,
     reqStore: RequirementStoreService,
-    mcpBridgeService: MCPBridgeService,
+    agentFetch: RequirementAgentFetchService,
 ): Promise<{ title: string; description: string }> {
     // 优先从本地已保存的需求中取（内容与 Requirements 页面展示一致；
     // 工作副本（编辑 + 解析合并的成果）优先于源描述）
@@ -632,8 +632,8 @@ async function getRequirementContent(
     if (saved) {
         return {title: saved.title, description: saved.workingDescription ?? saved.description};
     }
-    // 本地无缓存，fallback 到 MCP 实时获取
-    const detail = await mcpBridgeService.fetchRequirementDetail(requirementId);
+    // 本地无缓存，fallback 到 agent 中介实时拉取
+    const detail = await agentFetch.fetchByInput(requirementId);
     return {title: detail.title, description: detail.description};
 }
 
@@ -842,7 +842,7 @@ async function runNextPlanSkill(
  */
 export function createPlanRoutes(
     cliRunnerService: CLIRunnerService,
-    mcpBridgeService: MCPBridgeService,
+    agentFetchService: RequirementAgentFetchService,
     pipelineService?: PipelineService,
     memoryService?: MemoryService,
     mineruService?: MinerUService,
@@ -901,7 +901,7 @@ export function createPlanRoutes(
 
             if (!title || !description) {
                 // 如果没有提供快照，从本地 store 或 MCP 获取
-                const content = await getRequirementContent(requirementId, reqStore, mcpBridgeService);
+                const content = await getRequirementContent(requirementId, reqStore, agentFetchService);
                 title = title || content.title;
                 description = description || content.description;
             }
@@ -1242,7 +1242,7 @@ export function createPlanRoutes(
         activeGenerations.set(taskId, abortController);
 
         try {
-            const {title, description} = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
+            const {title, description} = await getRequirementContent(plan.requirementId, reqStore, agentFetchService);
 
             // 传统技能模式
             const promptText = renderPrompt(PROMPTS.plan, {title, description});
@@ -1301,7 +1301,7 @@ export function createPlanRoutes(
                     const {
                         title,
                         description
-                    } = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
+                    } = await getRequirementContent(plan.requirementId, reqStore, agentFetchService);
 
                     // 给齐技能所需输入（避免技能因追问卡住）
                     const reqId = plan.requirementNumber ?? plan.requirementId;
@@ -1445,7 +1445,7 @@ export function createPlanRoutes(
         activeGenerations.set(plan.id, abortController);
 
         try {
-            const {title, description} = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
+            const {title, description} = await getRequirementContent(plan.requirementId, reqStore, agentFetchService);
             const promptText = renderPrompt(PROMPTS.plan, {title, description});
 
             const continueMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
@@ -1495,7 +1495,7 @@ export function createPlanRoutes(
                 const {
                     title,
                     description
-                } = await getRequirementContent(plan.requirementId, reqStore, mcpBridgeService);
+                } = await getRequirementContent(plan.requirementId, reqStore, agentFetchService);
                 const promptText = renderPrompt(PROMPTS.plan, {title, description});
                 const skipMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
                 await runNextPlanSkill(

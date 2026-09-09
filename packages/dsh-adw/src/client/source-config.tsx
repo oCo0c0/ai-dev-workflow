@@ -1,14 +1,15 @@
 /**
- * Shared requirement-source configuration body: catalog sources (ONES /
- * GitHub) + custom MCP servers (stdio command or remote url) + MinerU row
- * (URL / backend / language), applied immediately through /api/dsh-adw and
- * the 'dsh-adw' settings scope. Rendered by the official settings-page tab
+ * Shared requirement-source configuration body: MCP servers (stdio command
+ * or remote url — ONES / GitHub / GitLab / any source, all consumed by the
+ * agent-mediated fetch with zero per-source code) + MinerU row (URL /
+ * backend / language), applied immediately through /api/dsh-adw and the
+ * 'dsh-adw' settings scope. Rendered by the official settings-page tab
  * (设置 → 插件 → 需求源).
  */
 
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import type { MCPServerConfig, RequirementSourceEntry } from '@along/adw-requirement-core'
+import type { MCPServerConfig } from '@along/adw-requirement-core'
 import * as api from './api.ts'
 
 /** Optional MinerU config wiring shared by both surfaces. */
@@ -17,15 +18,13 @@ export interface MineruConfigProps {
   scope: SettingsScope<Record<string, unknown>> | undefined
 }
 
-/** Source rows + custom MCP section + MinerU row (immediate apply via /api/dsh-adw). */
-export function SourceConfigBody(props: { sources: RequirementSourceEntry[]; onChanged(): void; mineru?: MineruConfigProps }): React.JSX.Element {
-  const { sources, onChanged } = props
-  const [openId, setOpenId] = useState('')
-  const [env, setEnv] = useState<Record<string, string>>({})
+/** MCP server rows + MinerU row (immediate apply via /api/dsh-adw). */
+export function SourceConfigBody(props: { onChanged(): void; mineru?: MineruConfigProps }): React.JSX.Element {
+  const { onChanged } = props
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState<{ key: string; text: string } | undefined>(undefined)
 
-  /** Row-level action runner (install / test / remove share one busy+note slot). */
+  /** Row-level action runner (test / add / remove share one busy+note slot). */
   const run = useCallback((key: string, fn: () => Promise<string>) => {
     void (async () => {
       setBusy(key); setNote(undefined)
@@ -40,83 +39,6 @@ export function SourceConfigBody(props: { sources: RequirementSourceEntry[]; onC
 
   return (
     <div className="adw-srcList">
-      {sources.map(source => {
-        const configured = source.servers.length > 0
-        const expanded = openId === source.adapterId
-        const key = source.adapterId
-        return (
-          <div key={key} className="adw-srcRow">
-            <div className="adw-srcRowHead">
-              <strong>{source.label}</strong>
-              <span className="adw-badge" data-tone={configured ? 'succeeded' : ''}>
-                {configured ? source.servers.join('、') : '未配置'}
-              </span>
-              <span className="adw-srcSpacer" />
-              {configured ? (
-                <>
-                  <button
-                    type="button" className="adw-btn adw-btnSm" disabled={busy !== ''}
-                    onClick={() => run(key, async () => {
-                      const r = await api.testServer(source.servers[0])
-                      return r.ok ? '连接成功' : `连接失败：${r.message}`
-                    })}
-                  >测试</button>
-                  <button
-                    type="button" className="adw-btn adw-btnSm adw-btnDanger" disabled={busy !== ''}
-                    onClick={() => run(key, async () => {
-                      await api.removeServer(source.servers[0])
-                      return '已移除配置'
-                    })}
-                  >移除</button>
-                </>
-              ) : (
-                <button type="button" className="adw-btn adw-btnSm" onClick={() => { setOpenId(expanded ? '' : key); setEnv({}); setNote(undefined) }}>
-                  {expanded ? '收起' : '配置'}
-                </button>
-              )}
-            </div>
-            {expanded && source.installTemplate !== undefined && (
-              <div className="adw-srcForm">
-                <div className="adw-formGrid">
-                  {source.installTemplate.envSpecs.map(spec => (
-                    <Fragment key={spec.key}>
-                      <span className="adw-formLabel">{spec.label}{spec.required ? ' *' : ''}</span>
-                      <div className="adw-formCtrl">
-                        <input
-                          className="adw-input"
-                          type={spec.secret ? 'password' : 'text'}
-                          value={env[spec.key] ?? ''}
-                          onChange={e => setEnv(prev => ({ ...prev, [spec.key]: e.target.value }))}
-                        />
-                        {spec.hint !== undefined && <span className="adw-hint">{spec.hint}</span>}
-                      </div>
-                    </Fragment>
-                  ))}
-                  <div className="adw-formActions">
-                    <button
-                      type="button" className="adw-btn adw-btnPrimary adw-btnSm" disabled={busy !== ''}
-                      onClick={() => run(key, async () => {
-                        const missing = source.installTemplate!.envSpecs.filter(s => s.required && (env[s.key] ?? '').trim() === '')
-                        if (missing.length > 0) throw new Error(`缺少必填项：${missing.map(m => m.label).join('、')}`)
-                        const r = await api.installSource(source.adapterId, env)
-                        setOpenId('')
-                        return r.connectionTest
-                          ? (r.connectionTest.ok ? '已配置并连接成功' : `已配置；连接测试：${r.connectionTest.message}`)
-                          : '已配置'
-                      })}
-                    >
-                      {busy === key ? '配置中…' : '保存并测试'}
-                    </button>
-                    <button type="button" className="adw-btn adw-btnSm" onClick={() => { setOpenId(''); setEnv({}) }}>取消</button>
-                  </div>
-                </div>
-              </div>
-            )}
-            {busy === key && <div className="adw-hint">处理中…</div>}
-            {busy !== key && note !== undefined && note.key === key && <div className="adw-hint">{note.text}</div>}
-          </div>
-        )
-      })}
       <CustomServerSection busy={busy} note={note} run={run} onChanged={onChanged} />
       {props.mineru !== undefined && <MineruConfigRow scope={props.mineru.scope} />}
     </div>
@@ -336,8 +258,8 @@ function CustomServerSection(props: {
   return (
     <div className="adw-customSection">
       <div className="adw-srcRowHead">
-        <strong>自定义 MCP 服务器</strong>
-        <span className="adw-hint">stdio（npx / python / docker …）或远程 http(s)，兼容标准 mcpServers 配置</span>
+        <strong>MCP 服务器（需求源）</strong>
+        <span className="adw-hint">拉取由 AI 引擎动态消费 MCP 工具（零源代码）：任何 stdio（npx / python / docker …）或远程 http(s) server 配好即用</span>
         <span className="adw-srcSpacer" />
         <button type="button" className="adw-btn adw-btnSm" onClick={() => { setOpen(!open); setMode('stdio') }}>
           {open ? '收起' : '添加'}

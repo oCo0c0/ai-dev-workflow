@@ -44,8 +44,12 @@ const UPSTREAM_FAIL_COOLDOWN_MS = 60_000;
 const UPSTREAM_CALL_TIMEOUT_MS = 120_000;
 /** 工具目录构建的软超时（毫秒）：超时降级为空工具目录，保证 agent 启动不被阻塞 */
 const TOOL_CATALOG_SOFT_TIMEOUT_MS = 10_000;
+/** 单个上游连接的软超时（毫秒）：就绪的先入目录，慢启动的跳过本轮 */
+const PER_SERVER_SOFT_TIMEOUT_MS = 8_000;
 /** 平台 REST 面工具目录缓存时长（毫秒） */
 const PLATFORM_CATALOG_TTL_MS = 30_000;
+/** 降级目录（上游软超时）的短冷却：过期后下次调用重试上游枚举 */
+const DEGRADED_CATALOG_TTL_MS = 2_000;
 
 /** 单个上游的运行时连接状态 */
 interface UpstreamConnection {
@@ -73,6 +77,8 @@ export class McpGateway {
     /** 平台工具目录缓存（REST 面序列化视图 + 调用分发表） */
     private platformCatalog: PlatformToolDefinition[] | null = null;
     private platformCatalogAt = 0;
+    /** 上次目录是否为软超时降级结果（降级目录只短冷却，尽快重试上游） */
+    private platformCatalogDegraded = false;
     private disposed = false;
 
     constructor(registry?: MCPRegistryService) {
@@ -249,7 +255,14 @@ export class McpGateway {
                 // 熔断冷却中的上游静默跳过（失败告警已在连接时输出过一次）
                 if (this.isCircuitOpen(server.name)) return;
                 try {
-                    const conn = await this.ensureUpstream(server.name);
+                    // 每 server 独立软超时：就绪的先上桌，慢启动的（Windows npx
+                    // 冷启动可达数十秒）本轮跳过、后台继续连——避免一个慢
+                    // server 把整张目录拖过全局软超时（agent 冷启动看不到工具）
+                    const conn = await withTimeout(
+                        this.ensureUpstream(server.name),
+                        PER_SERVER_SOFT_TIMEOUT_MS,
+                        `[mcp-gateway] upstream "${server.name}" still starting (soft timeout), skipped this round`,
+                    );
                     for (const tool of conn.tools) {
                         tools.push({
                             name: `${server.name}__${tool.name}`,
@@ -426,34 +439,64 @@ export class McpGateway {
     }
 
     /**
-     * 平台工具目录（30 秒缓存；含上游转发工具 + 平台原生工具）
+     * 平台工具目录（正常 30 秒缓存；含上游转发工具 + 平台原生工具）
      * @description REST 序列化视图不含 execute；调用经 /call 按名分发表路由。
+     *
+     * 冷启动容错：上游枚举软超时（TOOL_CATALOG_SOFT_TIMEOUT_MS）会降级为
+     * 仅原生工具（常见于 Windows npx 上游冷启动数秒到数十秒）。降级目录
+     * 只缓存 DEGRADED_CATALOG_TTL_MS（短冷却，防止每次请求都重枚举打爆
+     * 上游），过期后下一次调用立即重试上游——避免"刚重启后拉取需求时
+     * agent 看不到任何 MCP 工具"的竞态。
      */
     private async listPlatformCatalog(force = false): Promise<PlatformToolDefinition[]> {
-        const fresh = Date.now() - this.platformCatalogAt < PLATFORM_CATALOG_TTL_MS;
-        if (!force && this.platformCatalog && fresh) return this.platformCatalog;
-        const upstream = await withTimeout(
-            this.listUpstreamTools(),
-            TOOL_CATALOG_SOFT_TIMEOUT_MS,
-            '[mcp-gateway] platform catalog soft timeout, degrading to native tools only',
-        ).catch(() => [] as PlatformToolDefinition[]);
+        if (!force && this.platformCatalog) {
+            const ttl = this.platformCatalogDegraded ? DEGRADED_CATALOG_TTL_MS : PLATFORM_CATALOG_TTL_MS;
+            if (Date.now() - this.platformCatalogAt < ttl) return this.platformCatalog;
+        }
+        let upstream: PlatformToolDefinition[] = [];
+        let degraded = false;
+        try {
+            upstream = await withTimeout(
+                this.listUpstreamTools(),
+                TOOL_CATALOG_SOFT_TIMEOUT_MS,
+                '[mcp-gateway] platform catalog soft timeout, degrading to native tools only',
+            );
+        } catch {
+            degraded = true;
+        }
         this.platformCatalog = [...upstream, ...getPlatformToolRegistry().list()];
+        this.platformCatalogDegraded = degraded;
         this.platformCatalogAt = Date.now();
         return this.platformCatalog;
     }
 
     /**
      * 将平台 REST 面挂载到 Express（引擎子进程消费）
-     * - GET  {base}/tools → 工具目录（name/label/description/inputSchema）
+     * - GET  {base}/tools?servers=a,b → 工具目录（name/label/description/inputSchema），
+     *   可选 servers 白名单：只保留 <server>__ 前缀命中的转发工具（与
+     *   asClaudeMcpServers 的 ?servers= 语义一致；agent 拉取等场景收敛工具面），
+     *   且**只枚举白名单内的上游**——冷启动不必陪跑慢 server（Windows npx）
      * - POST {base}/call  → {name, args} 执行（统一超时/熔断/重连）
      * @description 受全局 apiKey 中间件保护（配置了 config.auth.apiKey 时），
      * 扩展侧以 x-api-key 头携带。仅本机回环使用，不对外暴露语义。
      */
     attachPlatformApi(app: Express, basePath: string): void {
-        app.get(`${basePath}/tools`, async (_req, res) => {
+        app.get(`${basePath}/tools`, async (req, res) => {
             try {
-                const catalog = await this.listPlatformCatalog();
-                res.json(catalog.map((t) => ({
+                const servers = parseServersQuery(req.query.servers);
+                let visible: PlatformToolDefinition[];
+                if (servers) {
+                    // 白名单查询：绕过共享缓存（过滤目录不污染全量目录），
+                    // 直接枚举白名单内上游 + 按前缀过滤兜底
+                    const upstream = await this.listUpstreamTools(servers);
+                    visible = upstream.filter((t) => {
+                        const prefix = t.name.includes('__') ? t.name.slice(0, t.name.indexOf('__')) : null;
+                        return prefix !== null && servers.includes(prefix);
+                    });
+                } else {
+                    visible = await this.listPlatformCatalog();
+                }
+                res.json(visible.map((t) => ({
                     name: t.name,
                     label: t.label,
                     description: t.description,
@@ -474,7 +517,14 @@ export class McpGateway {
             }
             try {
                 const catalog = await this.listPlatformCatalog();
-                const tool = catalog.find((t) => t.name === name);
+                let tool = catalog.find((t) => t.name === name);
+                if (!tool) {
+                    // 缓存未命中（如白名单会话只枚举了部分上游）：按 <server>__ 前缀定向重枚举
+                    const prefix = name.includes('__') ? name.slice(0, name.indexOf('__')) : null;
+                    if (prefix) {
+                        tool = (await this.listUpstreamTools([prefix])).find((t) => t.name === name);
+                    }
+                }
                 if (!tool) {
                     res.status(404).json({error: `unknown platform tool: ${name}`});
                     return;

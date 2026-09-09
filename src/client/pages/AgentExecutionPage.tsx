@@ -245,16 +245,9 @@ export default function AgentExecutionPage() {
     const [docPaths, setDocPaths] = useState<string[]>([]);
     const [docInput, setDocInput] = useState('');
 
-    // 运行中的排队消息（本地镜像：发送即排队，当前轮结束后自动处理）
-    const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+    // 运行中的排队消息（服务端 pendingReplies 为准：发送即排队，消费（自动续跑/
+    // 立即处理）时才落日志上屏；轮询 detail 自动同步增减）
     const [processingNow, setProcessingNow] = useState(false);
-
-    // 执行状态离开 running 时清空排队显示（消息已消费或执行结束）
-    useEffect(() => {
-        if (detail?.status && detail.status !== 'running') {
-            setQueuedMessages([]);
-        }
-    }, [detail?.status]);
 
     // DOM 引用
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -445,11 +438,9 @@ export default function AgentExecutionPage() {
         const message = replyText.trim();
         setReplyText('');
         try {
-            const res = await apiPost<{queued?: boolean}>(`/agent-execution/${activeId}/reply`, {message});
-            if (res.queued) {
-                // 运行中：消息已排队，等待当前轮结束自动处理
-                setQueuedMessages((q) => [...q, message]);
-            }
+            // queued=true 时消息进服务端 pendingReplies（不落日志，不上屏），
+            // 队列条与消费时机均以 detail.pendingReplies 为准
+            await apiPost<{queued?: boolean}>(`/agent-execution/${activeId}/reply`, {message});
             loadDetail(activeId);
         } catch (err) {
             console.error('回复失败:', err);
@@ -464,7 +455,6 @@ export default function AgentExecutionPage() {
         setProcessingNow(true);
         try {
             await apiPost(`/agent-execution/${activeId}/process-now`, {});
-            setQueuedMessages([]);
         } catch (err) {
             console.error('立即处理失败:', err);
         } finally {
@@ -658,6 +648,8 @@ export default function AgentExecutionPage() {
     // 日志消息（当前执行分桶 → LogMessageData[]，供 LogViewer 渲染；多 Agent 并行互不混入）
     const currentLogs = activeId ? (logsByExecution[activeId] || []) : [];
     const logMessages = useMemo<LogMessageData[]>(() => toLogMessages(currentLogs), [currentLogs]);
+    // 排队消息（服务端为准）：仅运行中显示，消费后自动清空
+    const pendingReplies = isRunning ? (detail?.pendingReplies ?? []) : [];
 
     // 步骤统计（单次遍历）
     const stepsStats = useMemo(() => {
@@ -997,15 +989,15 @@ export default function AgentExecutionPage() {
                                             onSuggestNewSession={handleNewSession}
                                         />
                                     </div>
-                                    {/* 排队消息条：运行中发送的消息在此排队，当前轮结束后自动处理 */}
-                                    {isRunning && queuedMessages.length > 0 && (
+                                    {/* 排队消息条：运行中发送的消息在服务端排队（不上屏），消费时才进对话流 */}
+                                    {pendingReplies.length > 0 && (
                                         <div className="mb-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
                                             <div className="flex items-center justify-between gap-2">
                                                 <div className="flex items-center gap-1.5 text-xs text-amber-600 min-w-0">
                                                     <Clock className="h-3.5 w-3.5 shrink-0"/>
-                                                    <span className="shrink-0">{queuedMessages.length} 条消息排队中</span>
+                                                    <span className="shrink-0">{pendingReplies.length} 条消息排队中</span>
                                                     <span className="truncate text-amber-600/70">
-                                                        （当前轮结束后自动处理：{queuedMessages[queuedMessages.length - 1].slice(0, 40)}）
+                                                        （当前轮结束后自动处理：{pendingReplies[pendingReplies.length - 1].slice(0, 40)}）
                                                     </span>
                                                 </div>
                                                 <Button

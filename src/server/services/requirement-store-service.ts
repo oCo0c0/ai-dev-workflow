@@ -303,23 +303,33 @@ export class RequirementStoreService {
         const imgDir = this.getImageDir(reqId);
         fs.mkdirSync(imgDir, {recursive: true});
 
-        // 从附件中收集图片资源
-        const imageResources = new Map<string, string>();
-        for (const att of req.attachments) {
-            if (att.url && /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name)) {
-                const resourceHash = att.name;
-                imageResources.set(att.name, resourceHash);
-            }
+        // 自动本地化的附件范围：文档中的图片 + Excel 表格（其他格式保持源链接，不下载）
+        const downloadableRe = /\.(png|jpe?g|gif|svg|webp|bmp|xlsx|xlsm|xls)$/i;
+        // 有效 URL 判定：http(s) 才算（空串与"（ONES Wiki 附件…）"类占位文本都视同无 URL）
+        const isHttpUrl = (url: string): boolean => /^https?:\/\//i.test(url);
+
+        // 文档正文实际引用的图片（[Image: xxx] 标记）——wiki 源会把整页历史图都挂进
+        // 附件列表（无 URL 的 hash 资源），只有被文档引用的才下载、才有展示价值
+        const referencedNames = new Set<string>();
+        for (const match of req.description.matchAll(/\[Image:\s*([^\]]+)\]/g)) {
+            const name = match[1].trim();
+            if (name !== '') referencedNames.add(name);
         }
 
-        // 从 description 中的 [Image: xxx.png] 提取图片资源（补充 Attachments 章节缺失的情况）
-        const descImageMatches = req.description.matchAll(/\[Image:\s*([^\]]+)\]/g);
-        for (const match of descImageMatches) {
-            const imageName = match[1].trim();
-            if (!imageResources.has(imageName)) {
-                imageResources.set(imageName, imageName);
+        // 下载集 = ① 有真实 http URL 且属于图片/Excel 的附件（真实附件，直连/签名下载）
+        //        + ② 文档引用的图片标记（wiki hash 资源无 URL，按名走 token 下载）
+        const imageResources = new Map<string, string>();
+        for (const att of req.attachments) {
+            if (downloadableRe.test(att.name) && (isHttpUrl(att.url) || referencedNames.has(att.name))) {
+                imageResources.set(att.name, att.name);
             }
         }
+        for (const name of referencedNames) {
+            if (!imageResources.has(name)) imageResources.set(name, name);
+        }
+
+        // 记录"原本有真实远程 URL"的附件（供清洗判定：改写为本地 URL 后 http 判定会失效）
+        const hadRemoteUrl = new Set(req.attachments.filter(a => isHttpUrl(a.url)).map(a => a.name));
 
         // 构建 filename → 附件 URL 映射
         const urlMap = new Map<string, string>();
@@ -419,8 +429,8 @@ export class RequirementStoreService {
             const remoteUrl = req.attachments.find(a => a.name === trimmed)?.url || '';
 
             if (fs.existsSync(localPath)) return `![${trimmed}](${localUrl})`;
-            if (remoteUrl) return `![${trimmed}](${remoteUrl})`;
-            return `![${trimmed}](${localUrl})`;
+            if (isHttpUrl(remoteUrl)) return `![${trimmed}](${remoteUrl})`;
+            return `[图片未下载：${trimmed}]`; // 无本地文件也无有效远程地址：不再伪造成图片链接
         });
 
         // 替换 [Embed: drawio] 格式
@@ -440,15 +450,33 @@ export class RequirementStoreService {
 
         req.description = desc;
 
-        // 更新附件 URL 指向本地
+        // 更新附件 URL 指向本地（图片 + Excel；不要求原有 URL——盘上有文件就改写，含空 URL 条目）
         for (const att of req.attachments) {
-            if (att.url && /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(att.name)) {
+            if (downloadableRe.test(att.name)) {
                 const localPath = path.join(imgDir, att.name);
                 if (fs.existsSync(localPath)) {
                     att.url = `/api/requirements/images/${reqId}/${att.name}`;
                 }
             }
         }
+
+        // === 附件清洗 ===
+        // 1) 同名同 URL 去重（源侧可能把同一内嵌图列多遍）；
+        // 2) 死条目移除——附件面板就是「解析」的输入清单，只保留真正可用的：
+        //    ① 原本有真实远程 URL 的（未本地化时解析端可按 URL 下载）；
+        //    ② 已下载到本地且被文档引用的（url 已改写为本地地址）。
+        //    无 URL 的 wiki hash 资源若未被文档引用（源侧整页历史图）一律不列。
+        const seen = new Set<string>();
+        req.attachments = req.attachments.filter(att => {
+            const key = `${att.name}\n${att.url}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        req.attachments = req.attachments.filter(att =>
+            hadRemoteUrl.has(att.name)
+            || (fs.existsSync(path.join(imgDir, att.name))
+                && (referencedNames.has(att.name) || req.description.includes(att.name))));
 
         // 持久化：把替换后的描述与附件写回存储（图片本地化完成）
         const existing = this.get(reqId);
