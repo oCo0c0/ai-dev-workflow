@@ -1,7 +1,7 @@
 {
   "name": "@along/dsh-adw",
   "description": "adw requirement workbench for the dsh web GUI: a sidebar entry plus a requirement panel — agent-mediated fetch over MCP (the model dynamically reads mounted tool schemas and drives the calls; zero per-source code, any ONES/GitHub/GitLab/MCP server works by configuration), save documents host-side, pick a workspace (+mode/permission), and drive a real dsh session to develop the requirement. Hot-pluggable — no dsh source changes.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
