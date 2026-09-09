@@ -1,208 +1,198 @@
-# AI Dev Workbench
+# AI Dev Workbench (adw)
 
-AI-powered development workbench that integrates requirements management, intelligent planning, AI-assisted coding, automated testing, and Git change tracking into a unified development workflow.
+AI-powered development workbench that closes the loop between requirements, planning, AI-assisted coding, and automated testing — with a pluggable multi-engine agent layer (**Claude Code / OpenAI Codex / [pi coding agent](https://github.com/earendil-works/pi-coding-agent)**).
+
+```
+requirement → plan → execute → test → review, all in one local workbench
+```
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Zustand, Radix UI, Lucide Icons |
-| **Backend** | Express.js, TypeScript, WebSocket (ws), Model Context Protocol SDK |
-| **AI Engine** | Claude Agent SDK (persistent bridge process) |
-| **State** | Zustand (client) + JSON file persistence (server) |
-| **Testing** | Vitest, Jest, Playwright, PyTest (framework detection) |
-| **CLI** | Node.js CLI with `npx` support |
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Zustand, Radix UI, i18next (EN/中文) |
+| **Backend** | Express.js, TypeScript, WebSocket (ws) |
+| **AI Engines** | Claude Agent SDK (bridge subprocess) · OpenAI Codex SDK · pi coding agent (RPC subprocess harness) |
+| **Protocol** | MCP (Model Context Protocol) — aggregated gateway for engines |
+| **State** | Zustand (client) + JSON file persistence (server, `~/.ai-dev-workbench/`) |
+| **Testing** | Vitest (self) · Jest / Playwright / PyTest / JUnit auto-detection (targets) |
+| **CLI** | Node.js CLI (`adw`), `npx` supported |
+
+## Multi-Engine Architecture
+
+All engines implement one `CLIProvider` interface and can be switched at runtime:
+
+- **Claude Code** — Claude Agent SDK wrapped in a persistent bridge subprocess (`stdin/stdout` JSON lines, session resumption).
+- **OpenAI Codex** — Codex SDK embedded in-process.
+- **pi coding agent** — runs as a **headless RPC subprocess** (`pi --mode rpc`, one process per run, session files resumed via `--session`), loaded with the `adw-platform` extension that provides the permission gate and MCP bridge. No SDK coupling — engine upgrades only need the RPC protocol to stay compatible.
+
+The engine-neutral **platform layer** (`src/server/platform/`) owns tool classification, the native tool registry, and the MCP gateway:
+
+```
+                    ┌────────────────────────────┐
+   MCP registry ────┤        McpGateway          ├── /api/mcp       (HTTP MCP → Claude SDK)
+   Native tools ────┤  upstream pool, reconnect   ├── /api/platform  (REST → pi adw extension)
+                    └────────────────────────────┘
+```
+
+Permission confirmations flow uniformly to the web UI (`allow / deny / remember`), regardless of engine.
 
 ## Features
 
 ### Requirements Management
-- Fetch and browse requirements from ONES/Jira/GitLab via MCP Server
-- Local requirement storage and search
-- Support multiple MCP server sources
+- Fetch requirements from **ONES**, **GitHub Issues**, or any MCP-compatible source (hot-pluggable adapters: link / issue-key / `owner/repo#N` input dialects)
+- One folder per requirement (`metadata.json` + `document.md` + `images/`)
+- **MinerU document parsing** — turn PDF / Word / PPT / Excel / screenshot attachments into Markdown (OCR, tables, formulas)
+- Local search and full-text browse
 
-### Workspace Management
-- Select and validate local project directories with project type detection (Node/Python/Java/Rust)
-- Resizable and collapsible three-panel layout: workspaces / file tree / preview
-- File browsing with recursive directory tree and file content preview
-- **Git Changes View** — Files/Changes tab switching, `git status` change list (M/A/D/R/U markers), unified diff view with syntax highlighting
+### Planning & Execution
+- Analyze requirements with project context → structured development plans (multi-turn conversation supported)
+- Step-by-step execution with **pause / retry / skip / abort**, streaming logs over WebSocket
+- Auto-trigger tests after execution when a pipeline is configured
+- Skill queues per phase; task export to xlsx
 
-### AI Plan Generation
-- Analyze requirements with project context to generate structured development plans
-- Multi-turn conversation with Claude during plan generation
-- Plan history with persistent storage (up to 50 records)
-- Real-time streaming output via WebSocket
+### Autonomous Agent Execution
+- Long-running agent sessions with live **thinking / tool_use / tool_result** event stream
+- **Permission dialogs** for side-effect tools (bash / write / edit / platform tools), with allow / deny / remember
+- Subtask step tracking, abort, queued replies, session resume across workbench restarts
 
-### AI Code Execution
-- Execute development plans step-by-step using Claude Code CLI
-- Pause / Retry / Skip / Abort controls
-- Multi-turn reply support during execution
-- Execution history with persistent storage
-- **Auto-trigger tests** after execution completes (when pipeline is configured)
+### Multi-Task Scheduling
+- Parallel task orchestration across workspaces (coordinator mode)
 
 ### Automated Testing
-- Detect test frameworks: Jest/Vitest, Playwright, PyTest
-- Two test modes: **Run existing tests** or **AI-generate tests** via Claude
-- Pipeline integration with `testStrategy` configuration
-- Link execution context to run targeted tests against developed code
-- Test run history with pass/fail visualization
+- Framework auto-detection: Jest / Vitest / Mocha, Playwright, PyTest / unittest, JUnit / Maven / Gradle, generic CLI
+- Run existing tests, **AI-generate tests**, or AI E2E mode
+- Optional **Daytona sandbox** (three-phase workflow) and changed-files targeted testing
 
-### Workflow Pipelines
-- Define configurable development workflow templates
-- Per-phase skill configuration (plan / execution / test)
-- MCP tool selection and test strategy settings
-- Default pipeline selection
+### Pipelines · Skills · MCP
+- Configurable workflow templates with per-phase skill / MCP tool / test-strategy settings
+- Skill management merging built-in templates with provider-external skills
+- MCP server CRUD (stdio & HTTP), connectivity test, per-phase tool whitelists
 
-### Skills Management
-- View and manage Claude Code CLI skill configurations
-- CRUD operations for `.claude/commands/` and `.claude/skills/`
+### Model Providers
+- Custom provider records (`models.json`) with API keys; per-engine model selection and thinking-level control
+- pi engine: multi-provider routing (DeepSeek / Anthropic / Gemini / Qwen / …) with environment key injection
 
-### Self-Improving System (Hermes-Inspired)
-Inspired by [Hermes Agent](https://github.com/nousresearch/hermes-agent)'s self-evolution architecture, the workbench learns from every execution to improve over time:
-- **Memory System** — Persists user preferences (language, coding style, framework choices) and project characteristics (tech stack, test frameworks, directory conventions) across sessions
-- **Execution Analytics** — Tracks success/failure patterns, skill effectiveness, and recovery patterns from every plan, execution, and test run
-- **Skill Auto-Derivation** — Automatically generates reusable skills from successful recovery patterns (e.g., "execution failed then succeeded → extract the fix strategy")
-- **Curator** — Periodically cleans up redundant, low-confidence, or unused auto-derived skills
-- **Prompt Enrichment** — Injects learned context (user profile + project facts) into every Claude prompt, improving output relevance
-
-### MCP Configuration
-- Manage MCP Server connections through web interface
-- Test server connectivity
-- Supports any MCP-compatible server
+### Memory & Analytics (self-improving)
+- Cross-session memory: user profile, per-project facts, feedback log
+- Execution analytics: success/failure patterns, skill effectiveness
+- Prompt enrichment injects learned context into AI calls
 
 ### Developer Experience
-- WebSocket real-time updates with exponential backoff reconnection
-- Keyboard shortcuts: `Ctrl+1-8` navigation, `Ctrl+G` generate plan, `Ctrl+Enter` start execution, `Ctrl+T` run tests
-- Dark / Light theme toggle
-- First-run setup wizard (CLI + MCP status check)
-- Cross-platform folder picker (Windows PowerShell / macOS osascript / Linux zenity)
+- WebSocket live updates with exponential-backoff reconnect
+- Keyboard shortcuts (`Ctrl+1-8` navigation, `Ctrl+G` plan, `Ctrl+Enter` execute, `Ctrl+T` test)
+- Dark / light theme, EN / 中文 UI, first-run setup wizard, cross-platform folder picker
+- Optional API-key auth (`X-API-Key` header) for the whole `/api/*` surface
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Browser (SPA)                     │
-│  React 18 + Zustand + Tailwind CSS + Radix UI       │
-│  Pages: Requirements | Workspace | Plan | Execution  │
-│         Tests | Skills | MCP | Pipelines             │
-└───────────────────────┬─────────────────────────────┘
-                        │ HTTP REST + WebSocket
-┌───────────────────────┴─────────────────────────────┐
-│               Express.js Server (3000)               │
-│  Routes → Services → Persistence (~/.ai-dev-workbench)│
-│  WebSocket broadcast for async progress updates       │
-└──────┬──────────┬──────────────┬─────────────────────┘
-       │          │              │
-  MCP Server   Claude CLI   Git / File System
-  (ONES/Jira)  (Agent SDK)  (status/diff/browse)
-```
-
-**Claude Bridge Process:** A persistent Node.js child process (`claude-bridge.mjs`) wraps the Claude Agent SDK. It receives JSON requests via stdin, streams responses via stdout, and supports session resumption — avoiding process spawn overhead for each request.
-
-**Async Operation Pattern:** Plan generation, execution, and test runs are asynchronous. Endpoints return task IDs immediately, then stream progress via WebSocket `broadcast()`. The client updates the Zustand store in real time.
-
-**Dual Persistence:** Active operations live in in-memory Maps for fast access. Completed records persist to JSON files (max 50 each) in `~/.ai-dev-workbench/`.
-
-**Self-Improving Event Loop:** A server-side EventBus intercepts all `broadcast()` calls. Analytics and memory services subscribe to `execution:complete` and `test:complete` events, automatically recording outcomes, detecting patterns, and enriching future prompts — without modifying any existing route handler code.
-
-```
-Route Handler → broadcast() → eventBus.dispatch()
-                                  ├──→ AnalyticsService (pattern detection)
-                                  ├──→ MemoryService (preference learning)
-                                  ├──→ SkillDerivationService (auto-skill generation)
-                                  └──→ WebSocket → Frontend
+┌──────────────────────────────────────────────────────────────┐
+│                       Browser (SPA)                          │
+│   React 18 + Zustand + Tailwind · 11 pages · i18n EN/中文    │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ REST + WebSocket
+┌──────────────────────────────┴───────────────────────────────┐
+│                  Express.js server (dev :3000)               │
+│  routes (15 groups) → services → persistence                 │
+│                                                              │
+│  cli-providers/          platform/ (engine-neutral)          │
+│   ├─ claude → bridge ──── /api/mcp  (HTTP MCP face)          │
+│   ├─ codex  → SDK         requirement-sources/               │
+│   └─ pi     → RPC proc ── /api/platform (REST face)          │
+│                                      ↑ adw-platform extension│
+└──────────┬───────────────────────────┴───────────────────────┘
+           │
+   ~/.ai-dev-workbench/ (JSON persistence, one folder/file per record)
 ```
 
 ## Requirements
 
-- **Node.js** >= 18.0.0
-- **Claude Code CLI** — Required for AI plan generation and code execution
-- **Git** — Required for workspace change tracking
-- MCP Server (optional) — For requirements fetching from ONES/Jira/GitLab
+- **Node.js** >= 18 (pnpm for development)
+- At least one AI engine available / configured (Claude Code CLI, Codex, or pi + a model provider API key)
+- **Git** — for workspace change tracking
+- Optional: MCP servers (requirement sources), MinerU service (document parsing), Daytona (sandbox testing)
 
 ## Installation
 
 ```bash
-npm install -g ai-dev-workbench
+npm install -g @along/ai-dev-workbench
 ```
 
 ## Quick Start
 
 ```bash
-# After global installation
-ai-dev-workbench
+# after global install
+adw
 
-# Or run directly without installing
-npx ai-dev-workbench
+# or run directly
+npx @along/ai-dev-workbench
 ```
 
-The workbench starts a local server on an available port and displays the access URL in your terminal.
+The workbench starts on an available port and prints the access URL. A first-run wizard checks engine and MCP status.
 
 ## Development
 
 ```bash
-# Install dependencies
-npm install
-
-# Start development server (frontend hot-reload + backend)
-npm run dev
-
-# Build for production
-npm run build
-
-# Run tests
-npm test
+pnpm install     # pnpm workspace
+pnpm dev         # Vite (5173) + backend tsx (3000), hot reload
+pnpm build       # frontend + backend + bridge production build
+pnpm test        # vitest
 ```
 
 ### Project Structure
 
 ```
 src/
-├── bridge/           # Claude Agent SDK bridge process
-├── cli/              # CLI entry point, banner, port finder
-├── client/           # Frontend (React + Vite)
-│   ├── components/   # Layout, SetupWizard, UI primitives
-│   ├── hooks/        # useWebSocket, useKeyboardShortcuts
-│   ├── pages/        # 8 page components
-│   └── stores/       # Zustand app store
-└── server/           # Backend (Express.js)
-    ├── middleware/    # Request logger, validation
-    ├── routes/       # 10 route modules (35+ endpoints)
-    ├── services/     # 16+ service classes
-    │   └── memory/   # Memory subsystem (profile, facts, feedback stores)
-    ├── event-bus.ts  # Server-side event bus for self-improving loop
-    └── utils/        # Skill resolution, prompt enrichment helpers
+├── bridge/               # Claude Agent SDK bridge subprocess
+├── cli/                  # CLI entry: port finder, banner
+├── client/               # React SPA (11 pages)
+│   ├── components/       # Layout, SetupWizard, UI primitives
+│   ├── hooks/            # useWebSocket, useKeyboardShortcuts
+│   ├── pages/            # requirements, workspace, plan, execution, tests,
+│   │                     # skills, mcp, pipelines, mineru, agent-execution, projects
+│   └── stores/           # Zustand app store
+└── server/               # Express backend
+    ├── middleware/        # logger, validation
+    ├── routes/            # 15 route groups + 2 platform API faces
+    ├── services/
+    │   ├── cli-providers/         # Claude / Codex / Pi adapters (+ pi RPC harness)
+    │   ├── requirement-sources/   # ONES / GitHub / generic MCP adapters
+    │   ├── memory/                # user profile, project facts, feedback
+    │   └── …                      # stores, scheduler, coordinator, tests, MinerU
+    ├── platform/          # engine-neutral: tool catalog/registry + MCP gateway
+    └── utils/
+resources/pi-extensions/   # adw-platform extension (runs inside pi subprocess)
+skills/  templates/  docs/plans/
 ```
 
 ## Configuration
 
-Configuration is stored in `~/.ai-dev-workbench/config.json`. On first launch, a setup wizard guides you through initial configuration.
+Stored in `~/.ai-dev-workbench/config.json` (editable in the settings UI).
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `server.port` | Preferred server port (auto-assigns if unavailable) | Dynamic (3000-9000) |
-| `server.host` | Server host | `localhost` |
-| `claudeCodeCli.path` | Path to Claude Code CLI | Uses system PATH |
-| `ui.theme` | UI theme (`dark` or `light`) | `dark` |
+| `server.port` / `server.host` | Listen port (auto-assign if taken) / host | dynamic / `localhost` |
+| `ui.theme` | `dark` or `light` | `dark` |
+| `auth.apiKey` | Optional; protects all `/api/*` via `X-API-Key` header or `?apiKey=` | — |
+| `auth.corsOrigins` | Allowed origins (unset = all) | — |
+| `daytona.apiUrl` / `daytona.apiKey` | Optional sandbox backend | Daytona cloud |
+| `cliProvider.active` | Active engine id (builtin or custom record id) | auto-detected |
 
-### Data Files
+### Data Layout
 
-All persistent data is stored under `~/.ai-dev-workbench/`:
+Everything lives under `~/.ai-dev-workbench/`:
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `config.json` | Application configuration |
-| `requirements.json` | Locally saved requirements |
-| `plans.json` | Development plans (max 50) |
-| `executions.json` | Execution records (max 50) |
-| `test-runs.json` | Test run records (max 50) |
-| `pipelines.json` | Workflow pipeline definitions |
-| `saved-workspaces.json` | Named workspace bookmarks |
-| `workspace-history.json` | Recent workspace paths (max 10) |
-| `analytics.json` | Execution analytics records (max 200) |
-| `memory/user-profile.json` | User preferences (language, coding style) |
-| `memory/project-facts.json` | Project characteristics per workspace (max 20) |
-| `memory/feedback-log.json` | User feedback records (max 50) |
-| `logs/app.log` | HTTP request logs |
+| `config.json` / `models.json` / `mcp-servers.json` | config, custom model providers, MCP registry |
+| `requirements/{id}/` | one folder per requirement: `metadata.json`, `document.md`, `images/`, plan & execution records |
+| `agent-executions/` | one JSON per autonomous agent execution |
+| `pi-sessions/` | pi engine session files (native JSONL, one file per session, grouped by workspace) |
+| `tasks/` | multi-task records |
+| `memory/` | `user-profile.json`, `project-facts.json`, `feedback-log.json` |
+| `analytics/` / `pipelines.json` | execution analytics, pipeline definitions |
+| `logs/` | application logs |
 
 ## License
 

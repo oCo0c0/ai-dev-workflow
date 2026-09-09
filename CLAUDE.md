@@ -11,7 +11,8 @@
 - **pnpm workspace monorepo**，`src/` 下按职责分为 `client`、`server`、`cli`、`bridge` 四个顶层模块。
 - **前后端分离**：React SPA (Vite) + Express REST API + WebSocket 实时推送。
 - **AI 通信层**：`bridge/claude-bridge.mjs` 作为独立子进程，封装 `@anthropic-ai/claude-agent-sdk`，通过 stdin/stdout JSON 行协议与主进程通信。
-- **CLI Provider 抽象**：`cli-providers/` 定义统一接口，支持 Claude Code、OpenAI Codex、Pi 三种后端，由 `CLIRunnerService` (Facade) 代理。
+- **CLI Provider 抽象**：`cli-providers/` 定义统一接口，支持 Claude Code、OpenAI Codex、Pi 三种后端，由 `CLIRunnerService` (Facade) 代理。Claude/Codex 走 SDK 内嵌；Pi 走 RPC 子进程 harness（`pi --mode rpc`，process-per-run，见 `src/server/services/cli-providers/pi-rpc-process.ts` 与计划文档 `docs/plans/2026-07-22-pi-harness-refactor.md`）。
+- **平台层**：`src/server/platform/`（引擎无关内核：工具分类/注册表 + MCP 聚合网关），对 Claude 以 HTTP MCP 暴露（`/api/mcp`），对 pi 以 REST 面暴露（`/api/platform`，由 `resources/pi-extensions/adw-platform.ts` 在 pi 子进程内消费）。
 - **数据持久化**：文件系统 JSON 存储，位于 `~/.ai-dev-workbench/` 目录下（需求、计划、执行、测试、配置、记忆等）。
 - **实时通信**：WebSocket `/ws` 端点 + 服务端 EventBus，广播执行进度、测试输出、Agent 状态等事件。
 
@@ -114,6 +115,8 @@ pnpm start   # 或 adw
 | `/api/mineru` | `routes/mineru.ts` | MinerU 文档解析 |
 | `/api/tasks` | `routes/projects.ts` | 多任务调度管理 |
 | `/api/agent-execution` | `routes/agent-execution.ts` | Agent 自主执行（思考/工具调用解析） |
+| `/api/model-providers` | `routes/model-providers.ts` | 自定义模型供应商记录（models.json）增删查、检测、导入、拉取模型列表 |
+| `/api/prompts` | `routes/prompts.ts` | AI Prompt 优化 |
 
 ## WebSocket 事件
 
@@ -166,4 +169,5 @@ pnpm start   # 或 adw
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-07-22 | 更新 | Pi 后端重构为 RPC 子进程 harness（process-per-run + adw 平台扩展）；平台层新增 `/api/platform` REST 面；README.md / README_ZH.md 按真实架构重写（删除虚构的 Agent 系统章节） |
 | 2026-07-21 | 创建 | 初始化架构文档，全仓扫描完成 |

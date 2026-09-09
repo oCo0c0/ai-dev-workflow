@@ -14,11 +14,11 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 
 ## 对外接口
 
-通过 Express Router 挂载到 `/api/*` 前缀，共 13 组路由（详见根级 CLAUDE.md 路由总览）。
+通过 Express Router 挂载到 `/api/*` 前缀，共 15 组业务路由 + 2 个平台 API 面（`/api/mcp` HTTP MCP、`/api/platform` REST，详见根级 CLAUDE.md 路由总览）。
 
 ## 内部结构
 
-### routes/ -- 路由层（14 个文件）
+### routes/ -- 路由层（15 个文件）
 
 | 文件 | 前缀 | 说明 |
 |------|------|------|
@@ -35,6 +35,8 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `mineru.ts` | `/api/mineru` | MinerU 文档解析 |
 | `projects.ts` | `/api/tasks` | 多任务调度管理 |
 | `agent-execution.ts` | `/api/agent-execution` | Agent 自主执行（create/start/abort/reply） |
+| `model-providers.ts` | `/api/model-providers` | 自定义模型供应商（models.json）增删查、检测、导入、拉取模型列表 |
+| `prompts.ts` | `/api/prompts` | AI Prompt 优化 |
 
 ### services/ -- 服务层
 
@@ -45,8 +47,10 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `cli-runner-service.ts` | `CLIRunnerService` | CLI Provider Facade，统一代理 Claude/Codex/Pi |
 | `cli-providers/types.ts` | -- | CLI Provider 接口定义（`CLIProvider`、`CLIProviderInput` 等） |
 | `cli-providers/index.ts` | -- | Provider 注册表与自动检测 |
-| `cli-providers/claude-provider.ts` | `ClaudeProvider` | Claude Code CLI Provider 实现 |
-| `cli-providers/codex-provider.ts` | `CodexProvider` | OpenAI Codex CLI Provider 实现 |
+| `cli-providers/claude-provider.ts` | `ClaudeProvider` | Claude Code CLI Provider 实现（SDK） |
+| `cli-providers/codex-provider.ts` | `CodexProvider` | OpenAI Codex CLI Provider 实现（SDK） |
+| `cli-providers/pi-provider.ts` | `PiProvider` | Pi Provider——RPC 子进程 harness（`pi --mode rpc`），process-per-run，会话文件续接 |
+| `cli-providers/pi-rpc-process.ts` | `PiRpcProcess` | pi RPC 子进程管理：JSONL 命令/应答（id 关联）、事件流回调、优雅退出/强杀、rpc-entry 解析 |
 | `config-service.ts` | `ConfigService` | 全局配置管理（`~/.ai-dev-workbench/config.json`） |
 | `mcp-bridge-service.ts` | `MCPBridgeService` | MCP 桥接服务，与外部需求管理系统通信 |
 | `mcp-config-service.ts` | `MCPConfigService` | MCP 服务器配置管理 |
@@ -133,6 +137,8 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 |------|------|
 | `websocket.ts` | WebSocket 服务（`/ws`），广播消息到所有客户端 |
 | `event-bus.ts` | 服务端事件总线，基于 EventEmitter |
+| `../platform/` | 引擎无关平台内核（工具分类目录/工具注册表/MCP 聚合网关 + `/api/platform` REST 面），见 `platform/README.md` |
+| `../../resources/pi-extensions/` | adw 平台扩展（pi RPC 子进程内加载：权限门 + MCP 桥），零运行时依赖 |
 
 ## 关键数据模型
 
