@@ -1,0 +1,50 @@
+# electron-builder 三平台打包配置
+#
+# 关键点：
+# - asar: false —— resources/pi-extensions 等需被后端派生的孙进程（pi RPC 子进程）
+#   按真实文件路径读取，asar 归档内的路径对普通 fs 不可见
+# - files 覆盖运行时所需的应用代码；生产依赖（node_modules）由 electron-builder 自动打入
+# - 产物输出到 release/（不入库）
+#
+# 构建命令：pnpm dist:win / dist:mac / dist:linux
+# 说明：macOS 目标建议在 macOS 主机构建（签名/公证需要 Apple 开发者账号）；
+#       本仓库暂出未签名产物，正式分发前补 CI 签名流程。
+
+appId: com.along.ai-dev-workbench
+productName: AI Dev Workbench
+copyright: Copyright © along
+
+directories:
+  output: release
+  buildResources: build
+
+asar: false
+compression: normal
+
+files:
+  - dist/**
+  - dist-electron/**
+  - resources/**
+  - templates/**
+  - skills/**
+  - package.json
+
+win:
+  target: nsis
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-setup.${ext}
+
+mac:
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  artifactName: ${productName}-${version}-${arch}.${ext}
