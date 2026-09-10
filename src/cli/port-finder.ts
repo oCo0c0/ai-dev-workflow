@@ -56,6 +56,39 @@ function isPortAvailable(port: number): Promise<boolean> {
  * @returns 包含端口号和是否为首选端口的结果
  * @throws 当扫描范围内无可用端口时抛出错误
  */
+/**
+ * 解析首选端口：环境变量 ADW_PORT 优先于配置文件。
+ *
+ * 非法值（非整数 / 越界）静默忽略并回退配置值，
+ * 保证桌面版 Electron 主进程注入的端口与后端子进程监听端口一致。
+ *
+ * @param envPort - 环境变量 ADW_PORT 的原始值
+ * @param configPort - 配置文件中的首选端口
+ * @returns 生效的首选端口，两者皆缺省时为 undefined
+ */
+export function resolvePreferredPort(
+    envPort: string | undefined,
+    configPort: number | undefined,
+): number | undefined {
+    if (envPort !== undefined) {
+        const parsed = Number(envPort);
+        if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) return parsed;
+    }
+    return configPort;
+}
+
+/**
+ * 查找可用端口
+ *
+ * 查找策略：
+ * 1. 优先尝试用户配置的首选端口（必须在 1024-65535 范围内）
+ * 2. 若首选端口不可用或未配置，则在 rangeStart ~ rangeEnd 范围内顺序扫描
+ * 3. 若扫描范围内无可用端口，抛出错误
+ *
+ * @param options - 端口查找配置
+ * @returns 包含端口号和是否为首选端口的结果
+ * @throws 当扫描范围内无可用端口时抛出错误
+ */
 export async function findAvailablePort(
     options: PortFinderOptions = {}
 ): Promise<PortFinderResult> {

@@ -9,7 +9,7 @@
  * 4. 注册优雅关闭处理（SIGINT/SIGTERM）
  */
 
-import {findAvailablePort} from './port-finder.js';
+import {findAvailablePort, resolvePreferredPort} from './port-finder.js';
 import {printBanner} from './banner.js';
 import {createServer} from '../server';
 import fs from 'fs';
@@ -88,7 +88,8 @@ async function startCLI(): Promise<void> {
     ensureConfigDir();
 
     const config = loadConfig();
-    const preferredPort = config.server?.port;
+    // ADW_PORT 环境变量优先（桌面版由 Electron 主进程注入），其次配置文件
+    const preferredPort = resolvePreferredPort(process.env.ADW_PORT, config.server?.port);
 
     const {port} = await findAvailablePort({preferredPort});
     const version = getVersion();
