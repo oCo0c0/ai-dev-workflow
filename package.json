@@ -2,7 +2,7 @@
   "name": "@along/ai-dev-workbench",
   "version": "2.2.2",
   "description": "AI-powered development workbench integrating requirements, coding, and testing",
-  "main": "dist/server/index.js",
+  "main": "dist-electron/electron/main.js",
   "types": "dist/server/index.d.ts",
   "bin": {
     "adw": "./dist/cli/index.js"
@@ -25,6 +25,11 @@
     "build:bridge": "node -e \"const fs=require('fs');const p=require('path');function cpDir(src,dest){fs.mkdirSync(dest,{recursive:true});for(const e of fs.readdirSync(src,{withFileTypes:true})){const s=p.join(src,e.name),d=p.join(dest,e.name);e.isDirectory()?cpDir(s,d):fs.copyFileSync(s,d)}}const d=p.join('dist','bridge');fs.mkdirSync(d,{recursive:true});fs.copyFileSync(p.join('src','bridge','claude-bridge.mjs'),p.join(d,'claude-bridge.mjs'));const t=p.join('dist','templates');fs.mkdirSync(t,{recursive:true});fs.copyFileSync(p.join('templates','task-split-effort-template.xlsx'),p.join(t,'task-split-effort-template.xlsx'));const sk=p.join('dist','skills');const src=p.join('skills');if(fs.existsSync(src))cpDir(src,sk);\"",
     "dev": "concurrently -n fe,be -c blue,green \"vite\" \"tsx src/dev-server.ts\"",
     "dev:be": "tsx src/dev-server.ts",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "dist:win": "pnpm run build && pnpm run build:electron && electron-builder --win",
+    "dist:mac": "pnpm run build && pnpm run build:electron && electron-builder --mac",
+    "dist:linux": "pnpm run build && pnpm run build:electron && electron-builder --linux",
     "start": "node dist/cli/index.js",
     "test": "vitest --run",
     "prepublishOnly": "pnpm run build"
