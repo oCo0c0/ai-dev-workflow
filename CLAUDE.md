@@ -24,6 +24,7 @@ graph TD
     ROOT --> SERVER["src/server"]
     ROOT --> CLI["src/cli"]
     ROOT --> BRIDGE["src/bridge"]
+    ROOT --> ELECTRON["src/electron"]
     ROOT --> SKILLS["skills/"]
     ROOT --> TEMPLATES["templates/"]
 
@@ -40,6 +41,7 @@ graph TD
     click SERVER "./src/server/CLAUDE.md" "查看 server 模块文档"
     click CLI "./src/cli/CLAUDE.md" "查看 cli 模块文档"
     click BRIDGE "./src/bridge/CLAUDE.md" "查看 bridge 模块文档"
+    click ELECTRON "./src/electron/CLAUDE.md" "查看 electron 模块文档"
 ```
 
 ## 模块索引
@@ -50,6 +52,7 @@ graph TD
 | **server** | `src/server/` | Express 后端，路由、服务层、中间件、工具库 | TS |
 | **cli** | `src/cli/` | CLI 入口，端口查找、横幅打印、服务启动 | TS |
 | **bridge** | `src/bridge/` | Claude Agent SDK 桥接子进程，stdin/stdout JSON 协议 | MJS |
+| **electron** | `src/electron/` | 桌面版 Electron 壳：主进程、服务端子进程引导、GUI PATH 修复 | TS |
 | **skills** | `skills/` | 内置 AI 技能模板（SKILL.md），供 Claude 调用 | Markdown |
 | **templates** | `templates/` | Excel 模板（任务拆分工时评估） | xlsx |
 
@@ -84,8 +87,14 @@ pnpm dev
 # 仅后端开发
 pnpm dev:be
 
+# 桌面版开发模式（Vite + tsx 后端 + Electron 壳）
+pnpm dev:desktop
+
 # 生产构建
 pnpm build
+
+# 桌面版打包（electron-builder，产物 release/）
+pnpm dist:win | dist:mac | dist:linux
 
 # 运行测试
 pnpm test

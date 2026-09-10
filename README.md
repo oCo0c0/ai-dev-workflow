@@ -131,11 +131,26 @@ npx @along/ai-dev-workbench
 
 The workbench starts on an available port and prints the access URL. A first-run wizard checks engine and MCP status.
 
+## Desktop App (Electron, macOS / Windows / Linux)
+
+The workbench can be packaged as a cross-platform desktop app (Electron shell + bundled Node backend — no global Node.js install required):
+
+```bash
+pnpm dist:win     # Windows NSIS installer → release/
+pnpm dist:mac     # macOS dmg (build on a macOS host; signing/notarization required for distribution)
+pnpm dist:linux   # Linux AppImage + deb
+```
+
+How it works: the Electron main process spawns the existing backend as a separate child process via `ELECTRON_RUN_AS_NODE` (crash isolation + reuses the CLI's graceful SIGTERM cleanup), fixes the user PATH lost in GUI launches on macOS/Linux, and loads the local server URL. Packaging keeps `asar: false` so resources like the pi extension are readable by grandchild processes via real paths. For development: `pnpm dev:desktop`.
+
+Note: the desktop app does not bundle AI engine CLIs (Claude Code / Codex / pi) — runtime auto-detection applies. Production logs: `~/.ai-dev-workbench/logs/desktop-server.log`.
+
 ## Development
 
 ```bash
 pnpm install     # pnpm workspace
 pnpm dev         # Vite (5173) + backend tsx (3000), hot reload
+pnpm dev:desktop # desktop dev mode (Vite + tsx backend + Electron shell)
 pnpm build       # frontend + backend + bridge production build
 pnpm test        # vitest
 ```

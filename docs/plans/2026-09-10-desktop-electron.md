@@ -1,5 +1,10 @@
 # 桌面应用（Electron，macOS/Windows/Linux）实施计划
 
+> **执行状态（2026-09-10 下班暂停）**
+> - ✅ Task 1–5 全部完成并分 5 次提交（e4a9c7c → 3c92ce4）+ 本文档提交
+> - ⏸ Task 6（构建+冒烟）未开始，卡在依赖环境：沙箱会话无法写工作区外的 `D:\.pnpm-store`，已改用工作区内 store 方案——5GB store robocopy 复制**中途被终止**（.pnpm-store 为部分拷贝，pnpm 自愈可补）；`node_modules` 已删除但残留约 9000 个只读/长路径文件
+> - **明日恢复步骤**：① 清 node_modules 残留：`cmd /c rmdir /s /q node_modules`（只读文件用 `attrib -R node_modules\* /S /D` 后重试）② `pnpm install`（store 缺的部分自动从 registry 补）③ `pnpm add -D electron electron-builder`（allowBuilds 已加 electron；二进制下载慢可设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）④ `pnpm run build:electron` 验证编译 ⑤ Task 6 全量构建 + `pnpm exec electron .` 冒烟 ⑥ Task 7 剩余：根 CLAUDE.md 变更记录补行（模块索引/脚本已更新）
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** 将 adw（AI Dev Workbench）打包为三平台桌面应用：Electron 壳以子进程方式启动既有 Node 服务端，窗口加载服务端 URL，开发模式走 Vite + tsx。

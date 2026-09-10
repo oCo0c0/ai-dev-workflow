@@ -131,11 +131,26 @@ npx @along/ai-dev-workbench
 
 工作台会在可用端口启动本地服务器并打印访问地址，首次运行有向导检查引擎与 MCP 状态。
 
+## 桌面应用（Electron，macOS / Windows / Linux）
+
+工作台可打包为三平台桌面应用（Electron 壳 + 内置 Node 服务端，下载即用，无需全局安装 Node）：
+
+```bash
+pnpm dist:win     # Windows NSIS 安装包 → release/
+pnpm dist:mac     # macOS dmg（建议在 macOS 主机构建；正式分发需签名+公证）
+pnpm dist:linux   # Linux AppImage + deb
+```
+
+桌面版架构：Electron 主进程通过 `ELECTRON_RUN_AS_NODE` 把自身二进制作为 Node 运行时，以独立子进程启动既有服务端（崩溃隔离 + 复用 CLI 的 SIGTERM 优雅清理），GUI 启动时自动修复 macOS/Linux 缺失的用户 PATH；打包关闭 asar，保证 pi 扩展等资源可被孙进程按真实路径读取。开发调试：`pnpm dev:desktop`。
+
+说明：桌面版不内嵌 AI 引擎 CLI（Claude Code / Codex / pi），沿用运行时自动检测；生产模式日志位于 `~/.ai-dev-workbench/logs/desktop-server.log`。
+
 ## 开发
 
 ```bash
 pnpm install     # pnpm workspace
 pnpm dev         # Vite (5173) + 后端 tsx (3000)，热更新
+pnpm dev:desktop # 桌面版开发模式（Vite + tsx 后端 + Electron 壳）
 pnpm build       # 前端 + 后端 + bridge 生产构建
 pnpm test        # vitest
 ```

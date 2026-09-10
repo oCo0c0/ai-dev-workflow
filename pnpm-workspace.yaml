@@ -6,6 +6,7 @@ verifyDepsBeforeRun: false
 allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': true
+  electron: true
   esbuild: true
   koffi: true
   node-pty: true
