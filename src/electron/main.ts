@@ -13,13 +13,14 @@
  * 打包要求 asar: false —— resources/pi-extensions 等需被孙进程按真实文件路径读取。
  */
 
-import {app, BrowserWindow, dialog} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain} from 'electron';
 import {ChildProcess, spawn} from 'child_process';
 import http from 'http';
 import os from 'os';
 import path from 'path';
 import {fixPath} from './fix-path';
 import {buildServerStdio} from './server-stdio';
+import {overlayColorsFor} from './titlebar-theme';
 import {findAvailablePort} from '../cli/port-finder';
 
 const isDev = process.env.ADW_ELECTRON_DEV === '1';
@@ -129,6 +130,7 @@ function createWindow(url: string): void {
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
+            preload: path.join(__dirname, 'preload.js'),
         },
     });
     win.once('ready-to-show', () => win?.show());
@@ -153,6 +155,16 @@ if (!gotLock) {
 
     app.whenReady().then(async () => {
         try {
+            // 渲染进程主题变化 → 运行时更新窗口控制按钮覆盖层配色（仅 Windows 生效）
+            ipcMain.on('adw:set-window-controls-theme', (_event, mode: 'light' | 'dark') => {
+                if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+                try {
+                    win.setTitleBarOverlay(overlayColorsFor(mode));
+                } catch {
+                    // 非 overlay 模式（未启用 titleBarOverlay 的平台/状态）忽略
+                }
+            });
+
             // 必须在任何子进程派生之前修复 PATH（子进程继承主进程环境）
             fixPath();
 

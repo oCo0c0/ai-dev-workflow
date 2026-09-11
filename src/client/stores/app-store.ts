@@ -649,6 +649,8 @@ function applyTheme(theme: Theme) {
         html.classList.remove('dark');
     }
     localStorage.setItem('ai-workbench-theme', theme);
+    // 桌面版：同步窗口控制按钮覆盖层配色（浏览器中该 API 不存在，静默跳过）
+    window.adwDesktop?.setWindowControlsTheme(mode);
 }
 
 /** 自定义背景照片 localStorage key */
