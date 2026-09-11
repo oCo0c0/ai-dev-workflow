@@ -104,11 +104,28 @@ function waitForServer(port: number, timeoutMs: number): Promise<void> {
 
 /** 创建主窗口 */
 function createWindow(url: string): void {
+    const isWindows = process.platform === 'win32';
     win = new BrowserWindow({
         width: 1440,
         height: 900,
+        minWidth: 960,
+        minHeight: 600,
         show: false,
         title: 'AI Dev Workbench',
+        // 与应用深色主题主背景（hsl(203 50% 16%)）一致，避免启动白闪
+        backgroundColor: '#142d3c',
+        // Windows/Linux 任务栏图标（macOS 使用应用包内图标）
+        icon: path.join(appRoot(), 'resources', 'app-icon.png'),
+        autoHideMenuBar: true,
+        ...(isWindows
+            ? {
+                  // Windows：隐藏系统标题栏，应用顶栏即标题栏（Codex/Qoder 风格一体化）；
+                  // 原生窗口按钮以主题色覆盖层叠于右上（高度对齐前端顶栏 h-14 = 56px，
+                  // 前端以 titlebar-safe-right 避让，顶栏 app-drag 提供拖拽）
+                  titleBarStyle: 'hidden' as const,
+                  titleBarOverlay: {color: '#142d3c', symbolColor: '#e2e8f0', height: 56},
+              }
+            : {}),
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,

@@ -222,11 +222,11 @@ export default function Layout() {
                     sidebarCollapsed ? 'w-[52px]' : 'w-[220px]'
                 )}
             >
-                <div className="flex h-14 items-center border-b border-border/50 px-3">
+                <div className="flex h-14 items-center border-b border-border/50 px-3 app-drag">
                     {!sidebarCollapsed && (
                         <div className="flex items-center gap-2">
                             <img
-                                src="https://blogsite.site/upload/logo1.png"
+                                src="/logo.png"
                                 alt="logo"
                                 className="h-7 w-7 rounded-xl object-cover shrink-0 ring-2 ring-primary/40 shadow-md shadow-primary/20"
                             />
@@ -235,7 +235,7 @@ export default function Layout() {
                     )}
                     {sidebarCollapsed && (
                         <img
-                            src="https://blogsite.site/upload/logo1.png"
+                            src="/logo.png"
                             alt="logo"
                             className="h-7 w-7 rounded-xl object-cover mx-auto"
                         />
@@ -295,11 +295,11 @@ export default function Layout() {
 
             {/* 主内容区域 */}
             <div className="flex flex-1 flex-col overflow-hidden">
-                <header className="relative z-50 flex h-14 items-center justify-between border-b border-border/50 glass px-6">
+                <header className="relative z-50 flex h-14 items-center justify-between border-b border-border/50 glass px-6 app-drag">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={toggleSidebar}
-                            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200"
+                            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 app-no-drag"
                             title={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
                         >
                             {sidebarCollapsed ? (
@@ -311,11 +311,11 @@ export default function Layout() {
                         <div className="h-4 w-px bg-border"/>
                         <h1 className="text-sm font-semibold brand-gradient-text">{currentTitle}</h1>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 titlebar-safe-right">
                         {/* CLI Provider 切换 */}
                         <button
                             onClick={() => setShowSetupModal(true)}
-                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium"
+                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium app-no-drag"
                             title={t('common.switchProvider')}
                         >
                             {cliProvider.active === 'codex'
@@ -331,7 +331,7 @@ export default function Layout() {
                         {/* 模型配置 */}
                         <button
                             onClick={() => setShowModelConfigModal(true)}
-                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium"
+                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium app-no-drag"
                             title="模型配置"
                         >
                             <Cpu className="h-4 w-4"/>
@@ -349,16 +349,16 @@ export default function Layout() {
                         {/* 语言切换 */}
                         <button
                             onClick={handleToggleLocale}
-                            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium"
+                            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 text-xs font-medium app-no-drag"
                             title={locale === 'zh' ? 'Switch to English' : '切换到中文'}
                         >
                             <Languages className="h-4 w-4"/>
                         </button>
                         {/* 主题切换器 */}
-                        <div className="relative" ref={themeMenuRef}>
+                        <div className="relative app-no-drag" ref={themeMenuRef}>
                             <button
                                 onClick={() => { setBgError(null); setThemeMenuOpen(!themeMenuOpen); }}
-                                className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200"
+                                className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 app-no-drag"
                                 title={t('common.theme')}
                             >
                                 <Palette className="h-4 w-4"/>

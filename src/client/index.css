@@ -97,6 +97,22 @@
         -moz-osx-font-smoothing: grayscale;
     }
 
+    /* ===== 桌面版（Electron）自定义标题栏 ===== */
+    /* Windows 隐藏系统标题栏后，应用顶栏承担窗口拖拽 */
+    .app-drag {
+        -webkit-app-region: drag;
+    }
+
+    .app-no-drag {
+        -webkit-app-region: no-drag;
+    }
+
+    /* 避让 Windows 窗口控制按钮（最小化/最大化/关闭）覆盖层；
+       浏览器中 env() 回退值使计算结果为 0，不影响 Web 使用 */
+    .titlebar-safe-right {
+        padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+    }
+
     /* 用户自定义背景照片（有背景时由 JS 挂 has-bg 并设置 --user-bg）
        层级顺序：红光晕(最上) → 照片遮罩(压暗保证可读) → 照片(最底，透出显示) */
     body.has-bg {
