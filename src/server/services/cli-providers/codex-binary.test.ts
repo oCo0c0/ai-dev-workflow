@@ -12,7 +12,30 @@ import {describe, it, expect, beforeAll, afterAll} from 'vitest';
 import {mkdtempSync, mkdirSync, rmSync, writeFileSync} from 'fs';
 import {tmpdir} from 'os';
 import {join} from 'path';
-import {resolveSystemCodexBinary} from './codex-binary.js';
+import {getNpmGlobalRoot, resolveSystemCodexBinary} from './codex-binary.js';
+
+describe('getNpmGlobalRoot', () => {
+    it('从 node 可执行文件位置推导全局根（<nodeDir>/node_modules）', () => {
+        const fakeNodeDir = mkdtempSync(join(tmpdir(), 'npm-root-test-'));
+        try {
+            mkdirSync(join(fakeNodeDir, 'node_modules'));
+            expect(getNpmGlobalRoot(join(fakeNodeDir, 'node.exe'))).toBe(join(fakeNodeDir, 'node_modules'));
+        } finally {
+            rmSync(fakeNodeDir, {recursive: true, force: true});
+        }
+    });
+
+    it('execPath 旁无 node_modules 时走 npm 子进程兜底，不抛异常（返回值随环境）', () => {
+        const bareDir = mkdtempSync(join(tmpdir(), 'npm-root-bare-'));
+        try {
+            // 本机 npm 可用时会返回真实全局根；npm 不可用时为 null —— 两者皆合法
+            const result = getNpmGlobalRoot(join(bareDir, 'AI Dev Workbench.exe'));
+            expect(result === null || typeof result === 'string').toBe(true);
+        } finally {
+            rmSync(bareDir, {recursive: true, force: true});
+        }
+    });
+});
 
 describe('resolveSystemCodexBinary', () => {
     let root: string;
@@ -47,5 +70,9 @@ describe('resolveSystemCodexBinary', () => {
 
     it('无匹配时返回 null（目录缺失不抛异常）', () => {
         expect(resolveSystemCodexBinary(join(root, 'not-exist'), 'win32')).toBeNull();
+    });
+
+    it('npmRoot 为 null 时防御性返回 null（不抛异常）', () => {
+        expect(resolveSystemCodexBinary(null as unknown as string, 'win32')).toBeNull();
     });
 });
