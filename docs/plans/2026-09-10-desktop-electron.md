@@ -1,9 +1,12 @@
 # 桌面应用（Electron，macOS/Windows/Linux）实施计划
 
-> **执行状态（2026-09-10 下班暂停）**
-> - ✅ Task 1–5 全部完成并分 5 次提交（e4a9c7c → 3c92ce4）+ 本文档提交
-> - ⏸ Task 6（构建+冒烟）未开始，卡在依赖环境：沙箱会话无法写工作区外的 `D:\.pnpm-store`，已改用工作区内 store 方案——5GB store robocopy 复制**中途被终止**（.pnpm-store 为部分拷贝，pnpm 自愈可补）；`node_modules` 已删除但残留约 9000 个只读/长路径文件
-> - **明日恢复步骤**：① 清 node_modules 残留：`cmd /c rmdir /s /q node_modules`（只读文件用 `attrib -R node_modules\* /S /D` 后重试）② `pnpm install`（store 缺的部分自动从 registry 补）③ `pnpm add -D electron electron-builder`（allowBuilds 已加 electron；二进制下载慢可设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）④ `pnpm run build:electron` 验证编译 ⑤ Task 6 全量构建 + `pnpm exec electron .` 冒烟 ⑥ Task 7 剩余：根 CLAUDE.md 变更记录补行（模块索引/脚本已更新）
+> **执行状态（2026-09-11 里程碑 1 完成）**
+> - ✅ Task 1–7 全部完成（提交 e4a9c7c → 6d0f5c2 + 本次文档提交）
+> - ✅ 依赖环境恢复：store 迁入工作区 `.pnpm-store`（沙箱只允许写工作区）；electron 39.8.10 + electron-builder 已装
+> - ✅ 冒烟验证通过：`electron.exe(RUN_AS_NODE) → server-bootstrap.js → dist/cli → Express` 全链路，`GET /` 返回 200（title: AI Dev Workbench）、`GET /api/system/status` 返回 200
+> - ⚠️ Chromium 窗口无法在 AI 会话沙箱内渲染（v44/v39、最小程序均 0xC0000005，已排除应用代码与二进制完整性）——**窗口验证需在用户终端执行 `pnpm exec electron .`**
+> - 注意事项：① electron 锁定 39.x（44 在部分 Windows 环境引导崩溃）② 默认 host 解析可能绑定 `::1`（IPv6），探测请用 `http://localhost:port` ③ 全量测试套件有 8 个预存失败（sandbox/skills 服务，基线 1ab7ed6 复现，与本分支无关）
+> - 后续里程碑：手机远程（WS 鉴权 + apiKey 强制 + 扫码配对 + 响应式 UI）、mac 签名公证、CI 三平台矩阵
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 

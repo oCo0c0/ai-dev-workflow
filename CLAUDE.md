@@ -175,6 +175,7 @@ pnpm start   # 或 adw
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-09-11 | 更新 | 桌面版里程碑 1（分支 feat/desktop-electron）：新增 `src/electron/` 模块（Electron 壳，服务端以 ELECTRON_RUN_AS_NODE 子进程启动、GUI PATH 修复、ADW_PORT 端口协调）；`package.json` main 指向 `dist-electron/electron/main.js`，新增 `dev:desktop`/`build:electron`/`dist:win|mac|linux` 脚本；electron-builder 三平台打包（asar:false 保证 pi 扩展真实路径可读）；electron 锁定 39.x。服务链路冒烟通过（SPA 200 + API 200）；测试套件有 8 个预存失败（基线复现，与本变更无关），详见 `docs/plans/2026-09-10-desktop-electron.md` |
 | 2026-07-23 | 修复 | 附件面板重定义「解析输入清单」语义（主应用 + 插件内核 store 同步）：只保留 ① 原有真实 http URL 的附件（解析端可按 URL 下载）② 已本地化且被文档引用的（URL 改写为本地地址）；wiki 源整页历史图（无 URL hash 资源）未被文档引用的一律不下载不列出；收集/改写不再要求附件自带 URL（空 URL 的 `[Image:]` 引用也能走 wiki token 下载）；下载失败的标记改写为明示 `[图片未下载：x]` 不再伪造本地链接；占位文本 URL（非 http）视同无 URL。契约 prompt 加「无真实 URL 时省略 url 字段」。实测 CWXT-129290 附件 9→2（文档实际引用数），全部本地 URL |
 | 2026-07-23 | 修复 | MCP 注册中心文件格式标准化为 mcpServers 方言（用户反馈自造格式）：`~/.ai-dev-workbench/mcp-servers.json` 读写 `{"mcpServers":{name:{type:"stdio",command,args,env}}}`，停用写 `disabled:true`、非手动导入保留 `source`；兼容读取旧 `{version,servers:[...]}` 并在下次保存自动迁移（真实文件已迁移）；插件内核 mcp-config 补显式 `type`、http 型标准 `headers` 键、`disabled` 读取 |
 | 2026-07-23 | 修复 | ONES wiki 图片 0/N 全挂：任务描述里的 wiki 链接是 `/team/{t}/page/{uuid}`（无 space 段），`getWikiPageUuids` 旧正则强制 space 段匹配不到 → 兜底拿任务 UUID 当 wiki 页必 404；放宽路由正则与 ai-dev-requirements 对齐（space 可选 + descriptionText 一并扫描 + URL 解码），主应用与插件内核双份同步；附件本地化范围收敛为图片 + Excel（xls/xlsx/xlsm），其他格式保留源链接不下载；fetch prompt 加"图片标记原样保留"约束（模型压缩正文丢 `[Image:]` 标记）。实测 CWXT-129290：9/9 张图落盘、附件全本地化 |
