@@ -14,12 +14,12 @@
  */
 
 import {app, BrowserWindow, dialog} from 'electron';
-import {ChildProcess, StdioOptions, spawn} from 'child_process';
-import fs from 'fs';
+import {ChildProcess, spawn} from 'child_process';
 import http from 'http';
 import os from 'os';
 import path from 'path';
 import {fixPath} from './fix-path';
+import {buildServerStdio} from './server-stdio';
 import {findAvailablePort} from '../cli/port-finder';
 
 const isDev = process.env.ADW_ELECTRON_DEV === '1';
@@ -54,17 +54,8 @@ function spawnServer(port: number): ChildProcess {
         ADW_DESKTOP: '1',
     };
 
-    let stdio: StdioOptions;
-    if (isDev) {
-        stdio = 'inherit';
-    } else {
-        const logDir = path.join(os.homedir(), '.ai-dev-workbench', 'logs');
-        fs.mkdirSync(logDir, {recursive: true});
-        const logStream = fs.createWriteStream(path.join(logDir, 'desktop-server.log'), {flags: 'a'});
-        const ts = new Date().toISOString();
-        logStream.write(`\n===== [desktop] server starting at ${ts} (port ${port}) =====\n`);
-        stdio = ['ignore', logStream, logStream];
-    }
+    // 生产模式日志落盘 fd（详见 server-stdio.ts：不能传未打开的 WriteStream）
+    const stdio = buildServerStdio(isDev, path.join(os.homedir(), '.ai-dev-workbench', 'logs'));
 
     const proc = spawn(process.execPath, [bootstrapPath], {env, stdio});
     proc.on('exit', (code) => {
@@ -143,38 +134,47 @@ if (!gotLock) {
     });
 
     app.whenReady().then(async () => {
-        // 必须在任何子进程派生之前修复 PATH（子进程继承主进程环境）
-        fixPath();
-
-        let port: number;
-        if (isDev) {
-            port = DEV_SERVER_PORT;
-        } else {
-            port = (await findAvailablePort()).port;
-        }
-
-        serverProc = spawnServer(port);
         try {
-            await waitForServer(port, SERVER_READY_TIMEOUT_MS);
+            // 必须在任何子进程派生之前修复 PATH（子进程继承主进程环境）
+            fixPath();
+
+            let port: number;
+            if (isDev) {
+                port = DEV_SERVER_PORT;
+            } else {
+                port = (await findAvailablePort()).port;
+            }
+
+            serverProc = spawnServer(port);
+            try {
+                await waitForServer(port, SERVER_READY_TIMEOUT_MS);
+            } catch (err) {
+                dialog.showErrorBox(
+                    'AI Dev Workbench',
+                    `后端服务启动超时：${err instanceof Error ? err.message : err}\n` +
+                    '日志文件：~/.ai-dev-workbench/logs/desktop-server.log',
+                );
+                app.quit();
+                return;
+            }
+
+            const url = isDev
+                ? (process.env.ADW_DEV_SERVER_URL ?? 'http://localhost:5173')
+                : `http://127.0.0.1:${port}`;
+            console.log(`[desktop] ready at ${url}`);
+            createWindow(url);
+
+            app.on('activate', () => {
+                if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
+            });
         } catch (err) {
+            // 同步启动错误（如 spawn 参数异常）以弹窗呈现而非静默 unhandled rejection
             dialog.showErrorBox(
                 'AI Dev Workbench',
-                `后端服务启动超时：${err instanceof Error ? err.message : err}\n` +
-                '日志文件：~/.ai-dev-workbench/logs/desktop-server.log',
+                `启动失败：${err instanceof Error ? err.message : String(err)}`,
             );
             app.quit();
-            return;
         }
-
-        const url = isDev
-            ? (process.env.ADW_DEV_SERVER_URL ?? 'http://localhost:5173')
-            : `http://127.0.0.1:${port}`;
-        console.log(`[desktop] ready at ${url}`);
-        createWindow(url);
-
-        app.on('activate', () => {
-            if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
-        });
     });
 
     app.on('before-quit', () => {
