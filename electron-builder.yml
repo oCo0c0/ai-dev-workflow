@@ -38,7 +38,14 @@ files:
   - '!node_modules/@openai/codex-linux-*/**'
 
 win:
-  target: nsis
+  # nsis：标准安装器（写 HKCU 卸载信息，Add/Remove Programs 可见——Windows 标准，
+  #   与 orca/VS Code 用户级安装一致）；portable：单文件绿色版，零安装零注册表
+  target:
+    - nsis
+    - portable
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
 
 nsis:
   oneClick: false

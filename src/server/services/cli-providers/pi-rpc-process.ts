@@ -159,6 +159,12 @@ export class PiRpcProcess {
             if (value !== undefined) env[key] = value;
         }
         Object.assign(env, opts.env ?? {});
+        // 桌面版：process.execPath 是 Electron 二进制，必须保持纯 Node 模式启动；
+        // 服务端引导（server-bootstrap）会删除该变量防泄漏，这里必须显式补回，
+        // 否则子进程会拉起新 GUI 实例并被主窗口单实例锁立即退出（exit 0）
+        if (process.env.ADW_DESKTOP === '1') {
+            env.ELECTRON_RUN_AS_NODE = '1';
+        }
         const child = spawnFn(process.execPath, args, {cwd: opts.cwd, env});
         const proc = new PiRpcProcess(child, hooks);
 

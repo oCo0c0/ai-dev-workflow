@@ -141,6 +141,41 @@ describe('PiRpcProcess', () => {
         expect(args).toContain('--no-extensions -e R:/ext/adw-platform.ts');
     });
 
+    it('桌面版（ADW_DESKTOP=1）spawn 环境注入 ELECTRON_RUN_AS_NODE=1（防子进程变新 GUI 实例撞单实例锁）', async () => {
+        const {spawnFn} = autoStateSpawn();
+        const envs: Array<Record<string, string> | undefined> = [];
+        const wrapped: PiSpawnFn = (command, args, opts) => {
+            envs.push(opts?.env);
+            return spawnFn(command, args, opts);
+        };
+        const prev = process.env.ADW_DESKTOP;
+        process.env.ADW_DESKTOP = '1';
+        try {
+            await PiRpcProcess.start({cwd: process.cwd(), sessionDir: 'X:/s', rpcEntry: 'f.js'}, {}, wrapped);
+        } finally {
+            if (prev === undefined) delete process.env.ADW_DESKTOP;
+            else process.env.ADW_DESKTOP = prev;
+        }
+        expect(envs[0]?.ELECTRON_RUN_AS_NODE).toBe('1');
+    });
+
+    it('非桌面环境不注入 ELECTRON_RUN_AS_NODE', async () => {
+        const {spawnFn} = autoStateSpawn();
+        const envs: Array<Record<string, string> | undefined> = [];
+        const wrapped: PiSpawnFn = (command, args, opts) => {
+            envs.push(opts?.env);
+            return spawnFn(command, args, opts);
+        };
+        const prev = process.env.ADW_DESKTOP;
+        delete process.env.ADW_DESKTOP;
+        try {
+            await PiRpcProcess.start({cwd: process.cwd(), sessionDir: 'X:/s', rpcEntry: 'f.js'}, {}, wrapped);
+        } finally {
+            if (prev !== undefined) process.env.ADW_DESKTOP = prev;
+        }
+        expect(envs[0]?.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    });
+
     it('send() 按 id 关联应答并返回 data', async () => {
         const {child, spawnFn} = autoStateSpawn();
         const proc = await PiRpcProcess.start(

@@ -10,10 +10,13 @@
 
 | 文件 | 说明 |
 |------|------|
-| `main.ts` | Electron 主进程：单实例锁、PATH 修复、服务端子进程管理（`ELECTRON_RUN_AS_NODE`）、HTTP 就绪探测、窗口创建、退出级联清理 |
+| `main.ts` | Electron 主进程：单实例锁、PATH 修复、服务端子进程管理（`ELECTRON_RUN_AS_NODE`）、HTTP 就绪探测、窗口创建、托盘与关闭行为、退出级联清理 |
 | `server-bootstrap.ts` | 服务端引导（以纯 Node 模式运行）：删除 `ELECTRON_RUN_AS_NODE` 防泄漏给孙进程；开发走 tsx 源码，生产加载 `dist/cli` |
 | `fix-path.ts` | GUI 启动 PATH 修复：登录 shell 提取（带标记解析）+ 兜底目录合并；win32 no-op |
 | `fix-path.test.ts` | `extractShellPath` / `mergePath` 纯函数单测 |
+| `titlebar-theme.ts`(+test) | 窗口控制按钮覆盖层配色（明暗两套），IPC 运行时切换 |
+| `tray-settings.ts`(+test) | 关闭行为设置（ask/tray/quit）持久化到 userData/settings.json |
+| `preload.ts` | contextBridge 桥：主题 → 主进程 IPC |
 
 ## 启动流程（生产）
 
@@ -41,4 +44,5 @@
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-09-11 | 修复+新增 | ① 桌面包 pi 引擎 `rpc process exited (code 0)` 根因：server-bootstrap 删除 `ELECTRON_RUN_AS_NODE` 后，`process.execPath` 派生的 pi 子进程变成新 GUI 实例、被单实例锁立即退出——`pi-rpc-process.start`/`pi-provider.detectVersion` 在 `ADW_DESKTOP=1` 时显式注入该变量（回归测试覆盖）；② 新增系统托盘（win32：16px 图标、左键恢复、右键 打开/退出）+ 关闭行为询问框（最小化到托盘/直接退出，可记住选择，存 userData/settings.json，隐藏时气泡提示）；③ win 目标增加 `portable` 单文件绿色版（零安装零注册表），nsis 写 HKCU 卸载信息与 orca/VS Code 用户级安装一致（Windows 标准） |
 | 2026-09-10 | 创建 | 桌面版里程碑 1：Electron 壳 + 三平台打包配置 + PATH 修复 |

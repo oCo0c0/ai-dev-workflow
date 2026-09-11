@@ -13,7 +13,7 @@
  * 打包要求 asar: false —— resources/pi-extensions 等需被孙进程按真实文件路径读取。
  */
 
-import {app, BrowserWindow, dialog, ipcMain} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray} from 'electron';
 import {ChildProcess, spawn} from 'child_process';
 import http from 'http';
 import os from 'os';
@@ -21,6 +21,7 @@ import path from 'path';
 import {fixPath} from './fix-path';
 import {buildServerStdio} from './server-stdio';
 import {overlayColorsFor} from './titlebar-theme';
+import {loadCloseBehavior, saveCloseBehavior} from './tray-settings';
 import {findAvailablePort} from '../cli/port-finder';
 
 const isDev = process.env.ADW_ELECTRON_DEV === '1';
@@ -31,8 +32,12 @@ const SERVER_READY_TIMEOUT_MS = 60_000;
 
 let serverProc: ChildProcess | null = null;
 let win: BrowserWindow | null = null;
-/** 是否正在主动退出（区分服务端异常退出与正常关闭） */
+/** 是否正在主动退出（区分服务端异常退出与正常关闭；托盘「退出」也置位） */
 let quitting = false;
+/** 系统托盘（Windows；Tray 无引用会被 GC 回收，须模块级持有） */
+let tray: Tray | null = null;
+/** 桌面壳设置目录（Electron userData） */
+let settingsDir = '';
 
 /** 应用根目录（开发 = 仓库根；打包 = app 目录，asar 已关闭） */
 function appRoot(): string {
@@ -137,7 +142,90 @@ function createWindow(url: string): void {
     win.on('closed', () => {
         win = null;
     });
+    // 关闭行为：tray=隐藏到托盘 / quit=直接退出 / ask=首次弹询问框（可记住选择）
+    win.on('close', (e) => {
+        if (quitting) return;
+        const behavior = loadCloseBehavior(settingsDir);
+        if (behavior === 'tray') {
+            e.preventDefault();
+            hideToTray();
+            return;
+        }
+        if (behavior === 'quit') return;
+        // ask：同步阻止默认关闭，再异步询问
+        e.preventDefault();
+        void (async () => {
+            if (!win || win.isDestroyed()) return;
+            const choice = await dialog.showMessageBox(win, {
+                type: 'question',
+                title: '关闭 AI Dev Workbench',
+                message: '要直接退出，还是最小化到系统托盘继续运行？',
+                detail: '最小化到托盘后，进行中的引擎任务不会被中断。',
+                buttons: ['最小化到托盘', '直接退出'],
+                defaultId: 0,
+                cancelId: 1,
+                noLink: true,
+                checkboxLabel: '记住我的选择（之后不再询问）',
+            });
+            if (choice.response === 0) {
+                if (choice.checkboxChecked) saveCloseBehavior(settingsDir, 'tray');
+                hideToTray();
+            } else {
+                if (choice.checkboxChecked) saveCloseBehavior(settingsDir, 'quit');
+                quitting = true;
+                app.quit();
+            }
+        })();
+    });
     void win.loadURL(url);
+}
+
+/** 隐藏主窗口到系统托盘（win32）并气泡提示去向 */
+function hideToTray(): void {
+    win?.hide();
+    if (tray && process.platform === 'win32') {
+        try {
+            tray.displayBalloon({
+                title: 'AI Dev Workbench',
+                content: '已最小化到系统托盘，引擎任务继续运行。点击托盘图标可恢复窗口。',
+            });
+        } catch {
+            // 气泡失败不影响隐藏
+        }
+    }
+}
+
+/** 恢复并聚焦主窗口 */
+function showMainWindow(): void {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+}
+
+/** 创建系统托盘（仅 Windows；左键恢复窗口，右键菜单 打开/退出） */
+function createTray(): void {
+    if (process.platform !== 'win32') return;
+    const icon = nativeImage
+        .createFromPath(path.join(appRoot(), 'resources', 'app-icon.png'))
+        .resize({width: 16, height: 16});
+    tray = new Tray(icon);
+    tray.setToolTip('AI Dev Workbench');
+    tray.setContextMenu(
+        Menu.buildFromTemplate([
+            {label: '打开 AI Dev Workbench', click: () => showMainWindow()},
+            {type: 'separator'},
+            {
+                label: '退出',
+                click: () => {
+                    quitting = true;
+                    app.quit();
+                },
+            },
+        ]),
+    );
+    // Windows 惯例：左键点击托盘图标即恢复窗口
+    tray.on('click', () => showMainWindow());
 }
 
 // ---- 生命周期 ----
@@ -192,7 +280,9 @@ if (!gotLock) {
                 ? (process.env.ADW_DEV_SERVER_URL ?? 'http://localhost:5173')
                 : `http://localhost:${port}`;
             console.log(`[desktop] ready at ${url}`);
+            settingsDir = app.getPath('userData');
             createWindow(url);
+            createTray();
 
             app.on('activate', () => {
                 if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
@@ -215,6 +305,8 @@ if (!gotLock) {
         // POSIX: SIGTERM → 服务端既有优雅清理（dispose 沙箱/子进程后自行退出）
         // Windows: kill() 为 TerminateProcess 强杀（已知限制，见计划文档）
         serverProc?.kill();
+        tray?.destroy();
+        tray = null;
     });
 
     app.on('window-all-closed', () => {

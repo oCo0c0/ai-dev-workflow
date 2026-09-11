@@ -79,13 +79,14 @@ export function extractMcpServersWhitelist(
     if (!mcpServers) return undefined;
     for (const cfg of Object.values(mcpServers)) {
         const url = cfg && typeof cfg === 'object' && 'url' in cfg
-            ? String((cfg as {url?: unknown}).url ?? '')
+            ? String((cfg as { url?: unknown }).url ?? '')
             : '';
         if (!url) continue;
         try {
             const servers = new URL(url).searchParams.get('servers');
             if (servers) return servers;
-        } catch { /* 非 URL 形态忽略 */ }
+        } catch { /* 非 URL 形态忽略 */
+        }
     }
     return undefined;
 }
@@ -230,8 +231,16 @@ export class PiProvider implements CLIProvider {
         const cliJs = path.join(path.dirname(rpcEntry), 'cli.js');
         if (!existsSync(cliJs)) return undefined;
         const {execFile} = await import('child_process');
+        // 桌面版：execPath 为 Electron 二进制，须保持纯 Node 模式（同 PiRpcProcess.start）
+        const env: Record<string, string> = {};
+        for (const [key, value] of Object.entries(process.env)) {
+            if (value !== undefined) env[key] = value;
+        }
+        if (process.env.ADW_DESKTOP === '1') {
+            env.ELECTRON_RUN_AS_NODE = '1';
+        }
         return new Promise<string | undefined>((resolve) => {
-            execFile(process.execPath, [cliJs, '--version'], {timeout: 15_000}, (err, stdout) => {
+            execFile(process.execPath, [cliJs, '--version'], {timeout: 15_000, env}, (err, stdout) => {
                 if (err) return resolve(undefined);
                 resolve(String(stdout).trim().split('\n').pop()?.trim() || undefined);
             });
@@ -239,7 +248,7 @@ export class PiProvider implements CLIProvider {
     }
 
     /** 一次性 RPC 子进程探测可用模型（失败返回 undefined，不影响可用性） */
-    private async detectAvailableModels(): Promise<Array<{provider: string; id: string; name?: string}> | undefined> {
+    private async detectAvailableModels(): Promise<Array<{ provider: string; id: string; name?: string }> | undefined> {
         let proc: PiRpcProcess | null = null;
         try {
             proc = await this.startRpc(
@@ -249,7 +258,7 @@ export class PiProvider implements CLIProvider {
                 30_000,
             );
             const data = await proc.send({type: 'get_available_models'}, 20_000) as
-                | {models?: Array<{provider: string; id: string; name?: string}>}
+                | { models?: Array<{ provider: string; id: string; name?: string }> }
                 | undefined;
             const models = (data?.models ?? []).map((m) => ({provider: m.provider, id: m.id, name: m.name ?? m.id}));
 
@@ -291,7 +300,7 @@ export class PiProvider implements CLIProvider {
 
         // === 启动参数组装 ===
         const model = this.resolveSpawnModel(options);
-        const env = this.buildSpawnEnv(model.provider, (options as {apiKey?: string} | undefined)?.apiKey);
+        const env = this.buildSpawnEnv(model.provider, (options as { apiKey?: string } | undefined)?.apiKey);
         // 权限模式与 Claude bridge 语义对齐：调用方未提供 onPermissionRequest
         //（经典 plan/execution 流程）时自动放行；agent-execution 流程走确认弹窗
         env.ADW_PERMISSION_MODE = options?.onPermissionRequest ? 'confirm' : 'auto-allow';
@@ -424,7 +433,7 @@ export class PiProvider implements CLIProvider {
                 }
 
                 case 'message_end': {
-                    const finished = evt.message as {stopReason?: string; errorMessage?: string} | undefined;
+                    const finished = evt.message as { stopReason?: string; errorMessage?: string } | undefined;
                     if (finished?.stopReason === 'error' && finished.errorMessage) {
                         lastErrorMessage = finished.errorMessage;
                     }
@@ -524,7 +533,7 @@ export class PiProvider implements CLIProvider {
             // 取 sessionId（进程仍存活时；已死则退回输入值）
             let sessionId = input.sessionId;
             try {
-                const state = await proc.send({type: 'get_state'}, 5_000) as {sessionId?: string} | undefined;
+                const state = await proc.send({type: 'get_state'}, 5_000) as { sessionId?: string } | undefined;
                 sessionId = state?.sessionId ?? sessionId;
             } catch {
                 // 进程已退出（如整轮看门狗路径）：保留输入 sessionId
@@ -614,7 +623,7 @@ export class PiProvider implements CLIProvider {
      * 解析启动用模型：调用方显式传入 > 自有配置首个可用
      * @returns provider/model id（均可能为 undefined → pi 自动检测）
      */
-    private resolveSpawnModel(options?: CLIProviderOptions): {provider?: string; model?: string} {
+    private resolveSpawnModel(options?: CLIProviderOptions): { provider?: string; model?: string } {
         const provider = options?.modelProvider;
         const model = options?.model;
         if (provider) return {provider, model};
