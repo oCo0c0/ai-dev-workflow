@@ -14,7 +14,7 @@
  */
 
 import {app, BrowserWindow, dialog} from 'electron';
-import {ChildProcess, spawn} from 'child_process';
+import {ChildProcess, StdioOptions, spawn} from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import os from 'os';
@@ -54,7 +54,7 @@ function spawnServer(port: number): ChildProcess {
         ADW_DESKTOP: '1',
     };
 
-    let stdio: ChildProcess['stdio'];
+    let stdio: StdioOptions;
     if (isDev) {
         stdio = 'inherit';
     } else {

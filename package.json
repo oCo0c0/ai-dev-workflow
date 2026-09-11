@@ -78,6 +78,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^8.2.2",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
     "fast-check": "^3.22.0",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.13.0",
