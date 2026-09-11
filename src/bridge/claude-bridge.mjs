@@ -35,6 +35,7 @@ process.env.USER_TYPE = 'external';
 delete process.env.CLAUDE_AGENT_SDK_VERSION;
 
 import {query} from '@anthropic-ai/claude-agent-sdk';
+import {execSync} from 'child_process';
 import {createRequire} from 'module';
 import {existsSync, appendFileSync} from 'fs';
 import {join} from 'path';
@@ -71,12 +72,32 @@ function resolveClaudeCliPath() {
     }
 
     const candidates = [
+        // 原生安装器（claude 直装用户目录，桌面瘦身包不随附 SDK 二进制时的首选回退）
+        join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude'),
         join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
         join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js'),
     ];
 
     for (const p of candidates) {
         if (existsSync(p)) return p;
+    }
+
+    // PATH 查找（where/which）：仅接受真实可执行（claude.exe / claude），
+    // 跳过 .cmd/.ps1 shim——SDK 直接 spawn 不经 shell，shim 无法执行
+    try {
+        const finder = process.platform === 'win32' ? 'where' : 'which';
+        const found = execSync(`${finder} claude`, {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+            timeout: 5000,
+        })
+            .split(/\r?\n/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+        const real = found.find((p) => /claude(\.exe)?$/i.test(p) && existsSync(p));
+        if (real) return real;
+    } catch {
+        // PATH 无 claude，继续回退
     }
 
     try {

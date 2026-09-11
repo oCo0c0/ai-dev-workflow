@@ -19,7 +19,7 @@ directories:
   buildResources: build
 
 asar: false
-compression: normal
+compression: maximum
 
 files:
   - dist/**
@@ -28,6 +28,14 @@ files:
   - templates/**
   - skills/**
   - package.json
+  # BYO-CLI：AI 引擎平台二进制不随包分发（约 500MB），运行时回退系统安装的
+  # claude / codex（claude-bridge.resolveClaudeCliPath / codex-provider.createClient）
+  - '!node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**'
+  - '!node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**'
+  - '!node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**'
+  - '!node_modules/@openai/codex-win32-*/**'
+  - '!node_modules/@openai/codex-darwin-*/**'
+  - '!node_modules/@openai/codex-linux-*/**'
 
 win:
   target: nsis

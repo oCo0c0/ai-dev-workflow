@@ -8,6 +8,7 @@
 
 import {execSync} from 'child_process';
 import path from 'path';
+import {getNpmGlobalRoot, resolveSystemCodexBinary} from './codex-binary';
 import fs from 'fs';
 import os from 'os';
 import {getErrorMessage} from '../../utils/error-utils.js';
@@ -472,11 +473,31 @@ export class CodexProvider implements CLIProvider {
     private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {
         // 免 CLI 依赖：优先从自有配置注入 OPENAI_API_KEY / OPENAI_BASE_URL
         applyOwnCodexEnv();
+        // 桌面瘦身包不随附平台二进制（BYO-CLI）：SDK 自有平台包全部不可解析时，
+        // 回退系统 npm 全局安装的 codex 真实二进制
+        let executablePath: string | null = null;
+        const platformPkgs = [
+            '@openai/codex-win32-x64', '@openai/codex-win32-arm64',
+            '@openai/codex-darwin-x64', '@openai/codex-darwin-arm64',
+            '@openai/codex-linux-x64', '@openai/codex-linux-arm64',
+        ];
+        const bundled = platformPkgs.some((pkg) => {
+            try {
+                require.resolve(`${pkg}/package.json`);
+                return true;
+            } catch {
+                return false;
+            }
+        });
+        if (!bundled) {
+            const npmRoot = getNpmGlobalRoot();
+            executablePath = (npmRoot && resolveSystemCodexBinary(npmRoot)) || null;
+        }
         // ESM-only SDK 在 CJS 编译产物中需要特殊处理：
         // 使用 Function 构造器绕过 bundler/tsc 的静态分析，确保运行时动态 import
         const dynamicImport = new Function('modulePath', 'return import(modulePath)') as (m: string) => Promise<typeof import('@openai/codex-sdk')>;
         const {Codex} = await dynamicImport('@openai/codex-sdk');
-        return new Codex();
+        return new Codex(executablePath ? {codexPathOverride: executablePath} : undefined);
     }
 
     /** 确保客户端已初始化 */
