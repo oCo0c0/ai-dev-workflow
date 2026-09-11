@@ -75,6 +75,7 @@ function spawnServer(port: number): ChildProcess {
  * 轮询探测服务端就绪（任意 HTTP 响应即视为就绪）
  *
  * 服务端在全部服务初始化完成后才开始 listen，TCP 可连即代表 API 可用。
+ * 用 localhost 而非 127.0.0.1：host 为 "localhost" 时 Node 可能仅绑 IPv6 ::1。
  */
 function waitForServer(port: number, timeoutMs: number): Promise<void> {
     const started = Date.now();
@@ -87,7 +88,7 @@ function waitForServer(port: number, timeoutMs: number): Promise<void> {
             setTimeout(attempt, 300);
         };
         const attempt = (): void => {
-            const req = http.get({host: '127.0.0.1', port, path: '/', timeout: 2000}, (res) => {
+            const req = http.get({host: 'localhost', port, path: '/', timeout: 2000}, (res) => {
                 res.resume();
                 resolve();
             });
@@ -160,7 +161,7 @@ if (!gotLock) {
 
             const url = isDev
                 ? (process.env.ADW_DEV_SERVER_URL ?? 'http://localhost:5173')
-                : `http://127.0.0.1:${port}`;
+                : `http://localhost:${port}`;
             console.log(`[desktop] ready at ${url}`);
             createWindow(url);
 
