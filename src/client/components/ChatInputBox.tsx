@@ -3,7 +3,7 @@
  * @description 统一聊天输入框组件 —— 四个流程页面（Agent 执行 / 经典执行 / 开发计划 / 项目空间）共用。
  *   - 输入卡片：Enter 发送；Shift+Enter / Ctrl+Enter 换行（textarea 默认行为）；中文输入法
  *     composition 期间 Enter 是选词，不发送。
- *   - 底部工具栏：左侧附件上传 / 语音输入 / 模型选择器 / 权限模式选择器；右侧提示词优化 /
+ *   - 底部工具栏：左侧附件上传 / 语音输入 / 模型选择器 / 权限模式选择器 / 分支选择器（可选）；右侧提示词优化 /
  *     放大编辑 / 页面动作插槽（暂停、终止等）/ 发送按钮。
  *   - 放大编辑弹窗与提示词优化面板整体移植自 ExpandableTextarea（悬浮按钮改为工具栏常驻按钮）。
  *   纯受控组件：文本 value/onChange 由页面持有；onSend 时组件先快照并清空附件 chips，
@@ -22,6 +22,7 @@ import {AttachmentButton} from './input/AttachmentButton';
 import {VoiceButton} from './input/VoiceButton';
 import {ModelPicker} from './input/ModelPicker';
 import {PermissionPicker} from './input/PermissionPicker';
+import {BranchPicker} from './input/BranchPicker';
 
 /** 待发送附件（上传成功后经 AttachmentButton.onUploaded 回传，发送时随 onSend 交给页面） */
 export interface PendingAttachment {
@@ -53,6 +54,10 @@ interface ChatInputBoxProps {
     allowEmptySend?: boolean;
     showModelPicker?: boolean;
     showPermissionPicker?: boolean;
+    /** 分支选择器目标工作区路径；不传则不渲染分支选择器 */
+    branchWorkspacePath?: string;
+    /** 分支选择器置灰（如任务运行中禁止切换分支） */
+    branchDisabled?: boolean;
     showAttachments?: boolean;
     showVoice?: boolean;
     /** 紧凑模式（ProjectsPage 抽屉） */
@@ -70,6 +75,7 @@ export const ChatInputBox = React.forwardRef<HTMLTextAreaElement, ChatInputBoxPr
         value, onChange, onSend, disabled, placeholder, rows = 2, title,
         optimizable, optimizePurpose, actions, sending, sendDisabled, allowEmptySend,
         showModelPicker = true, showPermissionPicker = true, showAttachments = true, showVoice = true,
+        branchWorkspacePath, branchDisabled,
         compact, wrapperClassName = '',
     } = props;
     const {t} = useTranslation();
@@ -219,6 +225,12 @@ export const ChatInputBox = React.forwardRef<HTMLTextAreaElement, ChatInputBoxPr
                         )}
                         {showModelPicker && <ModelPicker/>}
                         {showPermissionPicker && <PermissionPicker/>}
+                        {branchWorkspacePath && (
+                            <BranchPicker
+                                workspacePath={branchWorkspacePath}
+                                disabled={branchDisabled || disabled}
+                            />
+                        )}
                     </div>
                     <div className="ml-auto flex items-center gap-1">
                         {optimizable && (

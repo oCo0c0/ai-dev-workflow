@@ -808,6 +808,8 @@ export default function ExecutionPage() {
                                     optimizable
                                     optimizePurpose="reply"
                                     sending={replying}
+                                    branchWorkspacePath={detail?.workspacePath}
+                                    branchDisabled={isRunning}
                                     actions={
                                         <>
                                             {isRunning && (

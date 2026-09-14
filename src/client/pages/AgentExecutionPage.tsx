@@ -1044,6 +1044,8 @@ export default function AgentExecutionPage() {
                                         optimizePurpose="reply"
                                         allowEmptySend={canStart && !!activeId}
                                         sending={replying}
+                                        branchWorkspacePath={detail?.workspacePath}
+                                        branchDisabled={isRunning}
                                         actions={
                                             isRunning ? (
                                                 <Button

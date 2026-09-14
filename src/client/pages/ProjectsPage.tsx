@@ -350,6 +350,8 @@ function TaskDetailPanel({
                         compact
                         showModelPicker={false}
                         showPermissionPicker={false}
+                        branchWorkspacePath={task.workspacePath}
+                        branchDisabled={true}
                     />
                 )}
                 {/* Control buttons */}

@@ -1114,6 +1114,8 @@ export default function PlanPage() {
                                             optimizable
                                             optimizePurpose="reply"
                                             sending={replying}
+                                            branchWorkspacePath={plan?.workspacePath}
+                                            branchDisabled={generating}
                                             actions={
                                                 generating ? (
                                                     <>
