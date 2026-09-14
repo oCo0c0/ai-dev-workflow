@@ -11,6 +11,7 @@
   },
   "include": [
     "src/electron/**/*",
+    "src/shared/**/*",
     "src/cli/port-finder.ts"
   ],
   "exclude": [

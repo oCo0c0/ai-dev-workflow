@@ -15,6 +15,7 @@
 
 import {create} from 'zustand';
 import type {AgentExecutionSummary} from '../types/agent-types';
+import {OVERLAY_COLORS} from '../../shared/titlebar-colors';
 
 // === 数据模型接口定义 ===
 
@@ -649,8 +650,13 @@ function applyTheme(theme: Theme) {
         html.classList.remove('dark');
     }
     localStorage.setItem('ai-workbench-theme', theme);
-    // 桌面版：同步窗口控制按钮覆盖层配色（浏览器中该 API 不存在，静默跳过）
-    window.adwDesktop?.setWindowControlsTheme(mode);
+    // 桌面版：顶栏切为与窗口控制按钮覆盖层同色的实色条（共享常量，像素级一致）；
+    // 浏览器中无 adwDesktop 桥，保持毛玻璃外观零影响
+    if (window.adwDesktop) {
+        document.documentElement.classList.add('titlebar-solid');
+        document.documentElement.style.setProperty('--titlebar-bg', OVERLAY_COLORS[mode].color);
+        window.adwDesktop.setWindowControlsTheme(mode);
+    }
 }
 
 /** 自定义背景照片 localStorage key */

@@ -222,7 +222,7 @@ export default function Layout() {
                     sidebarCollapsed ? 'w-[52px]' : 'w-[220px]'
                 )}
             >
-                <div className="flex h-14 items-center border-b border-border/50 px-3 app-drag">
+                <div className="flex h-14 items-center border-b border-border/50 px-3 app-drag app-titlebar">
                     {!sidebarCollapsed && (
                         <div className="flex items-center gap-2">
                             <img
@@ -295,7 +295,7 @@ export default function Layout() {
 
             {/* 主内容区域 */}
             <div className="flex flex-1 flex-col overflow-hidden">
-                <header className="relative z-50 flex h-14 items-center justify-between border-b border-border/50 glass px-6 app-drag">
+                <header className="relative z-50 flex h-14 items-center justify-between border-b border-border/50 glass px-6 app-drag app-titlebar">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={toggleSidebar}

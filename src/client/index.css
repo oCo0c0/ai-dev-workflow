@@ -113,6 +113,14 @@
         padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
     }
 
+    /* 桌面版（Windows 无边框）顶栏实色：与窗口控制按钮覆盖层同色（--titlebar-bg
+       由 applyTheme 按共享常量注入），整条导航栏颜色一致，覆盖层不再像补丁 */
+    html.titlebar-solid .app-titlebar {
+        background: var(--titlebar-bg, transparent) !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
     /* 用户自定义背景照片（有背景时由 JS 挂 has-bg 并设置 --user-bg）
        层级顺序：红光晕(最上) → 照片遮罩(压暗保证可读) → 照片(最底，透出显示) */
     body.has-bg {
