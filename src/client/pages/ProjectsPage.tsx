@@ -11,11 +11,12 @@ import {useTranslation} from 'react-i18next';
 import {motion, AnimatePresence} from 'framer-motion';
 import {
     FolderKanban, Plus, Play, Pause, Square, ChevronRight, GitBranch,
-    Clock, CheckCircle, AlertCircle, Loader2, RefreshCw, X, MessageSquare,
+    Clock, CheckCircle, AlertCircle, Loader2, RefreshCw, X,
     Trash2, Settings2,
 } from 'lucide-react';
 import {useAppStore} from '../stores/app-store';
 import {apiGet, apiPost, apiDelete} from '../api';
+import {ChatInputBox} from '../components/ChatInputBox';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
 
@@ -255,10 +256,13 @@ function TaskDetailPanel({
     const {t} = useTranslation();
     const [replyText, setReplyText] = useState('');
 
-    const handleReply = async () => {
-        if (!replyText.trim()) return;
+    const handleReply = async (text: string, attachmentIds: string[]) => {
+        if (!text.trim()) return;
         try {
-            await apiPost(`/tasks/${task.id}/reply`, {message: replyText});
+            await apiPost(`/tasks/${task.id}/reply`, {
+                message: text,
+                attachmentIds: attachmentIds.length ? attachmentIds : undefined,
+            });
             setReplyText('');
         } catch (err) {
             console.error('Reply failed:', err);
@@ -335,25 +339,18 @@ function TaskDetailPanel({
 
             {/* Actions */}
             <div className="p-4 border-t border-border space-y-3">
-                {/* Reply input */}
+                {/* Reply input：紧凑统一输入框（抽屉空间有限，不显示模型/权限选择器） */}
                 {task.status === 'running' && (
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={replyText}
-                            onChange={(e) => setReplyText(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleReply()}
-                            placeholder={t('projects.replyPlaceholder')}
-                            className="flex-1 bg-input border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary"
-                        />
-                        <button
-                            onClick={handleReply}
-                            disabled={!replyText.trim()}
-                            className="p-1.5 rounded bg-primary text-primary-foreground disabled:opacity-50"
-                        >
-                            <MessageSquare className="w-4 h-4"/>
-                        </button>
-                    </div>
+                    <ChatInputBox
+                        value={replyText}
+                        onChange={setReplyText}
+                        onSend={(text, atts) => handleReply(text.trim(), atts.map(a => a.attachmentId))}
+                        placeholder={t('projects.replyPlaceholder')}
+                        rows={1}
+                        compact
+                        showModelPicker={false}
+                        showPermissionPicker={false}
+                    />
                 )}
                 {/* Control buttons */}
                 <div className="flex gap-2">

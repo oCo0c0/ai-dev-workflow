@@ -29,7 +29,6 @@ import {
     AlertCircle,
     Loader2,
     Terminal,
-    Send,
     MessageSquare,
     Play,
     Clock,
@@ -45,7 +44,7 @@ import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
-import {ExpandableTextarea} from '../components/ExpandableTextarea';
+import {ChatInputBox} from '../components/ChatInputBox';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
 import type {LogMessageData} from '../components/LogMessage';
@@ -517,11 +516,11 @@ export default function ExecutionPage() {
     /**
      * 向当前执行中的 Claude 发送回复消息
      * 当 Claude 在执行过程中需要用户确认或提出问题时使用
-     * 发送后 Claude 将根据回复内容继续执行
+     * 发送后 Claude 将根据回复内容继续执行；附件以 attachmentIds 旁路传递
      */
-    const handleReply = async () => {
-        if (!activeId || !replyText.trim() || replying) return;
-        const message = replyText.trim();
+    const handleReplyWithAttachments = async (text: string, attachmentIds: string[]) => {
+        if (!activeId || !text.trim() || replying) return;
+        const message = text.trim();
         setReplying(true);
         setReplyText(''); // 清空输入框
 
@@ -548,7 +547,10 @@ export default function ExecutionPage() {
         // 这样可以保留完整的历史日志，新内容追加显示
 
         try {
-            await apiPost(`/execution/${activeId}/reply`, {message});
+            await apiPost(`/execution/${activeId}/reply`, {
+                message,
+                attachmentIds: attachmentIds.length ? attachmentIds : undefined,
+            });
             // 重启轮询：执行曾进入终态（completed/failed/aborted/waiting_skill_confirm）时
             // 轮询已被停止，reply 把状态恢复为 running 后必须重建轮询，否则后端状态变更
             // 无法同步到前端，出现"发消息不实时变更、需刷新页面才生效"的问题。
@@ -792,117 +794,107 @@ export default function ExecutionPage() {
                                         onSuggestNewSession={handleNewSession}
                                     />
                                 </div>
-                                <div className="flex gap-2">
-                  <ExpandableTextarea
-                      ref={replyInputRef}
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      onKeyDown={(e) => {
-                          // 支持 Ctrl+Enter 或 Cmd+Enter 快捷发送
-                          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                              e.preventDefault();
-                              handleReply();
-                          }
-                      }}
-                      placeholder={t('execution.replyPlaceholder')}
-                      rows={2}
-                      disabled={isRunning} // Claude 运行时禁用回复输入
-                      title={t('execution.replyTitle')}
-                      optimizable
-                      optimizePurpose="reply"
-                      wrapperClassName="flex-1"
-                      className="bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
-                  />
-                                    {/* 统一控制按钮（收敛自顶部控制栏）：
-                                        运行中 = 暂停/中止；暂停或失败 = 重试/跳过/中止；完成 = 重新执行；空闲 = 发送 */}
-                                    {isRunning ? (
+                                {/* 统一输入框（收敛自顶部控制栏）：运行中 = 暂停/中止；
+                                    暂停或失败 = 重试/跳过/中止；完成 = 重新执行；清空日志 */}
+                                <ChatInputBox
+                                    ref={replyInputRef}
+                                    value={replyText}
+                                    onChange={setReplyText}
+                                    onSend={(text, atts) => handleReplyWithAttachments(text.trim(), atts.map(a => a.attachmentId))}
+                                    placeholder={t('execution.replyPlaceholder')}
+                                    rows={2}
+                                    disabled={isRunning} // Claude 运行时禁用回复输入
+                                    title={t('execution.replyTitle')}
+                                    optimizable
+                                    optimizePurpose="reply"
+                                    sending={replying}
+                                    actions={
                                         <>
-                                            <Button
-                                                onClick={handlePause}
-                                                className="self-end shrink-0"
-                                                size="sm"
-                                            >
-                                                <Pause className="h-4 w-4 mr-1"/>
-                                                {t('execution.pause')}
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                onClick={handleAbort}
-                                                className="self-end shrink-0 text-destructive hover:text-destructive"
-                                                size="sm"
-                                            >
-                                                <Square className="h-4 w-4 mr-1"/>
-                                                {t('execution.abort')}
-                                            </Button>
-                                        </>
-                                    ) : (
-                                        <>
-                                            {(isPaused || isFailed) && (
+                                            {isRunning && (
                                                 <>
                                                     <Button
+                                                        onClick={handlePause}
                                                         variant="outline"
-                                                        onClick={handleRetry}
-                                                        className="self-end shrink-0"
-                                                        size="sm"
+                                                        size="icon"
+                                                        className="shrink-0"
+                                                        title={t('execution.pause')}
+                                                        aria-label={t('execution.pause')}
                                                     >
-                                                        <RotateCcw className="h-4 w-4 mr-1"/>
-                                                        {t('execution.retry')}
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={handleSkip}
-                                                        className="self-end shrink-0"
-                                                        size="sm"
-                                                    >
-                                                        <SkipForward className="h-4 w-4 mr-1"/>
-                                                        {t('execution.skip')}
+                                                        <Pause className="h-4 w-4"/>
                                                     </Button>
                                                     <Button
                                                         variant="outline"
                                                         onClick={handleAbort}
-                                                        className="self-end shrink-0 text-destructive hover:text-destructive"
-                                                        size="sm"
+                                                        size="icon"
+                                                        className="shrink-0 text-destructive hover:text-destructive"
+                                                        title={t('execution.abort')}
+                                                        aria-label={t('execution.abort')}
                                                     >
-                                                        <Square className="h-4 w-4 mr-1"/>
-                                                        {t('execution.abort')}
+                                                        <Square className="h-4 w-4"/>
                                                     </Button>
                                                 </>
                                             )}
-                                            {isDone && detail?.planId && (
+                                            {!isRunning && (isPaused || isFailed) && (
+                                                <>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={handleRetry}
+                                                        size="icon"
+                                                        className="shrink-0"
+                                                        title={t('execution.retry')}
+                                                        aria-label={t('execution.retry')}
+                                                    >
+                                                        <RotateCcw className="h-4 w-4"/>
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={handleSkip}
+                                                        size="icon"
+                                                        className="shrink-0"
+                                                        title={t('execution.skip')}
+                                                        aria-label={t('execution.skip')}
+                                                    >
+                                                        <SkipForward className="h-4 w-4"/>
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={handleAbort}
+                                                        size="icon"
+                                                        className="shrink-0 text-destructive hover:text-destructive"
+                                                        title={t('execution.abort')}
+                                                        aria-label={t('execution.abort')}
+                                                    >
+                                                        <Square className="h-4 w-4"/>
+                                                    </Button>
+                                                </>
+                                            )}
+                                            {!isRunning && isDone && detail?.planId && (
                                                 <Button
                                                     variant="outline"
                                                     onClick={handleReExecute}
-                                                    className="self-end shrink-0"
-                                                    size="sm"
+                                                    size="icon"
+                                                    className="shrink-0"
+                                                    title={t('execution.reExecute')}
+                                                    aria-label={t('execution.reExecute')}
                                                 >
-                                                    <Play className="h-4 w-4 mr-1"/>
-                                                    {t('execution.reExecute')}
+                                                    <Play className="h-4 w-4"/>
                                                 </Button>
                                             )}
-                                            <Button
-                                                onClick={handleReply}
-                                                disabled={!replyText.trim() || replying}
-                                                className="self-end shrink-0"
-                                                size="sm"
-                                            >
-                                                {replying ? (
-                                                    <Loader2 className="h-4 w-4 animate-spin"/>
-                                                ) : (
-                                                    <Send className="h-4 w-4"/>
-                                                )}
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                onClick={clearExecutionLogs}
-                                                className="self-end shrink-0 text-muted-foreground"
-                                                size="sm"
-                                                title={t('execution.clear')}
-                                            >
-                                                <Trash2 className="h-4 w-4"/>
-                                            </Button>
+                                            {!isRunning && (
+                                                <Button
+                                                    variant="ghost"
+                                                    onClick={clearExecutionLogs}
+                                                    size="icon"
+                                                    className="shrink-0 text-muted-foreground"
+                                                    title={t('execution.clear')}
+                                                    aria-label={t('execution.clear')}
+                                                >
+                                                    <Trash2 className="h-4 w-4"/>
+                                                </Button>
+                                            )}
                                         </>
-                                    )}
-                                </div>
+                                    }
+                                />
                                 {/* 无会话时显示提示信息 */}
                                 {!detail?.sessionId && !isRunning && (
                                     <p className="text-xs text-muted-foreground mt-1">

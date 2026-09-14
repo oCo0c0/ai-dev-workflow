@@ -24,7 +24,6 @@ import {
     CheckCircle2,
     XCircle,
     AlertCircle,
-    Play,
     Zap,
     Square,
     Sparkles,
@@ -52,7 +51,7 @@ import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
 import {MarkdownContent} from '../components/MarkdownContent';
 import {ExpandableContent} from '../components/ExpandableContent';
-import {ExpandableTextarea} from '../components/ExpandableTextarea';
+import {ChatInputBox} from '../components/ChatInputBox';
 import type {LogMessageData} from '../components/LogMessage';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
 
@@ -181,7 +180,7 @@ function toLogMessages(logs: string[]): LogMessageData[] {
 // === 主组件 ===
 
 export default function AgentExecutionPage() {
-    useTranslation();
+    const {t} = useTranslation();
     const theme = useAppStore((s) => s.ui.theme);
 
     const logsByExecution = useAppStore((s) => s.agents.logsByExecution);
@@ -407,13 +406,17 @@ export default function AgentExecutionPage() {
         }
     };
 
-    const handleStart = async () => {
+    /** 开始执行（canStart 时由输入框发送触发；允许空文案，附件一并带给 /start） */
+    const handleStart = async (text: string, attachmentIds: string[]) => {
         if (!activeId) return;
         try {
-            // 将回复框中的详细内容一并发送（用户可能输入了细节但未点「发送」）
-            const message = replyText.trim() || undefined;
+            // 将输入框中的详细内容一并发送（用户可能输入了细节但未点「发送」）
+            const message = text.trim() || undefined;
             setReplyText('');
-            await apiPost(`/agent-execution/${activeId}/start`, {message});
+            await apiPost(`/agent-execution/${activeId}/start`, {
+                message,
+                attachmentIds: attachmentIds.length ? attachmentIds : undefined,
+            });
             loadDetail(activeId);
             loadHistory();
         } catch (err) {
@@ -432,15 +435,18 @@ export default function AgentExecutionPage() {
         }
     };
 
-    const handleReply = async () => {
-        if (!activeId || !replyText.trim() || replying) return;
+    /** 回复 / 排队：isRunning 时消息进服务端 pendingReplies；附件以 attachmentIds 旁路传递 */
+    const handleReplyWithAttachments = async (text: string, attachmentIds: string[]) => {
+        if (!activeId || !text.trim() || replying) return;
         setReplying(true);
-        const message = replyText.trim();
         setReplyText('');
         try {
             // queued=true 时消息进服务端 pendingReplies（不落日志，不上屏），
             // 队列条与消费时机均以 detail.pendingReplies 为准
-            await apiPost<{queued?: boolean}>(`/agent-execution/${activeId}/reply`, {message});
+            await apiPost<{queued?: boolean}>(`/agent-execution/${activeId}/reply`, {
+                message: text.trim(),
+                attachmentIds: attachmentIds.length ? attachmentIds : undefined,
+            });
             loadDetail(activeId);
         } catch (err) {
             console.error('回复失败:', err);
@@ -1013,79 +1019,46 @@ export default function AgentExecutionPage() {
                                             </div>
                                         </div>
                                     )}
-                                    <div className="flex gap-2">
-                                        <ExpandableTextarea
-                                            value={replyText}
-                                            onChange={(e) => setReplyText(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                                    e.preventDefault();
-                                                    if (canStart) {
-                                                        handleStart();
-                                                    } else {
-                                                        handleReply();
-                                                    }
-                                                }
-                                            }}
-                                            placeholder={
-                                                canStart
-                                                    ? '描述任务详情... (Ctrl+Enter 开始执行)'
-                                                    : isRunning
-                                                        ? '发送消息将排队，当前轮结束后自动处理... (Ctrl+Enter)'
-                                                        : '输入回复或补充信息... (Ctrl+Enter发送)'
+                                    {/* 统一输入框：就绪=发送即开始执行（允许空文案）；运行中=发送即排队；其余=发送即回复 */}
+                                    <ChatInputBox
+                                        value={replyText}
+                                        onChange={setReplyText}
+                                        onSend={async (text, atts) => {
+                                            const attachmentIds = atts.map(a => a.attachmentId);
+                                            if (canStart) {
+                                                await handleStart(text, attachmentIds);
+                                            } else {
+                                                await handleReplyWithAttachments(text.trim(), attachmentIds);
                                             }
-                                            rows={2}
-                                            title="发送消息给 Agent"
-                                            optimizable
-                                            optimizePurpose="reply"
-                                            wrapperClassName="flex-1"
-                                            className="bg-background border border-input rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
-                                        />
-                                        {/* 统一控制按钮：就绪=开始执行；运行中=排队发送 + 终止；其余=发送 */}
-                                        {canStart ? (
-                                            <Button
-                                                onClick={handleStart}
-                                                disabled={!replyText.trim() && !activeId}
-                                                className="self-end shrink-0"
-                                                size="sm"
-                                            >
-                                                <Play className="h-4 w-4 mr-1"/>
-                                                开始执行
-                                            </Button>
-                                        ) : isRunning ? (
-                                            <>
-                                                <Button
-                                                    onClick={handleReply}
-                                                    disabled={!replyText.trim() || replying}
-                                                    className="self-end shrink-0"
-                                                    size="sm"
-                                                >
-                                                    {replying ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                                        <Send className="h-4 w-4 mr-1"/>}
-                                                    排队
-                                                </Button>
+                                        }}
+                                        placeholder={
+                                            canStart
+                                                ? t('agents.inputStartPlaceholder')
+                                                : isRunning
+                                                    ? t('agents.inputQueuePlaceholder')
+                                                    : t('agents.inputReplyPlaceholder')
+                                        }
+                                        rows={3}
+                                        title="发送消息给 Agent"
+                                        optimizable
+                                        optimizePurpose="reply"
+                                        allowEmptySend={canStart && !!activeId}
+                                        sending={replying}
+                                        actions={
+                                            isRunning ? (
                                                 <Button
                                                     onClick={handleAbort}
                                                     variant="outline"
-                                                    className="self-end shrink-0 text-destructive hover:text-destructive"
-                                                    size="sm"
+                                                    size="icon"
+                                                    className="shrink-0 text-destructive hover:text-destructive"
+                                                    title="终止"
+                                                    aria-label="终止"
                                                 >
-                                                    <Square className="h-4 w-4 mr-1"/>
-                                                    终止
+                                                    <Square className="h-4 w-4"/>
                                                 </Button>
-                                            </>
-                                        ) : (
-                                            <Button
-                                                onClick={handleReply}
-                                                disabled={!replyText.trim() || replying}
-                                                className="self-end shrink-0"
-                                                size="sm"
-                                            >
-                                                {replying ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                                    <Send className="h-4 w-4"/>}
-                                            </Button>
-                                        )}
-                                    </div>
+                                            ) : undefined
+                                        }
+                                    />
                                 </CardContent>
                             </Card>
                         </>

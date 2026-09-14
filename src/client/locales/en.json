@@ -582,6 +582,11 @@
     "langCyrillic": "Cyrillic (Russian/Belarusian/Ukrainian/Serbian etc.)",
     "langDevanagari": "हिन्दी/English"
   },
+  "agents": {
+    "inputStartPlaceholder": "Describe the task details and press Enter to start...",
+    "inputQueuePlaceholder": "Sent messages will be queued and processed after the current round... (Enter to send)",
+    "inputReplyPlaceholder": "Type a reply or additional info... (Enter to send)"
+  },
   "modelProviders": {
     "subtitle": "Manage the project's own model provider configuration, with auto-import from Claude / Codex / Pi CLI",
     "detect": "Detect External",

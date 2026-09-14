@@ -28,7 +28,7 @@ import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
 import {MarkdownContent} from '../components/MarkdownContent';
 import {ExpandableContent} from '../components/ExpandableContent';
-import {ExpandableTextarea} from '../components/ExpandableTextarea';
+import {ChatInputBox} from '../components/ChatInputBox';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
 import type {LogMessageData} from '../components/LogMessage';
@@ -41,7 +41,6 @@ import {
     AlertTriangle,
     Loader2,
     Play,
-    Send,
     MessageSquare,
     Clock,
     FolderOpen,
@@ -566,9 +565,9 @@ export default function PlanPage() {
         }
     };
 
-    const handleReply = async () => {
-        if (!replyText.trim() || !activePlanId || replying) return;
-        const message = replyText.trim();
+    const handleReply = async (text: string, attachmentIds: string[]) => {
+        if (!text.trim() || !activePlanId || replying) return;
+        const message = text.trim();
         setReplying(true);
         setGenerating(true);
         setPlanStatus('generating'); // 立即更新全局状态（图标转动）
@@ -576,8 +575,11 @@ export default function PlanPage() {
         setReplyText('');
 
         try {
-            // 发送回复消息到Claude
-            await apiPost(`/plan/${activePlanId}/reply`, {message});
+            // 发送回复消息到Claude（附件以 attachmentIds 旁路传递）
+            await apiPost(`/plan/${activePlanId}/reply`, {
+                message,
+                attachmentIds: attachmentIds.length ? attachmentIds : undefined,
+            });
 
             // 由于activePlanId未改变，需要手动重启轮询机制
             if (pollRef.current) clearInterval(pollRef.current);
@@ -1017,11 +1019,11 @@ export default function PlanPage() {
                                         )}
                                     </div>
                                     {editing ? (
-                                        /* 编辑模式：可编辑的文本区域，可放大编辑 */
-                                        <ExpandableTextarea
+                                        /* 编辑模式：可编辑的文本区域 */
+                                        <textarea
                                             value={editedSummary}
                                             onChange={(e) => setEditedSummary(e.target.value)}
-                                            title={t('plan.generatedPlan')}
+                                            aria-label={t('plan.generatedPlan')}
                                             className="w-full min-h-[400px] bg-muted/30 border border-input rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring resize-y"
                                         />
                                     ) : (
@@ -1099,124 +1101,109 @@ export default function PlanPage() {
                                                 onSuggestNewSession={handleNewSession}
                                             />
                                         </div>
-                                        <div className="flex gap-2">
-                                            {/* 回复输入框：支持Ctrl+Enter快捷发送，可放大编辑 */}
-                                            <ExpandableTextarea
-                                                ref={replyInputRef}
-                                                value={replyText}
-                                                onChange={(e) => setReplyText(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                                        e.preventDefault();
-                                                        handleReply();
-                                                    }
-                                                }}
-                                                placeholder={t('plan.replyPlaceholder')}
-                                                rows={3}
-                                                disabled={generating}
-                                                title={t('plan.replyTitle')}
-                                                optimizable
-                                                optimizePurpose="reply"
-                                                wrapperClassName="flex-1"
-                                                className="bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
-                                            />
-                                            {/* 统一控制按钮（收敛自顶部控制区）：
-                                                生成中 = 暂停/取消；已暂停 = 恢复/取消；空闲 = 发送 */}
-                                            {generating ? (
-                                                <>
-                                                    <Button
-                                                        onClick={async () => {
-                                                            if (!activePlanId) return;
-                                                            try {
-                                                                await apiPost(`/plan/${activePlanId}/pause`, {});
-                                                                setGenerating(false);
-                                                                setPlanStatus('paused');
-                                                                loadHistory();
-                                                            } catch (err) {
-                                                                setError(err instanceof Error ? err.message : t('plan.failedPause'));
-                                                            }
-                                                        }}
-                                                        className="self-end shrink-0"
-                                                        size="sm"
-                                                    >
-                                                        <Pause className="h-4 w-4 mr-1"/>
-                                                        {t('plan.pause')}
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={async () => {
-                                                            if (!activePlanId) return;
-                                                            try {
-                                                                await apiPost(`/plan/${activePlanId}/abort`, {});
-                                                                setGenerating(false);
-                                                                setPlanStatus('failed');
-                                                                setError(t('plan.generationCancelled'));
-                                                                loadHistory();
-                                                            } catch (err) {
-                                                                setError(err instanceof Error ? err.message : t('plan.failedAbort'));
-                                                            }
-                                                        }}
-                                                        className="self-end shrink-0 text-destructive hover:text-destructive"
-                                                        size="sm"
-                                                    >
-                                                        <XCircle className="h-4 w-4 mr-1"/>
-                                                        {t('common.cancel')}
-                                                    </Button>
-                                                </>
-                                            ) : planPhase === 'paused' ? (
-                                                <>
-                                                    <Button
-                                                        onClick={async () => {
-                                                            if (!activePlanId) return;
-                                                            try {
-                                                                await apiPost(`/plan/${activePlanId}/resume`, {});
-                                                                setGenerating(true);
-                                                                setGeneratingElapsed(0);
-                                                                setPlanStatus('generating');
-                                                            } catch (err) {
-                                                                setError(err instanceof Error ? err.message : t('plan.failedResume'));
-                                                            }
-                                                        }}
-                                                        className="self-end shrink-0"
-                                                        size="sm"
-                                                    >
-                                                        <Play className="h-4 w-4 mr-1"/>
-                                                        {t('plan.resume')}
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={async () => {
-                                                            if (!activePlanId) return;
-                                                            try {
-                                                                await apiPost(`/plan/${activePlanId}/abort`, {});
-                                                                setPlanStatus('idle');
-                                                                setError(t('plan.generationCancelled'));
-                                                            } catch (err) {
-                                                                setError(err instanceof Error ? err.message : t('plan.failedAbort'));
-                                                            }
-                                                        }}
-                                                        className="self-end shrink-0 text-destructive hover:text-destructive"
-                                                        size="sm"
-                                                    >
-                                                        <XCircle className="h-4 w-4 mr-1"/>
-                                                        {t('common.cancel')}
-                                                    </Button>
-                                                </>
-                                            ) : (
-                                                <Button
-                                                    onClick={handleReply}
-                                                    disabled={!replyText.trim() || replying}
-                                                    className="self-end"
-                                                    size="sm"
-                                                >
-                                                    {replying ? (
-                                                        <Loader2 className="h-4 w-4 animate-spin"/>
-                                                    ) : (
-                                                        <Send className="h-4 w-4"/>
-                                                    )}
-                                                </Button>
-                                            )}
-                                        </div>
+                                        {/* 统一输入框：生成中 = 暂停/取消；已暂停 = 恢复/取消；空闲 = Enter 发送 */}
+                                        <ChatInputBox
+                                            ref={replyInputRef}
+                                            value={replyText}
+                                            onChange={setReplyText}
+                                            onSend={(text, atts) => handleReply(text.trim(), atts.map(a => a.attachmentId))}
+                                            placeholder={t('plan.replyPlaceholder')}
+                                            rows={3}
+                                            disabled={generating}
+                                            title={t('plan.replyTitle')}
+                                            optimizable
+                                            optimizePurpose="reply"
+                                            sending={replying}
+                                            actions={
+                                                generating ? (
+                                                    <>
+                                                        <Button
+                                                            onClick={async () => {
+                                                                if (!activePlanId) return;
+                                                                try {
+                                                                    await apiPost(`/plan/${activePlanId}/pause`, {});
+                                                                    setGenerating(false);
+                                                                    setPlanStatus('paused');
+                                                                    loadHistory();
+                                                                } catch (err) {
+                                                                    setError(err instanceof Error ? err.message : t('plan.failedPause'));
+                                                                }
+                                                            }}
+                                                            variant="outline"
+                                                            size="icon"
+                                                            className="shrink-0"
+                                                            title={t('plan.pause')}
+                                                            aria-label={t('plan.pause')}
+                                                        >
+                                                            <Pause className="h-4 w-4"/>
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={async () => {
+                                                                if (!activePlanId) return;
+                                                                try {
+                                                                    await apiPost(`/plan/${activePlanId}/abort`, {});
+                                                                    setGenerating(false);
+                                                                    setPlanStatus('failed');
+                                                                    setError(t('plan.generationCancelled'));
+                                                                    loadHistory();
+                                                                } catch (err) {
+                                                                    setError(err instanceof Error ? err.message : t('plan.failedAbort'));
+                                                                }
+                                                            }}
+                                                            size="icon"
+                                                            className="shrink-0 text-destructive hover:text-destructive"
+                                                            title={t('common.cancel')}
+                                                            aria-label={t('common.cancel')}
+                                                        >
+                                                            <XCircle className="h-4 w-4"/>
+                                                        </Button>
+                                                    </>
+                                                ) : planPhase === 'paused' ? (
+                                                    <>
+                                                        <Button
+                                                            onClick={async () => {
+                                                                if (!activePlanId) return;
+                                                                try {
+                                                                    await apiPost(`/plan/${activePlanId}/resume`, {});
+                                                                    setGenerating(true);
+                                                                    setGeneratingElapsed(0);
+                                                                    setPlanStatus('generating');
+                                                                } catch (err) {
+                                                                    setError(err instanceof Error ? err.message : t('plan.failedResume'));
+                                                                }
+                                                            }}
+                                                            variant="outline"
+                                                            size="icon"
+                                                            className="shrink-0"
+                                                            title={t('plan.resume')}
+                                                            aria-label={t('plan.resume')}
+                                                        >
+                                                            <Play className="h-4 w-4"/>
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={async () => {
+                                                                if (!activePlanId) return;
+                                                                try {
+                                                                    await apiPost(`/plan/${activePlanId}/abort`, {});
+                                                                    setPlanStatus('idle');
+                                                                    setError(t('plan.generationCancelled'));
+                                                                } catch (err) {
+                                                                    setError(err instanceof Error ? err.message : t('plan.failedAbort'));
+                                                                }
+                                                            }}
+                                                            size="icon"
+                                                            className="shrink-0 text-destructive hover:text-destructive"
+                                                            title={t('common.cancel')}
+                                                            aria-label={t('common.cancel')}
+                                                        >
+                                                            <XCircle className="h-4 w-4"/>
+                                                        </Button>
+                                                    </>
+                                                ) : undefined
+                                            }
+                                        />
                                         {/* 生成中时显示等待提示（控制按钮已收敛到输入框右侧） */}
                                         {generating && (
                                             <p className="text-xs text-muted-foreground mt-2">
