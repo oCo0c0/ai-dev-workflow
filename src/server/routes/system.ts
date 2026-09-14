@@ -250,14 +250,18 @@ export function createSystemRoutes(
                 if (models[id] === undefined) models[id] = settings;
             }
 
-            res.json({activeProvider, models});
+            res.json({
+                activeProvider,
+                models,
+                permissionMode: config.cliProvider?.permissionMode ?? 'confirm',
+            });
         } catch (err) {
             res.status(500).json({code: 'CONFIG_ERROR', message: getErrorMessage(err)});
         }
     });
 
     // PUT /api/system/model-config - 更新模型配置
-    // body: { provider?, models?: Record<providerId, ProviderModelSettings> }
+    // body: { provider?, models?: Record<providerId, ProviderModelSettings>, permissionMode? }
     // 兼容旧 body { provider?, claude?, codex?, pi? }（自动迁移进 models）
     router.put('/model-config', async (req, res) => {
         try {
@@ -267,7 +271,22 @@ export function createSystemRoutes(
                 claude?: ProviderModelSettings & {provider?: string};
                 codex?: ProviderModelSettings;
                 pi?: ProviderModelSettings & {provider?: string};
+                permissionMode?: string;
             };
+
+            // 权限模式：只允许三档取值
+            let permissionMode: 'confirm' | 'acceptEdits' | 'bypassPermissions' | undefined;
+            if (body.permissionMode !== undefined) {
+                if (['confirm', 'acceptEdits', 'bypassPermissions'].includes(body.permissionMode)) {
+                    permissionMode = body.permissionMode as 'confirm' | 'acceptEdits' | 'bypassPermissions';
+                } else {
+                    res.status(400).json({
+                        code: 'VALIDATION_ERROR',
+                        message: 'permissionMode must be one of: confirm, acceptEdits, bypassPermissions',
+                    });
+                    return;
+                }
+            }
 
             // 内置 provider 或有效的 custom 记录 id 才算合法
             const isKnownProvider = (id: string): boolean => {
@@ -307,6 +326,7 @@ export function createSystemRoutes(
             config.cliProvider = {
                 ...config.cliProvider,
                 ...(body.provider && isKnownProvider(body.provider) ? {active: body.provider} : {}),
+                ...(permissionMode !== undefined ? {permissionMode} : {}),
                 models: {...config.cliProvider?.models, ...incoming},
             };
             configService.save(config);

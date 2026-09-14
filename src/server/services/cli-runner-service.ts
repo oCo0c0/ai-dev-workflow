@@ -315,8 +315,11 @@ export class CLIRunnerService {
             extendedThinking?: boolean;
             streaming?: boolean;
         } = {};
+        // 全局权限模式（与模型配置同级持久化），默认 confirm
+        let permissionMode: 'confirm' | 'acceptEdits' | 'bypassPermissions' = 'confirm';
         try {
             const config = new ConfigService().load();
+            permissionMode = config.cliProvider?.permissionMode ?? 'confirm';
             // 配置读取的引擎 id：custom 记录经引擎 Provider 执行，streaming 等偏好沿用引擎配置
             const engineId = this.modelRecordId ?? this.activeProviderId;
             const settings = config.cliProvider?.models?.[engineId] ?? {};
@@ -365,6 +368,7 @@ export class CLIRunnerService {
                 onOutput: options?.onOutput,
                 onError: options?.onError,
                 onPermissionRequest: options?.onPermissionRequest,
+                permissionMode,
                 ...modelOptions,
                 // 调用方显式覆盖（优先级高于配置文件），用于轻量调用降低推理强度等场景
                 ...(options?.reasoningEffort !== undefined ? {reasoningEffort: options.reasoningEffort} : {}),

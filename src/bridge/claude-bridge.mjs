@@ -336,6 +336,7 @@ async function handleExecute(msg) {
         reasoningEffort,
         extendedThinking,
         permissionEnabled,
+        permissionMode,
     } = params;
 
     if (!prompt) {
@@ -362,7 +363,8 @@ async function handleExecute(msg) {
     const options = {
         cwd: cwd || process.cwd(),
         maxTurns,
-        permissionMode: 'acceptEdits',
+        // 权限模式由服务端按全局配置下发（default/acceptEdits/bypassPermissions），缺省 acceptEdits
+        permissionMode: permissionMode || 'acceptEdits',
         ...(sessionId ? {resume: sessionId} : {}),
         ...(skills ? {skills} : {}),
         ...(mcpServers ? {mcpServers} : {}),

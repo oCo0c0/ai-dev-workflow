@@ -30,6 +30,7 @@ import {createHash} from 'crypto';
 import {existsSync} from 'fs';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
+import {resolvePiPermissionMode} from '../permission-mapping.js';
 import {getMcpGateway} from '../../platform/mcp-gateway.js';
 import {
     PiRpcProcess,
@@ -301,9 +302,11 @@ export class PiProvider implements CLIProvider {
         // === 启动参数组装 ===
         const model = this.resolveSpawnModel(options);
         const env = this.buildSpawnEnv(model.provider, (options as { apiKey?: string } | undefined)?.apiKey);
-        // 权限模式与 Claude bridge 语义对齐：调用方未提供 onPermissionRequest
-        //（经典 plan/execution 流程）时自动放行；agent-execution 流程走确认弹窗
-        env.ADW_PERMISSION_MODE = options?.onPermissionRequest ? 'confirm' : 'auto-allow';
+        // 权限模式：全局配置三档映射到 pi 的 confirm/auto-allow（经典流程无确认回调时自动放行）
+        env.ADW_PERMISSION_MODE = resolvePiPermissionMode(
+            options?.permissionMode ?? 'confirm',
+            !!options?.onPermissionRequest,
+        );
         // MCP servers 白名单透传：input.mcpServers 的网关形态（?servers=a,b）
         // 提取后经 ADW_PLATFORM_SERVERS 传给扩展（与 Claude 侧 ?servers= 语义一致）
         const serversWhitelist = extractMcpServersWhitelist(input.mcpServers);

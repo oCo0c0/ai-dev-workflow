@@ -75,6 +75,8 @@ export interface AppConfig {
          * @description 开放 map：新增 Provider 不需要扩展 schema，条目缺失时回退 Provider 自带的 defaultModelSettings
          */
         models?: Record<string, ProviderModelSettings>;
+        /** 工具权限模式：confirm=询问确认（默认）；acceptEdits=自动接受文件编辑；bypassPermissions=完全放行 */
+        permissionMode?: 'confirm' | 'acceptEdits' | 'bypassPermissions';
         /** @deprecated 旧版按 Provider 分字段的配置（v1 schema），加载时自动迁移进 models，请勿再读写 */
         claude?: ProviderModelSettings;
         /** @deprecated 旧版 Codex 配置（v1 schema），加载时自动迁移进 models */
@@ -136,6 +138,7 @@ const DEFAULT_CONFIG: AppConfig = {
         setupCompleted: false,
         // 各 Provider 的默认模型配置由 Provider 自带（defaultModelSettings），此处不预置条目
         models: {},
+        permissionMode: 'confirm',
     },
     mineru: {
         enabled: true,
@@ -353,6 +356,14 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
                 errors.push({
                     field: 'cliProvider.setupCompleted',
                     message: 'cliProvider.setupCompleted must be a boolean'
+                });
+            }
+            // 权限模式：只允许三档取值
+            if (cliProvider.permissionMode !== undefined
+                && !['confirm', 'acceptEdits', 'bypassPermissions'].includes(cliProvider.permissionMode as string)) {
+                errors.push({
+                    field: 'cliProvider.permissionMode',
+                    message: 'cliProvider.permissionMode must be one of: confirm, acceptEdits, bypassPermissions'
                 });
             }
             // models：开放 map，每个条目按统一的 ProviderModelSettings 规则验证

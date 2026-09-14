@@ -20,6 +20,7 @@ import {getErrorMessage} from '../../utils/error-utils.js';
 import {extractDescription} from '../../utils/markdown-utils.js';
 import {findSkillMdFile} from '../../utils/skill-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
+import {resolveClaudePermission} from '../permission-mapping.js';
 import type {
     CLIProvider,
     CLIProviderInput,
@@ -261,7 +262,7 @@ export class ClaudeProvider implements CLIProvider {
                 ...(input.maxTurns !== undefined ? {maxTurns: input.maxTurns} : {}),
                 ...(input.skills ? {skills: input.skills} : {}),
                 ...(input.mcpServers ? {mcpServers: input.mcpServers} : {}),
-                permissionEnabled: !!options?.onPermissionRequest,
+                ...resolveClaudePermission(options?.permissionMode ?? 'confirm', !!options?.onPermissionRequest),
             };
             if (options?.model) params.model = options.model;
             if (options?.reasoningEffort) params.reasoningEffort = options.reasoningEffort;

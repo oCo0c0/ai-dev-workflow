@@ -225,6 +225,8 @@ export interface CLIProviderOptions {
     onError?: (data: string) => void;
     /** 工具权限请求回调（agent 执行时注入；不传则 bridge 不启用权限确认） */
     onPermissionRequest?: (meta: Record<string, unknown>) => void;
+    /** 权限模式（全局配置）：confirm=工具调用需确认；acceptEdits=自动接受文件编辑；bypassPermissions=完全放行 */
+    permissionMode?: 'confirm' | 'acceptEdits' | 'bypassPermissions';
     /** 模型名称（覆盖配置文件中的默认模型） */
     model?: string;
     /** 底层 LLM 提供商（多后端聚合型 Provider 使用，如 pi 的 'anthropic'/'openai'/'deepseek'） */
