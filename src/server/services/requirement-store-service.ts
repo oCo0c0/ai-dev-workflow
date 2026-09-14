@@ -356,12 +356,12 @@ export class RequirementStoreService {
 
         // 策略1.5: MCP 输出无图片资源时（ai-dev-requirements 0.2.0 将图片降级为 [image] 占位符），
         // 直接从 ONES 任务富文本提取 <img> 附件下载，不依赖 MCP 输出格式
-        let richTextImages: Array<{uuid: string; filename: string; localPath: string}> = [];
+        let richTextImages: Array<{ uuid: string; filename: string; localPath: string }> = [];
         if (imageService && imageResources.size === 0) {
             try {
                 richTextImages = await Promise.race([
                     imageService.downloadTaskImages(reqId, imgDir),
-                    new Promise<Array<{uuid: string; filename: string; localPath: string}>>((_, reject) =>
+                    new Promise<Array<{ uuid: string; filename: string; localPath: string }>>((_, reject) =>
                         setTimeout(() => reject(new Error('Rich text image download timeout')), 30000)
                     ),
                 ]);

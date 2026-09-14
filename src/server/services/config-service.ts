@@ -183,7 +183,10 @@ function validateModelSettings(value: unknown, fieldPrefix: string): ConfigValid
         });
     }
     if (settings.extendedThinking !== undefined && typeof settings.extendedThinking !== 'boolean') {
-        errors.push({field: `${fieldPrefix}.extendedThinking`, message: `${fieldPrefix}.extendedThinking must be a boolean`});
+        errors.push({
+            field: `${fieldPrefix}.extendedThinking`,
+            message: `${fieldPrefix}.extendedThinking must be a boolean`
+        });
     }
     if (settings.maxTokens !== undefined && (typeof settings.maxTokens !== 'number' || settings.maxTokens < 1)) {
         errors.push({field: `${fieldPrefix}.maxTokens`, message: `${fieldPrefix}.maxTokens must be a positive number`});
@@ -341,7 +344,10 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
             const cliProvider = obj.cliProvider as Record<string, unknown>;
             // active 允许内置 id 或自定义供应商记录 id（如智谱），只需是字符串
             if (cliProvider.active !== undefined && typeof cliProvider.active !== 'string') {
-                errors.push({field: 'cliProvider.active', message: 'cliProvider.active must be a string (builtin id or custom provider record id)'});
+                errors.push({
+                    field: 'cliProvider.active',
+                    message: 'cliProvider.active must be a string (builtin id or custom provider record id)'
+                });
             }
             if (cliProvider.setupCompleted !== undefined && typeof cliProvider.setupCompleted !== 'boolean') {
                 errors.push({
@@ -352,7 +358,10 @@ export function validateConfig(config: unknown): ConfigValidationError[] {
             // models：开放 map，每个条目按统一的 ProviderModelSettings 规则验证
             if (cliProvider.models !== undefined) {
                 if (typeof cliProvider.models !== 'object' || cliProvider.models === null || Array.isArray(cliProvider.models)) {
-                    errors.push({field: 'cliProvider.models', message: 'cliProvider.models must be an object keyed by provider id'});
+                    errors.push({
+                        field: 'cliProvider.models',
+                        message: 'cliProvider.models must be an object keyed by provider id'
+                    });
                 } else {
                     for (const [id, value] of Object.entries(cliProvider.models as Record<string, unknown>)) {
                         errors.push(...validateModelSettings(value, `cliProvider.models.${id}`));

@@ -75,10 +75,11 @@ interface ExtensionAPIMinimal {
     }, ctx: {
         hasUI: boolean;
         ui: {
-            confirm: (title: string, message: string, opts?: {timeout?: number}) => Promise<boolean>;
+            confirm: (title: string, message: string, opts?: { timeout?: number }) => Promise<boolean>;
             notify?: (message: string, type?: 'info' | 'warning' | 'error') => void;
         };
-    }) => Promise<{block: boolean; reason: string} | undefined> | undefined): void;
+    }) => Promise<{ block: boolean; reason: string } | undefined> | undefined): void;
+
     registerTool(tool: {
         name: string;
         label: string;
@@ -89,7 +90,7 @@ interface ExtensionAPIMinimal {
             params: Record<string, unknown>,
             signal?: AbortSignal,
         ) => Promise<{
-            content: Array<{type: 'text'; text: string}>;
+            content: Array<{ type: 'text'; text: string }>;
             details: Record<string, unknown>;
         }>;
     }): void;
@@ -99,7 +100,7 @@ interface PlatformToolInfo {
     name: string;
     label?: string;
     description?: string;
-    inputSchema?: {type: 'object'; properties?: Record<string, unknown>; required?: string[]};
+    inputSchema?: { type: 'object'; properties?: Record<string, unknown>; required?: string[] };
 }
 
 function platformHeaders(key: string | undefined): Record<string, string> {
@@ -189,7 +190,7 @@ export default async function adwPlatformExtension(pi: ExtensionAPIMinimal): Pro
                         signal: AbortSignal.timeout(PLATFORM_CALL_TIMEOUT_MS),
                     });
                     const payload = await res.json().catch(() => null) as
-                        | {text?: string; isError?: boolean}
+                        | { text?: string; isError?: boolean }
                         | null;
                     if (!res.ok || !payload) {
                         return {

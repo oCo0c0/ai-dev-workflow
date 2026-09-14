@@ -37,13 +37,13 @@ export class RequirementAgentFetchService {
     /** CLI 运行器（runBridge 入口，透传 mcpServers 到引擎） */
     private readonly cliRunner: AgentFetchRunner;
     /** MCP 配置源（解析 server 白名单用） */
-    private readonly mcpService: {get(name: string): unknown; list?(): Array<{name: string; enabled?: boolean}>};
+    private readonly mcpService: { get(name: string): unknown; list?(): Array<{ name: string; enabled?: boolean }> };
     /** MCP 注入解析（可注入替换便于测试） */
     private readonly resolveMcp: typeof resolveMcpServerMap;
 
     constructor(deps: {
         cliRunner: AgentFetchRunner;
-        mcpService: {get(name: string): unknown; list?(): Array<{name: string; enabled?: boolean}>};
+        mcpService: { get(name: string): unknown; list?(): Array<{ name: string; enabled?: boolean }> };
         resolveMcp?: typeof resolveMcpServerMap;
     }) {
         this.cliRunner = deps.cliRunner;
@@ -60,7 +60,7 @@ export class RequirementAgentFetchService {
     async fetchByInput(
         input: string,
         preferredServer?: string,
-    ): Promise<RequirementDetail & {sourceServer: string}> {
+    ): Promise<RequirementDetail & { sourceServer: string }> {
         const result = await this.runAgent(
             preferredServer,
             this.buildFetchPrompt(input),
@@ -72,7 +72,7 @@ export class RequirementAgentFetchService {
             },
             '拉取',
         );
-        return result as RequirementDetail & {sourceServer: string};
+        return result as RequirementDetail & { sourceServer: string };
     }
 
     /**
@@ -217,7 +217,7 @@ ${retryNote}
     }
 
     /** 契约对象 → RequirementDetail（复用共享 JSON 映射，兼容驼峰/下划线） */
-    private toDetail(parsed: Record<string, unknown>): (RequirementDetail & {sourceServer: string}) | null {
+    private toDetail(parsed: Record<string, unknown>): (RequirementDetail & { sourceServer: string }) | null {
         const missing = CONTRACT_FIELDS.filter(f => !String(parsed[f] ?? '').trim());
         if (missing.length > 0) return null;
 
@@ -238,7 +238,7 @@ export interface AgentFetchRunner {
         prompt: string;
         cwd?: string;
         mcpServers?: McpServerMap;
-    }, options?: {workspacePath?: string; reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'}): Promise<{
+    }, options?: { workspacePath?: string; reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }): Promise<{
         exitCode: number | null;
         stdout: string;
         stderr: string;
