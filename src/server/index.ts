@@ -267,8 +267,8 @@ export async function createServer(port: number): Promise<http.Server> {
         requirementStore, mineruService, requirementAgentFetchService, mcpRegistryService,
     ));
     app.use('/api/workspace', createWorkspaceRoutes(workspaceService));
-    app.use('/api/plan', createPlanRoutes(cliRunnerService, requirementAgentFetchService, pipelineService, memoryService, mineruService));
-    app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService));
+    app.use('/api/plan', createPlanRoutes(cliRunnerService, requirementAgentFetchService, pipelineService, memoryService, mineruService, attachmentStore));
+    app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService, attachmentStore));
     app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService));
     app.use('/api/skills', createSkillsRoutes(skillsService));
     app.use('/api/mcp-servers', createMCPServersRoutes(mcpRegistryService));
@@ -278,10 +278,11 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/mineru', createMinerURoutes(mineruService));
     app.use('/api/chat-attachments', createChatAttachmentRoutes(mineruService, attachmentStore));
     app.use('/api/asr', createASRRoutes());
-    app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService));
+    app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService, attachmentStore));
     app.use('/api/agent-execution', createAgentExecutionRoutes({
         cliRunner: cliRunnerService,
         memoryService,
+        attachments: attachmentStore,
     }, workspaceService, mineruService));
     app.use('/api/model-providers', createModelProviderRoutes(modelProviderStore));
     app.use('/api/prompts', createPromptsRoutes(cliRunnerService));

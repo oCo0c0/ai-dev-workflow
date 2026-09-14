@@ -21,6 +21,8 @@ import {validateShape, type FieldSpec} from '../utils/json-validator.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 import type {AgentExecution, SubTask} from '../../types/agent-execution.js';
 import type {MemoryService} from './memory/memory-service.js';
+import type {AttachmentStore, StoredAttachment} from './attachment-store.js';
+import {formatAttachmentsBlock} from './attachment-store.js';
 import {isStepWorthyTool} from '../platform/tool-catalog.js';
 
 export interface CoordinatorConfig {
@@ -28,6 +30,8 @@ export interface CoordinatorConfig {
     workspacePath?: string;
     /** 记忆服务（可选，用于 enrichPrompt 注入项目上下文） */
     memoryService?: MemoryService;
+    /** 聊天附件暂存（可选）：路由 reply/start 时 bindPending，协调器组 prompt 时 takePending 一次性注入 */
+    attachments?: AttachmentStore;
 }
 
 // 写类/Shell/任务/定时类工具才创建独立步骤，Read/Glob/Grep 等读操作是噪声。
@@ -183,6 +187,10 @@ export class AgentCoordinator {
             })
             .filter((r): r is string => r !== null && r.length > 0);
 
+        // 一次性取走该执行绑定的聊天附件（取出即删），组 prompt 时注入——每轮循环
+        // （排队续跑/中断续跑）都会走到这里，保证排队消息的附件在其被消费的那轮注入
+        const pendingDocs = this.config.attachments?.takePending(executionId) ?? [];
+
         // 仅「首次运行」做任务分解：已有 subTasks / 已有会话 / 有用户回复都跳过
         let subTasks = execution.subTasks ?? [];
         // 所有子任务均已结束且本次为回复/续接 → 回退单次执行，让用户补充信息生效
@@ -205,9 +213,9 @@ export class AgentCoordinator {
         }
 
         if (subTasks.length > 0) {
-            return this.runSubTaskLoop(executionId, execution, cwd, subTasks, controller);
+            return this.runSubTaskLoop(executionId, execution, cwd, subTasks, controller, pendingDocs);
         }
-        return this.runSingleShot(executionId, execution, cwd, controller, userReplies);
+        return this.runSingleShot(executionId, execution, cwd, controller, userReplies, pendingDocs);
     }
 
     /**
@@ -339,6 +347,9 @@ export class AgentCoordinator {
     /**
      * 串行执行子任务循环，复用 session 续接。
      * 每个子任务独立 runBridge；子任务边界收尾 tool steps。
+     * 子任务 prompt 不直接拼用户回复，但 start 时附带的聊天附件
+     * （无回复文本、走分解路径的场景）会追加到首个实际执行的子任务 prompt，
+     * 避免附件被丢弃。
      */
     private async runSubTaskLoop(
         executionId: string,
@@ -346,9 +357,11 @@ export class AgentCoordinator {
         cwd: string,
         subTasks: SubTask[],
         controller: AbortController,
+        pendingDocs: StoredAttachment[] = [],
     ): Promise<'completed' | 'failed' | 'aborted'> {
         let lastSessionId = execution.sessionId;
         let overall: 'completed' | 'failed' | 'aborted' = 'completed';
+        let attachmentsInjected = false;
 
         for (const sub of subTasks) {
             if (controller.signal.aborted) {
@@ -374,19 +387,20 @@ export class AgentCoordinator {
                 .map(t => `- ${t.title}`)
                 .join('\n');
 
-            const subPrompt = enrichPrompt(
-                renderPrompt(PROMPTS.agentSubTask, {
-                    subTaskTitle: sub.title,
-                    subTaskDescription: sub.description ?? '',
-                    completedTitles,
-                }),
-                this.config.memoryService,
-                cwd,
-            );
+            let subPrompt = renderPrompt(PROMPTS.agentSubTask, {
+                subTaskTitle: sub.title,
+                subTaskDescription: sub.description ?? '',
+                completedTitles,
+            });
+            // 聊天附件块只注入一次（首个实际执行的子任务），避免重复膨胀后续 prompt
+            if (pendingDocs.length > 0 && !attachmentsInjected) {
+                subPrompt += formatAttachmentsBlock(pendingDocs);
+                attachmentsInjected = true;
+            }
 
             const result = await this.config.cliRunner.runBridge(
                 {
-                    prompt: subPrompt,
+                    prompt: enrichPrompt(subPrompt, this.config.memoryService, cwd),
                     cwd,
                     ...(lastSessionId ? {sessionId: lastSessionId} : {}),
                     maxTurns: 50,
@@ -472,6 +486,8 @@ export class AgentCoordinator {
 
     /**
      * 单次执行模式（未分解或分解失败降级）：保留旧行为。
+     * 聊天附件块注入用户回复文本：有回复时追加到最后一条，无回复时补一条合成说明，
+     * 保证三个 prompt 组装分支（续接/合并需求/首次）都能看到附件。
      */
     private async runSingleShot(
         executionId: string,
@@ -479,7 +495,17 @@ export class AgentCoordinator {
         cwd: string,
         controller: AbortController,
         userReplies: string[],
+        pendingDocs: StoredAttachment[] = [],
     ): Promise<'completed' | 'failed' | 'aborted'> {
+        if (pendingDocs.length > 0) {
+            const block = formatAttachmentsBlock(pendingDocs);
+            if (userReplies.length > 0) {
+                userReplies[userReplies.length - 1] += block;
+            } else {
+                userReplies.push(`（已附加文档，请查阅附件内容）${block}`);
+            }
+        }
+
         let prompt: string;
         if (userReplies.length > 0 && execution.sessionId) {
             // 续接会话：带上用户补充信息

@@ -168,6 +168,16 @@ export function createAgentExecutionRoutes(
                 });
             }
 
+            // 聊天附件：一次性取出并绑定到该执行，协调器组 prompt 时取走注入；
+            // 对话日志只落 stub 行，不落全文
+            const docs = config.attachments?.drain((req.body?.attachmentIds ?? []) as string[]) ?? [];
+            if (docs.length > 0) {
+                config.attachments!.bindPending(id, docs);
+                const stub = `📎 已附加文档：${docs.map(d => `${d.fileName}（${d.chars} 字）`).join('、')}`;
+                await store.addLog(id, stub);
+                broadcast({type: 'agent-execution:log', data: {executionId: id, log: stub}});
+            }
+
             // 如果用户在回复框中输入了详细需求但未点发送，start 时一并写入日志
             if (message && typeof message === 'string' && message.trim()) {
                 const userMsg = JSON.stringify({type: 'user', content: message.trim()});
@@ -229,6 +239,16 @@ export function createAgentExecutionRoutes(
             const execution = await store.get(id);
             if (!execution) {
                 return res.status(404).json({code: 'NOT_FOUND', message: 'Execution not found'});
+            }
+
+            // 聊天附件：一次性取出并绑定到该执行（排队分支同样绑定，消费时由协调器取走注入）；
+            // 对话日志只落 stub 行，不落全文
+            const docs = config.attachments?.drain((req.body?.attachmentIds ?? []) as string[]) ?? [];
+            if (docs.length > 0) {
+                config.attachments!.bindPending(id, docs);
+                const stub = `📎 已附加文档：${docs.map(d => `${d.fileName}（${d.chars} 字）`).join('、')}`;
+                await store.addLog(id, stub);
+                broadcast({type: 'agent-execution:log', data: {executionId: id, log: stub}});
             }
 
             if (execution.status === 'running') {

@@ -10,12 +10,15 @@ import {Router} from 'express';
 import type {TaskStoreService} from '../services/task-store-service.js';
 import type {TaskScheduler, TaskInfo} from '../services/task-scheduler-service.js';
 import type {WorkspaceService} from '../services/workspace-service.js';
+import type {AttachmentStore} from '../services/attachment-store.js';
+import {formatAttachmentsBlock} from '../services/attachment-store.js';
 import {RequirementStoreService} from '../services/requirement-store-service.js';
 
 export function createTaskRoutes(
     taskStore: TaskStoreService,
     taskScheduler: TaskScheduler,
     workspaceService: WorkspaceService,
+    attachmentStore?: AttachmentStore,
 ): Router {
     const router = Router();
     const reqStore = new RequirementStoreService();
@@ -202,7 +205,10 @@ export function createTaskRoutes(
             return;
         }
         try {
-            const result = await taskScheduler.sendReply(req.params.taskId, message);
+            // 聊天附件：一次性取出（取出即删），全文随消息注入引擎 prompt
+            const docs = attachmentStore?.drain((req.body?.attachmentIds ?? []) as string[]) ?? [];
+            const fullMessage = message + formatAttachmentsBlock(docs);
+            const result = await taskScheduler.sendReply(req.params.taskId, fullMessage);
             res.json({success: true, ...result});
         } catch (err) {
             res.status(400).json({message: (err as Error).message});

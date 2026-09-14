@@ -28,6 +28,8 @@ import {getPhaseSkills, getPhaseMcpServers, resolveMcpServerMap} from '../utils/
 import type {McpServerMap} from '../services/cli-providers/types.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
 import type {MinerUService} from '../services/mineru-service.js';
+import type {AttachmentStore} from '../services/attachment-store.js';
+import {formatAttachmentsBlock} from '../services/attachment-store.js';
 import {enrichPrompt} from '../utils/prompt-enrichment.js';
 import {renderPrompt} from '../utils/prompt-renderer.js';
 import {PROMPTS} from '../prompts/index.js';
@@ -846,6 +848,7 @@ export function createPlanRoutes(
     pipelineService?: PipelineService,
     memoryService?: MemoryService,
     mineruService?: MinerUService,
+    attachmentStore?: AttachmentStore,
 ): Router {
     const planStore = new PlanStoreService();
     const reqStore = new RequirementStoreService();
@@ -1054,6 +1057,11 @@ export function createPlanRoutes(
             return;
         }
 
+        // 聊天附件：一次性取出（取出即删），全文只拼进发给引擎的 prompt；
+        // 广播给 UI 的只落 stub 行，不落全文
+        const docs = attachmentStore?.drain((req.body?.attachmentIds ?? []) as string[]) ?? [];
+        const fullMessage = message + formatAttachmentsBlock(docs);
+
         // 如果没有活跃会话（用户调用了 /new-session），创建新会话
         const isNewSession = !plan.sessionId;
         if (isNewSession) {
@@ -1066,13 +1074,19 @@ export function createPlanRoutes(
         plan.updatedAt = new Date().toISOString();
         persistPlan(plan, planStore);
         broadcast({type: 'plan:progress', data: {taskId: plan.id, content: `\n\n**User:** ${message}\n\n`}});
+        if (docs.length > 0) {
+            broadcast({
+                type: 'plan:progress',
+                data: {taskId: plan.id, content: `\n\n📎 已附加文档：${docs.map(d => `${d.fileName}（${d.chars} 字）`).join('、')}\n\n`}
+            });
+        }
 
         const replyMcpServers = resolvePlanMcpWithWarn(plan, pipelineService, mcpConfigService);
 
         // 继续对话：如果有 sessionId 则复用（旧会话），否则创建新会话
         const bridgeOptions: any = {
             cliRunner: cliRunnerService,
-            prompt: enrichPrompt(message, memoryService, plan.workspacePath),
+            prompt: enrichPrompt(fullMessage, memoryService, plan.workspacePath),
             cwd: plan.workspacePath,
             mcpServers: replyMcpServers,
         };

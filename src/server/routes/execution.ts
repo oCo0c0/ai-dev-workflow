@@ -33,6 +33,8 @@ import {getErrorMessage} from '../utils/error-utils.js';
 import {processToolOutput} from '../utils/tool-log.js';
 import type {SandboxService} from '../services/sandbox-service.js';
 import type {WorkspaceService} from '../services/workspace-service.js';
+import type {AttachmentStore} from '../services/attachment-store.js';
+import {formatAttachmentsBlock} from '../services/attachment-store.js';
 import type {TestStrategyConfig} from '../services/pipeline-service.js';
 
 /**
@@ -192,6 +194,7 @@ export function createExecutionRoutes(
     memoryService?: MemoryService,
     sandboxService?: SandboxService,
     workspaceService?: WorkspaceService,
+    attachmentStore?: AttachmentStore,
 ): Router {
     const persistStore = new ExecutionStoreService();
     const planFileStore = new PlanStoreService();
@@ -669,6 +672,14 @@ export function createExecutionRoutes(
             return;
         }
 
+        // 聊天附件：一次性取出（取出即删），全文只拼进发给引擎的 prompt；
+        // 对话日志/广播只落 stub 行
+        const docs = attachmentStore?.drain((req.body?.attachmentIds ?? []) as string[]) ?? [];
+        const fullMessage = message + formatAttachmentsBlock(docs);
+        const attachmentStub = docs.length > 0
+            ? `\n📎 已附加文档：${docs.map(d => `${d.fileName}（${d.chars} 字）`).join('、')}\n`
+            : '';
+
         // 如果没有活跃会话（用户调用了 /new-session），创建新会话
         const isNewSession = !execution.sessionId;
         if (isNewSession) {
@@ -681,18 +692,25 @@ export function createExecutionRoutes(
         // 重建 abortController（旧的在 pause 时已 aborted）
         execution.abortController = new AbortController();
 
-        // 将执行状态恢复为运行中，并广播用户消息
+        // 将执行状态恢复为运行中，并广播用户消息（保持原始 message，不含附件全文）
         execution.status = 'running';
         execution.logs.push(`\n**User:** ${message}\n`);
         broadcast({
             type: 'execution:output',
             data: {executionId: execution.id, stepIndex: execution.currentStep, content: `\n**User:** ${message}\n`}
         });
+        if (attachmentStub) {
+            execution.logs.push(attachmentStub);
+            broadcast({
+                type: 'execution:output',
+                data: {executionId: execution.id, stepIndex: execution.currentStep, content: attachmentStub}
+            });
+        }
 
         try {
             // 继续对话：如果有 sessionId 则复用（旧会话），否则创建新会话
             const bridgeOptions: any = {
-                prompt: enrichPrompt(message, memoryService, execution.workspacePath || process.cwd()),
+                prompt: enrichPrompt(fullMessage, memoryService, execution.workspacePath || process.cwd()),
                 cwd: execution.workspacePath || process.cwd(),
                 maxTurns: 50,
             };
