@@ -35,6 +35,7 @@ import {AnalyticsService} from './services/analytics-service.js';
 
 import {SandboxService} from './services/sandbox-service.js';
 import {MinerUService} from './services/mineru-service.js';
+import {AttachmentStore} from './services/attachment-store.js';
 import {ConfigService} from './services/config-service.js';
 import {TaskStoreService} from './services/task-store-service.js';
 import {TaskScheduler} from './services/task-scheduler-service.js';
@@ -55,6 +56,7 @@ import {createPipelineRoutes} from './routes/pipelines.js';
 import {createSystemRoutes} from './routes/system.js';
 import {createAnalyticsRoutes} from './routes/analytics.js';
 import {createMinerURoutes} from './routes/mineru.js';
+import {createChatAttachmentRoutes} from './routes/chat-attachments.js';
 import {createTaskRoutes} from './routes/projects.js';
 import {createAgentExecutionRoutes} from './routes/agent-execution.js';
 import {createModelProviderRoutes} from './routes/model-providers.js';
@@ -193,6 +195,8 @@ export async function createServer(port: number): Promise<http.Server> {
 
     // 初始化 MinerU 文档解析服务（旧配置文件无 mineru 字段时使用默认值）
     const mineruService = new MinerUService(config.mineru ?? configService.getDefaultConfig().mineru);
+    // 聊天附件内存暂存：上传解析后暂存，消息发送时一次性注入 prompt（Task 5 各路由工厂复用）
+    const attachmentStore = new AttachmentStore();
 
     // 记忆与分析子系统
     const memoryService = new MemoryService();
@@ -271,6 +275,7 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/system', createSystemRoutes(cliRunnerService, mcpRegistryService, sandboxService));
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));
     app.use('/api/mineru', createMinerURoutes(mineruService));
+    app.use('/api/chat-attachments', createChatAttachmentRoutes(mineruService, attachmentStore));
     app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService));
     app.use('/api/agent-execution', createAgentExecutionRoutes({
         cliRunner: cliRunnerService,
