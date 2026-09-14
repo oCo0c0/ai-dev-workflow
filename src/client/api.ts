@@ -56,6 +56,23 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /**
+ * 发送 POST 请求（multipart/form-data）
+ * @template T - 响应数据的类型
+ * @param path - 请求路径（相对于 API_BASE）
+ * @param form - FormData 请求体
+ * @returns 解析后的 JSON 响应数据
+ * @throws 当 HTTP 状态码非 2xx 时，抛出携带状态码与后端响应体的 ApiError
+ */
+export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
+    const res = await fetch(`${API_BASE}${path}`, {method: 'POST', body: form});
+    if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new ApiError(res.status, errBody);
+    }
+    return res.json();
+}
+
+/**
  * 发送 PUT 请求
  * @template T - 响应数据的类型
  * @param path - 请求路径（相对于 API_BASE）

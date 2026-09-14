@@ -15,6 +15,7 @@
 
 import {create} from 'zustand';
 import type {AgentExecutionSummary} from '../types/agent-types';
+import {apiPut} from '../api';
 import {OVERLAY_COLORS} from '../../shared/titlebar-colors';
 
 // === 数据模型接口定义 ===
@@ -429,6 +430,8 @@ interface AppState {
         showModelConfigModal: boolean;
         /** 各 Provider 的模型配置（开放 map，key 为 Provider id） */
         modelConfig: Record<string, ProviderModelSettings>;
+        /** 全局工具权限模式：confirm=询问确认；acceptEdits=自动接受文件编辑；bypassPermissions=完全放行 */
+        permissionMode: 'confirm' | 'acceptEdits' | 'bypassPermissions';
     };
 
     // --- 项目空间 & 多任务 ---
@@ -552,6 +555,8 @@ interface AppState {
     fetchModelConfig: () => Promise<void>;
     /** 保存模型配置到后端 */
     saveModelConfig: (provider: string, config: ProviderModelSettings) => Promise<void>;
+    /** 设置全局权限模式（乐观更新，保存失败回滚） */
+    setPermissionMode: (mode: 'confirm' | 'acceptEdits' | 'bypassPermissions') => Promise<void>;
     /** 从后端读取各 Provider 可用的模型选项 */
     fetchAvailableModels: () => Promise<void>;
     /** 保存 pi 检测到的元数据 */
@@ -700,7 +705,7 @@ function applyBgImage(img: string | null) {
  * 使用 Zustand 的 `create` 方法创建，所有状态和 action 集中管理。
  * Store 创建时会自动从 localStorage 恢复主题和任务 ID 等持久化数据。
  */
-export const useAppStore = create<AppState>((set) => {
+export const useAppStore = create<AppState>((set, get) => {
     const initialTheme = loadTheme();
     const initialBgImage = loadBgImage();
     // Store 初始化时立即应用主题与背景，避免页面闪烁
@@ -738,6 +743,8 @@ export const useAppStore = create<AppState>((set) => {
             showModelConfigModal: false,
             // 各 Provider 的默认值由后端 Provider 自带（defaultModelSettings），fetchModelConfig 时填充
             modelConfig: {},
+            // 权限模式默认询问确认，真实值由 fetchModelConfig 从后端同步
+            permissionMode: 'confirm',
         },
         projects: {list: [], active: null, loading: false},
         tasks: {list: [], activeTaskId: null, logsByTask: {}, scheduler: null},
@@ -862,11 +869,16 @@ export const useAppStore = create<AppState>((set) => {
                 const data = await response.json() as {
                     activeProvider?: string;
                     models?: Record<string, ProviderModelSettings>;
+                    permissionMode?: string;
                 };
+                // 权限模式：仅接受后端三档合法值，缺省/非法时保持现值
+                const permissionMode = (['confirm', 'acceptEdits', 'bypassPermissions'] as const)
+                    .find(m => m === data.permissionMode);
                 set((state) => ({
                     cliProvider: {
                         ...state.cliProvider,
                         modelConfig: {...state.cliProvider.modelConfig, ...data.models},
+                        ...(permissionMode ? {permissionMode} : {}),
                     },
                 }));
             } catch (err) {
@@ -899,6 +911,18 @@ export const useAppStore = create<AppState>((set) => {
                 throw err;
             } finally {
                 set((state) => ({cliProvider: {...state.cliProvider, saving: false}}));
+            }
+        },
+        setPermissionMode: async (mode) => {
+            // 乐观更新：先切 UI，保存失败再回滚到原值
+            const prev = get().cliProvider.permissionMode;
+            set((state) => ({cliProvider: {...state.cliProvider, permissionMode: mode}}));
+            try {
+                await apiPut('/system/model-config', {permissionMode: mode});
+            } catch (err) {
+                set((state) => ({cliProvider: {...state.cliProvider, permissionMode: prev}}));
+                console.error('Failed to save permission mode:', err);
+                throw new Error('权限模式保存失败');
             }
         },
         setPiMeta: (meta) => set({piMeta: meta}),
