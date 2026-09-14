@@ -57,6 +57,7 @@ import {createSystemRoutes} from './routes/system.js';
 import {createAnalyticsRoutes} from './routes/analytics.js';
 import {createMinerURoutes} from './routes/mineru.js';
 import {createChatAttachmentRoutes} from './routes/chat-attachments.js';
+import {createASRRoutes} from './routes/asr.js';
 import {createTaskRoutes} from './routes/projects.js';
 import {createAgentExecutionRoutes} from './routes/agent-execution.js';
 import {createModelProviderRoutes} from './routes/model-providers.js';
@@ -276,6 +277,7 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/analytics', createAnalyticsRoutes(analyticsService, memoryService));
     app.use('/api/mineru', createMinerURoutes(mineruService));
     app.use('/api/chat-attachments', createChatAttachmentRoutes(mineruService, attachmentStore));
+    app.use('/api/asr', createASRRoutes());
     app.use('/api/tasks', createTaskRoutes(taskStoreService, taskScheduler, workspaceService));
     app.use('/api/agent-execution', createAgentExecutionRoutes({
         cliRunner: cliRunnerService,

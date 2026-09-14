@@ -95,6 +95,17 @@ export interface AppConfig {
         /** 默认语言列表 */
         defaultLangList?: string[];
     };
+    /** 语音识别（ASR）配置：OpenAI 兼容 /audio/transcriptions 接口 */
+    asr?: {
+        /** 是否启用（默认 false） */
+        enabled?: boolean;
+        /** 服务基础地址（如 https://api.siliconflow.cn/v1），转发到 {apiUrl}/audio/transcriptions */
+        apiUrl?: string;
+        /** API Key（Bearer） */
+        apiKey?: string;
+        /** 模型名（默认 whisper-1） */
+        model?: string;
+    };
     /** 多任务调度器配置 */
     scheduler?: {
         /** 最大并行任务数（默认 3） */
@@ -143,6 +154,9 @@ const DEFAULT_CONFIG: AppConfig = {
     mineru: {
         enabled: true,
         apiUrl: 'http://47.116.44.130:8002',
+    },
+    asr: {
+        enabled: false,
     },
 };
 
