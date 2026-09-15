@@ -9,6 +9,7 @@
  * - 编辑已有服务器的配置参数（命令、参数、环境变量、启用状态）
  * - 删除不再需要的服务器配置
  * - 测试服务器的连接状态（通过后端 API 发起连接测试）
+ * - 一键"全部检测"：并发 3 批量测试所有已启用的服务器，汇总成功/失败数量
  *
  * 页面布局：左侧为服务器列表，右侧为编辑/创建表单
  */
@@ -82,7 +83,10 @@ export default function MCPPage() {
     // 编辑和创建模式状态
     const [editing, setEditing] = useState<MCPServerConfig | null>(null); // 当前正在编辑的服务器配置
     const [creating, setCreating] = useState(false); // 是否处于创建模式
-    const [testingName, setTestingName] = useState<string | null>(null); // 当前正在测试连接的服务器名称
+    const [testingNames, setTestingNames] = useState<string[]>([]); // 正在测试连接的服务器名称列表（批量检测时多个并发）
+    const [lastChecked, setLastChecked] = useState<Record<string, number>>({}); // 每个服务器最近一次连接测试的时间戳（仅前端记录，刷新后丢失）
+    const [testAllRunning, setTestAllRunning] = useState(false); // 是否正在执行"全部检测"
+    const [testAllResult, setTestAllResult] = useState<{ ok: number; fail: number } | null>(null); // 最近一次"全部检测"的汇总结果
 
     // 表单字段状态
     const [formName, setFormName] = useState('');
@@ -223,9 +227,10 @@ export default function MCPPage() {
      * 测试指定服务器的连接状态
      * 通过后端 API 发起连接测试，并根据返回结果更新本地状态
      * @param name - 要测试的服务器名称
+     * @returns 测试是否成功（后端返回 connected 视为成功，其余情况视为失败）
      */
-    const testConnection = async (name: string) => {
-        setTestingName(name); // 标记正在测试的服务器，用于显示加载状态
+    const testConnection = async (name: string): Promise<boolean> => {
+        setTestingNames((prev) => (prev.includes(name) ? prev : [...prev, name])); // 标记正在测试的服务器，用于显示加载状态
         try {
             const result = await apiPost<{ status: string; message: string }>(
                 `/mcp-servers/${encodeURIComponent(name)}/test`
@@ -238,31 +243,94 @@ export default function MCPPage() {
                         : s
                 )
             );
+            setLastChecked((prev) => ({...prev, [name]: Date.now()})); // 记录最近一次检测时间
+            return result.status === 'connected';
         } catch {
             // 测试请求失败时标记该服务器状态为错误
             setServers((prev) =>
                 prev.map((s) => (s.name === name ? {...s, status: 'error'} : s))
             );
+            setLastChecked((prev) => ({...prev, [name]: Date.now()}));
+            return false;
         } finally {
-            setTestingName(null); // 清除测试中标记
+            setTestingNames((prev) => prev.filter((n) => n !== name)); // 清除测试中标记
         }
     };
 
     /**
-     * 根据连接状态返回对应的指示圆点元素
-     * @param status - 连接状态字符串
-     * @returns 对应颜色的圆点指示器 JSX 元素
+     * 全部检测：对所有已启用的服务器并发执行连接测试（每批最多 3 个）
+     * 完成后汇总展示 "N 成功 / M 失败"；enabled=false 的服务器不参与
      */
-    const statusIcon = (status?: string) => {
-        switch (status) {
+    const testAllConnections = async () => {
+        const targets = servers.filter((s) => s.enabled);
+        setTestAllResult(null);
+        if (targets.length === 0) {
+            setTestAllResult({ok: 0, fail: 0}); // 无已启用服务器，渲染时改显示"没有已启用的服务器"
+            return;
+        }
+        setTestAllRunning(true);
+        let ok = 0;
+        let fail = 0;
+        const CONCURRENCY = 3; // 并发上限：分批执行，每批 3 个
+        try {
+            for (let i = 0; i < targets.length; i += CONCURRENCY) {
+                const batch = targets.slice(i, i + CONCURRENCY);
+                const results = await Promise.all(batch.map((s) => testConnection(s.name)));
+                results.forEach((success) => (success ? ok++ : fail++));
+            }
+        } finally {
+            setTestAllRunning(false);
+            setTestAllResult({ok, fail});
+        }
+    };
+
+    /**
+     * 根据服务器状态返回对应的指示圆点元素（含 tooltip 文案）
+     * - enabled=false：灰色圆点，提示"已禁用"
+     * - 有最近检测时间时，tooltip 追加上次检测时间
+     * @param server - 服务器配置对象
+     * @returns 带原生 title 提示的圆点指示器 JSX 元素
+     */
+    const statusIcon = (server: MCPServerConfig) => {
+        if (!server.enabled) {
+            return (
+                <span
+                    className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40"
+                    title={t('mcp.disabled')}
+                />
+            );
+        }
+        const checkedAt = lastChecked[server.name];
+        const timeTip = checkedAt ? ` · ${t('mcp.lastChecked', {time: new Date(checkedAt).toLocaleTimeString()})}` : '';
+        switch (server.status) {
             case 'connected':
-                return <span className="h-2.5 w-2.5 rounded-full bg-emerald-500"/>;
+                return (
+                    <span
+                        className="h-2.5 w-2.5 rounded-full bg-emerald-500"
+                        title={`${t('mcp.statusConnected')}${timeTip}`}
+                    />
+                );
             case 'error':
-                return <span className="h-2.5 w-2.5 rounded-full bg-red-500"/>;
+                return (
+                    <span
+                        className="h-2.5 w-2.5 rounded-full bg-red-500"
+                        title={`${t('mcp.statusError')}${timeTip}`}
+                    />
+                );
             case 'disconnected':
-                return <span className="h-2.5 w-2.5 rounded-full bg-amber-500"/>;
+                return (
+                    <span
+                        className="h-2.5 w-2.5 rounded-full bg-amber-500"
+                        title={`${t('mcp.statusDisconnected')}${timeTip}`}
+                    />
+                );
             default:
-                return <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30"/>;
+                return (
+                    <span
+                        className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30"
+                        title={t('mcp.statusUnknown')}
+                    />
+                );
         }
     };
 
@@ -285,12 +353,27 @@ export default function MCPPage() {
                             <Plus className="h-4 w-4 mr-1"/>
                             {t('mcp.addServer')}
                         </Button>
+                        {/* 全部检测：并发 3 测试所有已启用的服务器 */}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={testAllConnections}
+                            disabled={testAllRunning || loading}
+                            title={t('mcp.testAll')}
+                        >
+                            {testAllRunning ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-1"/>
+                            ) : (
+                                <Wifi className="h-4 w-4 mr-1"/>
+                            )}
+                            {testAllRunning ? t('mcp.testAllRunning') : t('mcp.testAll')}
+                        </Button>
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={fetchServers}
                             disabled={loading}
-                            title="Reload MCP servers from ~/.claude/settings.json"
+                            title={t('mcp.reload')}
                         >
                             {loading ? (
                                 <Loader2 className="h-4 w-4 animate-spin"/>
@@ -299,6 +382,19 @@ export default function MCPPage() {
                             )}
                         </Button>
                     </div>
+                    {/* 全部检测汇总结果 */}
+                    {!testAllRunning && testAllResult && (
+                        servers.some((s) => s.enabled) ? (
+                            <p className={cn(
+                                'text-xs mb-2',
+                                testAllResult.fail === 0 ? 'text-emerald-500' : 'text-amber-500'
+                            )}>
+                                {t('mcp.testAllResult', {ok: testAllResult.ok, fail: testAllResult.fail})}
+                            </p>
+                        ) : (
+                            <p className="text-xs text-muted-foreground mb-2">{t('mcp.testAllNoEnabled')}</p>
+                        )
+                    )}
                     <div className="flex-1 overflow-y-auto space-y-2" data-tour="mcp-server-list">
                         {/* 加载中状态 */}
                         {loading && (
@@ -320,14 +416,16 @@ export default function MCPPage() {
                                 className={cn(
                                     'cursor-pointer transition-all duration-150 hover:border-primary/50',
                                     // 当前编辑中的服务器卡片高亮显示
-                                    editing?.name === server.name && 'border-primary ring-1 ring-primary/20'
+                                    editing?.name === server.name && 'border-primary ring-1 ring-primary/20',
+                                    // 已禁用的服务器整体弱化显示
+                                    !server.enabled && 'opacity-60'
                                 )}
                                 onClick={() => startEdit(server)}
                             >
                                 <CardContent className="p-3">
                                     <div className="flex items-center gap-2">
-                                        {/* 连接状态指示圆点 */}
-                                        {statusIcon(server.status)}
+                                        {/* 连接状态指示圆点（含 tooltip） */}
+                                        {statusIcon(server)}
                                         <span className="text-sm font-medium flex-1 truncate">{server.name}</span>
                                         {/* 启用/禁用状态徽章 */}
                                         <Badge variant={server.enabled ? 'success' : 'secondary'}
@@ -339,6 +437,12 @@ export default function MCPPage() {
                                     <p className="text-xs text-muted-foreground mt-1.5 truncate font-mono">
                                         {server.command} {server.args.join(' ')}
                                     </p>
+                                    {/* 最近一次连接测试时间（仅前端记录，刷新后丢失） */}
+                                    {lastChecked[server.name] && (
+                                        <p className="text-[10px] text-muted-foreground mt-1">
+                                            {t('mcp.lastChecked', {time: new Date(lastChecked[server.name]).toLocaleTimeString()})}
+                                        </p>
+                                    )}
                                     {/* 操作按钮：测试连接和删除 */}
                                     <div className="mt-2.5 flex gap-2">
                                         <Button
@@ -349,9 +453,9 @@ export default function MCPPage() {
                                                 e.stopPropagation();
                                                 testConnection(server.name);
                                             }}
-                                            disabled={testingName === server.name} // 测试中时禁用按钮
+                                            disabled={testingNames.includes(server.name)} // 测试中时禁用按钮
                                         >
-                                            {testingName === server.name ? (
+                                            {testingNames.includes(server.name) ? (
                                                 <Loader2 className="h-3 w-3 animate-spin mr-1"/>
                                             ) : (
                                                 <Wifi className="h-3 w-3 mr-1"/>
