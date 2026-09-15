@@ -6,6 +6,7 @@
  *
  *              状态持久化策略:
  *                - 主题偏好（dark/light）持久化到 localStorage
+ *                - 字体/字号偏好持久化到 localStorage（key: ai-workbench-font）
  *                - 当前计划关联的任务 ID 持久化到 localStorage（页面刷新后可恢复）
  *
  *              使用方式:
@@ -406,6 +407,12 @@ interface AppState {
         locale: 'zh' | 'en';
         /** 自定义背景照片（dataURL，持久化到 localStorage） */
         bgImage: string | null;
+        /** 中文字体栈（中文/标点优先使用，持久化到 localStorage） */
+        fontFamilyZh: string;
+        /** 西文字体栈（英文/数字优先使用，中文字符自动回落到中文字体栈） */
+        fontFamilyEn: string;
+        /** 基准字号（px，范围 12-18，默认 14，持久化到 localStorage） */
+        fontSize: number;
     };
 
     // --- CLI Provider ---
@@ -539,6 +546,10 @@ interface AppState {
     setBgImage: (img: string | null) => void;
     /** 设置语言偏好 */
     setLocale: (locale: 'zh' | 'en') => void;
+    /** 设置中英文字体栈（持久化到 localStorage 并立即生效到 CSS 变量） */
+    setFontFamily: (zh: string, en: string) => void;
+    /** 设置基准字号 px（持久化到 localStorage 并立即生效到 CSS 变量） */
+    setFontSize: (size: number) => void;
 
     // CLI Provider actions
     /** 设置 CLI Provider 配置状态 */
@@ -697,6 +708,67 @@ function applyBgImage(img: string | null) {
     }
 }
 
+// === 辅助函数：字体设置持久化 ===
+
+/** 字体设置 localStorage key（JSON 对象：fontFamilyZh/fontFamilyEn/fontSize） */
+const FONT_KEY = 'ai-workbench-font';
+
+/** 默认中文字体栈（中文/标点优先命中，缺失字符回落 sans-serif） */
+const DEFAULT_FONT_ZH = "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif";
+
+/** 默认西文字体栈（英文/数字优先命中，中文字符自动回落到中文字体栈） */
+const DEFAULT_FONT_EN = "'Inter', -apple-system, 'Segoe UI', sans-serif";
+
+/** 默认基准字号（px） */
+const DEFAULT_FONT_SIZE = 14;
+
+/** 字体设置持久化结构（中文字体栈/西文字体栈/基准字号） */
+interface FontSettings {
+    fontFamilyZh: string;
+    fontFamilyEn: string;
+    fontSize: number;
+}
+
+/**
+ * 从 localStorage 加载保存的字体设置
+ * @returns 保存的字体设置；未保存、JSON 解析失败或字段缺失时以默认值补齐
+ */
+function loadFontSettings(): FontSettings {
+    const defaults: FontSettings = {
+        fontFamilyZh: DEFAULT_FONT_ZH,
+        fontFamilyEn: DEFAULT_FONT_EN,
+        fontSize: DEFAULT_FONT_SIZE,
+    };
+    // SSR 环境下 localStorage 不可用，返回默认字体
+    if (typeof window === 'undefined') return defaults;
+    try {
+        const stored = localStorage.getItem(FONT_KEY);
+        if (!stored) return defaults;
+        return {...defaults, ...JSON.parse(stored)};
+    } catch {
+        // 存量数据损坏时按默认值处理，避免阻塞启动
+        return defaults;
+    }
+}
+
+/**
+ * 将字体设置应用到 <html> 的 CSS 变量上
+ *
+ * 通过 --app-font-zh/--app-font-en/--app-font-size 三个变量供全局 CSS 消费
+ * （index.css 的 body font-family/font-size 读取）。本函数只负责 DOM 即时生效，
+ * localStorage 持久化由各 set action 自行写入（与 applyBgImage 同模式）。
+ *
+ * @param settings - 要应用的字体设置
+ */
+function applyFontSettings(settings: FontSettings) {
+    // SSR 环境下 document 不可用，跳过 DOM 操作
+    if (typeof document === 'undefined') return;
+    const html = document.documentElement;
+    html.style.setProperty('--app-font-zh', settings.fontFamilyZh);
+    html.style.setProperty('--app-font-en', settings.fontFamilyEn);
+    html.style.setProperty('--app-font-size', `${settings.fontSize}px`);
+}
+
 // === Zustand Store 实例 ===
 
 /**
@@ -708,9 +780,11 @@ function applyBgImage(img: string | null) {
 export const useAppStore = create<AppState>((set, get) => {
     const initialTheme = loadTheme();
     const initialBgImage = loadBgImage();
-    // Store 初始化时立即应用主题与背景，避免页面闪烁
+    const initialFont = loadFontSettings();
+    // Store 初始化时立即应用主题、背景与字体，避免页面闪烁
     applyTheme(initialTheme);
     applyBgImage(initialBgImage);
+    applyFontSettings(initialFont);
 
     return {
         // === 初始状态 ===
@@ -732,6 +806,9 @@ export const useAppStore = create<AppState>((set, get) => {
             sidebarCollapsed: false,
             locale: (localStorage.getItem('locale') as 'zh' | 'en') || 'zh',
             bgImage: initialBgImage,
+            fontFamilyZh: initialFont.fontFamilyZh,
+            fontFamilyEn: initialFont.fontFamilyEn,
+            fontSize: initialFont.fontSize,
         },
         providerCatalog: [],
         availableModels: {},
@@ -841,6 +918,28 @@ export const useAppStore = create<AppState>((set, get) => {
         setLocale: (locale) => {
             localStorage.setItem('locale', locale);
             return set((state) => ({ui: {...state.ui, locale}}));
+        },
+        setFontFamily: (zh, en) => {
+            // 与当前字号合成完整设置后统一持久化并生效，避免覆盖丢失字号
+            const settings: FontSettings = {
+                fontFamilyZh: zh,
+                fontFamilyEn: en,
+                fontSize: get().ui.fontSize,
+            };
+            localStorage.setItem(FONT_KEY, JSON.stringify(settings));
+            applyFontSettings(settings);
+            return set((state) => ({ui: {...state.ui, fontFamilyZh: zh, fontFamilyEn: en}}));
+        },
+        setFontSize: (size) => {
+            // 与当前字体合成完整设置后统一持久化并生效，避免覆盖丢失字体栈
+            const settings: FontSettings = {
+                fontFamilyZh: get().ui.fontFamilyZh,
+                fontFamilyEn: get().ui.fontFamilyEn,
+                fontSize: size,
+            };
+            localStorage.setItem(FONT_KEY, JSON.stringify(settings));
+            applyFontSettings(settings);
+            return set((state) => ({ui: {...state.ui, fontSize: size}}));
         },
 
         // === CLI Provider Actions ===
