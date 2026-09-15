@@ -246,14 +246,13 @@ export class AgentCoordinator {
 
     /**
      * 构造输出处理器（单次与子任务循环共用）。
-     * 仅把对话/思考输出写入执行日志；tool_result 走「执行步骤」面板（stepLog），不刷执行日志。
+     * 仅把对话输出写入执行日志；tool_result 走「执行步骤」面板（stepLog），不刷执行日志；
+     * thinking 走「思考」面板（handleThinking → addThought），也不写执行日志——
+     * 否则思考内容会在日志里再出现一遍，且常与正式回复高度相似，看起来像模型说了两遍。
      */
     private makeOutputHandler(executionId: string): (data: string, meta?: Record<string, unknown>) => void {
         return (data: string, meta?: Record<string, unknown>) => {
-            // 日志记录：仅记录对话/思考输出。
-            // tool_result 属工具执行细节，不写入执行日志（由「执行步骤」面板 + stepLog 事件展示），
-            // 避免每次工具调用都在日志里刷「输出」块。
-            if (data && meta?.type !== 'tool_result') {
+            if (data && meta?.type !== 'tool_result' && meta?.type !== 'thinking') {
                 // Store 写成功后再广播，保证前端收到日志时数据已持久化
                 this.store.addLog(executionId, data)
                     .then(() => this.broadcastLog(executionId, data))
