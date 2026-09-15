@@ -690,7 +690,8 @@
       "appearance": "Appearance",
       "modelProviders": "Model Providers",
       "mcp": "MCP",
-      "skills": "Skills"
+      "skills": "Skills",
+      "data": "Data"
     },
     "appearance": {
       "fontZh": "Chinese Font",
@@ -721,7 +722,27 @@
       "export": "Export Config",
       "import": "Import Config",
       "exportDone": "Config exported",
-      "importDone": "Config imported"
+      "importDone": "Config imported",
+      "description": "Bundle model providers, MCP servers, Skills and appearance settings into a JSON backup file, or restore from one.",
+      "exportDescription": "Collect model providers, MCP servers, Skills and appearance settings into a downloadable JSON backup. Sensitive fields such as API keys are stripped beforehand.",
+      "importDescription": "Pick a previously exported JSON backup to restore model providers, MCP servers, Skills and appearance settings.",
+      "exporting": "Exporting…",
+      "importing": "Importing…",
+      "exportFailed": "Export failed",
+      "importFailed": "Import failed",
+      "exportConfirm": "The export may contain API credentials: apiKey/token fields and credential-like environment variable entries are stripped automatically, but environment variable values cannot be fully detected and may still contain secrets. Continue exporting?",
+      "invalidFile": "Failed to parse file: not a valid settings backup",
+      "importSummary": "Import Result",
+      "catAppearance": "Appearance",
+      "catModelProviders": "Model Providers",
+      "catMcp": "MCP Servers",
+      "catSkills": "Skills",
+      "statImported": "Imported",
+      "statSkipped": "Skipped",
+      "statFailed": "Failed",
+      "strippedCount": "Stripped {{count}} credential-like field(s)/env entries",
+      "importRefreshHint": "Import finished. Refresh or reopen related pages to load the latest data.",
+      "scopeNote": "Backup scope: model providers (without API keys — re-enter them after import), MCP servers, Skills (with content), appearance settings (fonts/font size/theme/language)."
     }
   }
 }

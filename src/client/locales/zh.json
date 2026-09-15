@@ -718,7 +718,8 @@
       "appearance": "外观",
       "modelProviders": "模型供应商",
       "mcp": "MCP",
-      "skills": "Skills"
+      "skills": "Skills",
+      "data": "数据"
     },
     "appearance": {
       "fontZh": "中文字体",
@@ -749,7 +750,27 @@
       "export": "导出配置",
       "import": "导入配置",
       "exportDone": "配置已导出",
-      "importDone": "配置已导入"
+      "importDone": "配置已导入",
+      "description": "将模型供应商、MCP 服务器、Skills 与外观设置打包为 JSON 备份文件，或从备份文件恢复。",
+      "exportDescription": "聚合模型供应商、MCP 服务器、Skills 与外观设置，下载为 JSON 备份文件。导出前会自动剔除 API Key 等敏感凭据字段。",
+      "importDescription": "选择此前导出的 JSON 备份文件，逐类恢复模型供应商、MCP 服务器、Skills 与外观设置。",
+      "exporting": "导出中…",
+      "importing": "导入中…",
+      "exportFailed": "导出失败",
+      "importFailed": "导入失败",
+      "exportConfirm": "导出内容可能包含 API 凭据：已自动剥离 apiKey/token 及疑似凭据的环境变量条目，但环境变量取值无法完全识别，可能仍含密钥。确定继续导出吗？",
+      "invalidFile": "文件解析失败：不是有效的配置备份文件",
+      "importSummary": "导入结果",
+      "catAppearance": "外观设置",
+      "catModelProviders": "模型供应商",
+      "catMcp": "MCP 服务器",
+      "catSkills": "Skills",
+      "statImported": "成功",
+      "statSkipped": "跳过",
+      "statFailed": "失败",
+      "strippedCount": "已剔除 {{count}} 项疑似凭据字段/环境变量条目",
+      "importRefreshHint": "导入完成，请刷新或重新进入相关页面以加载最新数据。",
+      "scopeNote": "备份范围：模型供应商（不含 API Key，导入后需重新填写）、MCP 服务器、Skills（含正文）、外观设置（字体/字号/主题/界面语言）。"
     }
   }
 }

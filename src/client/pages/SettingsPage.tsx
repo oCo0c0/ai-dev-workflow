@@ -2,13 +2,14 @@
  * @file SettingsPage.tsx
  * @description 设置中心页面 —— 左侧二级分类栏 + 右侧内容区。
  *
- * - 分类栏四项：外观 / 模型供应商 / MCP / Skills，点击切换 /settings/<section>，
+ * - 分类栏五项：外观 / 模型供应商 / MCP / Skills / 数据，点击切换 /settings/<section>，
  *   当前项高亮（窄屏下收窄为纯图标列，label 隐藏、以 title 提示）
  * - 右侧按 useParams 的 section 渲染对应面板：
  *   - appearance      → AppearanceSection（设置中心专属外观面板）
  *   - model-providers → ModelProvidersPage（原独立页组件直接嵌入）
  *   - mcp             → MCPPage（同上）
  *   - skills          → SkillsPage（同上）
+ *   - data            → DataSection（配置导入/导出）
  * - 未知或缺失 section 时重定向到 /settings/appearance
  *
  * 被嵌入的三个页面原为全屏页（根容器 `p-6 h-full flex flex-col`），
@@ -19,9 +20,10 @@
 
 import {NavLink, Navigate, useParams} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
-import {Cpu, Plug, SlidersHorizontal, Zap} from 'lucide-react';
+import {Cpu, Database, Plug, SlidersHorizontal, Zap} from 'lucide-react';
 import {cn} from '../lib/utils';
 import {AppearanceSection} from './settings/AppearanceSection';
+import {DataSection} from './settings/DataSection';
 import ModelProvidersPage from './ModelProvidersPage';
 import MCPPage from './MCPPage';
 import SkillsPage from './SkillsPage';
@@ -32,6 +34,7 @@ const SECTIONS = [
     {id: 'model-providers', labelKey: 'settings.nav.modelProviders', icon: Cpu},
     {id: 'mcp', labelKey: 'settings.nav.mcp', icon: Plug},
     {id: 'skills', labelKey: 'settings.nav.skills', icon: Zap},
+    {id: 'data', labelKey: 'settings.nav.data', icon: Database},
 ] as const;
 
 /**
@@ -97,6 +100,7 @@ export default function SettingsPage() {
                 {section === 'model-providers' && <ModelProvidersPage/>}
                 {section === 'mcp' && <MCPPage/>}
                 {section === 'skills' && <SkillsPage/>}
+                {section === 'data' && <DataSection/>}
             </div>
         </div>
     );
