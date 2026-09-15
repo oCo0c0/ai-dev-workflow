@@ -7,8 +7,10 @@
 #
 # 说明：
 # - mac 打包必须在 macOS 主机（签名/公证同理），故用 matrix 分平台构建
+# - 发布分两阶段：各平台只上传 artifact，最后由 release job 统一创建 Release——
+#   避免 3 个 job 并发写同一 Release 的资产竞态（delete-a-release-asset 404）
+# - 构建步骤注入 GH_TOKEN：认证后 GitHub 下载限额从 60/h 提升到 1000/h
 # - 产物未签名，Win 会弹 SmartScreen、mac 需右键打开；正式分发前需补签名
-# - 仓库公开时无需任何 secret（GITHUB_TOKEN 由 Actions 自动注入）
 
 name: Release
 
@@ -59,12 +61,13 @@ jobs:
             ~/AppData/Local/electron-builder/Cache
 
       - name: Build and package
-        # --publish never：发布统一由下方 action 上传，禁用 electron-builder 内置发布
-        # （否则它检测到 GitHub 仓库会自行发布并要求 GH_TOKEN）
+        # --publish never：发布统一由 release job 上传，禁用 electron-builder 内置发布
         # unix 平台先抬高文件句柄上限（macOS 默认 256，打包大量文件会 EMFILE）
         # 显式用 bash 执行：Windows runner 默认 pwsh，不识别 bash 语法；
-        # retry 包装：下载 GitHub 二进制偶发触发匿名限流，自动重试
+        # retry 包装：下载 GitHub 二进制偶发触发限流，自动重试
         uses: nick-fields/retry@v3
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           max_attempts: 3
           retry_on: error
@@ -77,10 +80,31 @@ jobs:
             pnpm run build:electron
             pnpm exec electron-builder ${{ matrix.args }} --publish never
 
-      - name: Upload artifacts to GitHub Release
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/**
+          files: artifacts/**
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
