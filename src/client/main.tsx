@@ -15,8 +15,8 @@ import './index.css';
 import Layout from './components/Layout';
 import RequirementsPage from './pages/RequirementsPage';
 import WorkspacePage from './pages/WorkspacePage';
-import PlanPage from './pages/PlanPage';
-import ExecutionPage from './pages/ExecutionPage';
+// PlanPage/ExecutionPage 已合并为 PipelineRunPage（/plan、/execution 路由不再保留）
+import PipelineRunPage from './pages/PipelineRunPage';
 import TestsPage from './pages/TestsPage';
 import SkillsPage from './pages/SkillsPage';
 import MCPPage from './pages/MCPPage';
@@ -88,8 +88,7 @@ function App() {
                     <Route path="/" element={<RequirementsPage/>}/>
                     <Route path="/projects" element={<ProjectsPage/>}/>
                     <Route path="/workspace" element={<WorkspacePage/>}/>
-                    <Route path="/plan" element={<PlanPage/>}/>
-                    <Route path="/execution" element={<ExecutionPage/>}/>
+                    <Route path="/pipeline-run" element={<PipelineRunPage/>}/>
                     <Route path="/tests" element={<TestsPage/>}/>
                     <Route path="/skills" element={<SkillsPage/>}/>
                     <Route path="/mcp" element={<MCPPage/>}/>

@@ -404,3 +404,17 @@
 .expand-modal-body img {
     max-height: 90vh !important;
 }
+
+/* ── 关键操作文字高亮 ──
+   玻璃/渐变背景上，低对比的 muted 文字容易与背景混在一起。
+   .btn-key 用于关键操作按钮文字：主色 + 加粗，明暗主题下都与背景拉开对比；
+   .label-strong 用于面板小标题：提高不透明度保证可读。 */
+.btn-key {
+    color: hsl(var(--primary));
+    font-weight: 600;
+}
+
+.label-strong {
+    color: hsl(var(--foreground) / 0.85);
+    font-weight: 600;
+}

@@ -5,6 +5,7 @@
  *   支持 GFM（GitHub Flavored Markdown）语法，包括表格、任务列表等。
  */
 
+import {memo} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -39,7 +40,9 @@ function preprocessImages(content: string, imageBasePath?: string): string {
     });
 }
 
-export function MarkdownContent({content, className = '', imageBasePath}: MarkdownContentProps) {
+// memo：内容不变时不重新解析 Markdown（大文档 + rehype-raw 解析开销大，
+// 轮询场景下父组件频繁重渲染，必须跳过无变化的重新解析）
+export const MarkdownContent = memo(function MarkdownContent({content, className = '', imageBasePath}: MarkdownContentProps) {
     const processed = preprocessImages(content, imageBasePath);
     return (
         <div className={`markdown-body ${className}`}>
@@ -194,4 +197,4 @@ export function MarkdownContent({content, className = '', imageBasePath}: Markdo
             </ReactMarkdown>
         </div>
     );
-}
+});

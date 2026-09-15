@@ -72,6 +72,7 @@
     "skills": "技能",
     "mineru": "文档解析",
     "agentExecution": "Agent执行",
+    "pipelineRun": "计划与执行",
     "agents": "Agent执行"
   },
   "pageTitle": {
@@ -80,6 +81,7 @@
     "pipelines": "流水线配置",
     "plan": "开发计划",
     "execution": "代码执行",
+    "pipelineRun": "计划与执行",
     "tests": "自动化测试",
     "projects": "项目空间",
     "mcp": "MCP 服务器",

@@ -71,7 +71,8 @@
     "modelProviders": "Model Providers",
     "skills": "Skills",
     "mineru": "MinerU",
-    "agentExecution": "Agent Execution"
+    "agentExecution": "Agent Execution",
+    "pipelineRun": "Plan & Execution"
   },
   "pageTitle": {
     "requirements": "Requirements",
@@ -79,6 +80,7 @@
     "pipelines": "Pipelines",
     "plan": "Development Plan",
     "execution": "Execution",
+    "pipelineRun": "Plan & Execution",
     "tests": "Tests",
     "projects": "Project Space",
     "mcp": "MCP Servers",

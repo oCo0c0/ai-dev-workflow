@@ -11,7 +11,7 @@
 
 import {useEffect, useRef, useState, useCallback, useMemo} from 'react';
 import {useTranslation} from 'react-i18next';
-import {apiGet, apiPost, apiDelete} from '../api';
+import {apiGet, apiPost, apiDelete, pickFolder} from '../api';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
 import {
@@ -43,6 +43,9 @@ import {
     FileText,
     Bot,
     Plus,
+    FolderPlus,
+    PanelRightClose,
+    PanelRightOpen,
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
 import {Card, CardContent} from '../components/ui/card';
@@ -52,6 +55,7 @@ import {LogViewer} from '../components/LogViewer';
 import {MarkdownContent} from '../components/MarkdownContent';
 import {ExpandableContent} from '../components/ExpandableContent';
 import {ChatInputBox} from '../components/ChatInputBox';
+import WorkspacePanel from '../components/WorkspacePanel';
 import type {LogMessageData} from '../components/LogMessage';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
 
@@ -220,10 +224,36 @@ export default function AgentExecutionPage() {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const dialogRef = useRef<HTMLDialogElement>(null);
 
+    // 工作区预览侧边栏（内嵌 WorkspacePanel，跟随当前任务的项目空间）
+    const [showWsPanel, setShowWsPanel] = useState(false);
+    // 侧边栏宽度（可拖拽调整）
+    const [wsPanelWidth, setWsPanelWidth] = useState(480);
+    const dragWsPanel = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startW = wsPanelWidth;
+        const onMove = (ev: MouseEvent) => {
+            // 中间执行详情区随侧边栏变宽自动压缩（flex-1），仅保留左侧历史列表宽度
+            setWsPanelWidth(Math.min(window.innerWidth - 300, Math.max(320, startW - (ev.clientX - startX))));
+        };
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    };
+
     // UI 折叠
     const [thoughtsExpanded, setThoughtsExpanded] = useState(true);
     const [stepsExpanded, setStepsExpanded] = useState(true);
     const [expandedStepLogs, setExpandedStepLogs] = useState<Set<string>>(new Set());
+    // 历史列表分组折叠（key 为 workspacePath，undefined 表示无工作空间组）
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
     // 工具权限确认队列（agent 执行中 canUseTool 触发）。
     // 队列化：并行工具会连续产生多个权限请求，单弹窗 state 会互相覆盖导致
@@ -305,6 +335,8 @@ export default function AgentExecutionPage() {
             setDetail(data);
             setActiveId(id);
             setWorkspacePath(data.workspacePath);
+            // 选中任务后自动展开工作区预览侧边栏（跟随该任务的项目空间）
+            setShowWsPanel(true);
             // 用历史日志初始化该执行的分桶（多 Agent 隔离：每个任务只读自己的桶）
             setAgentExecutionLogs(id, data.logs || []);
             // 记录当前活跃执行
@@ -314,7 +346,19 @@ export default function AgentExecutionPage() {
         }
     }, [setAgentExecutionLogs, setActiveAgentExecution]);
 
-    const openCreateDialog = () => {
+    /** 添加工作空间：系统文件夹选择器 → 保存 → 刷新工作区数据（供分组名/侧边栏使用） */
+    const handleAddWorkspace = async () => {
+        const picked = await pickFolder(t('workspace.selectFolder'));
+        if (!picked) return;
+        try {
+            await apiPost('/workspace/saved', {path: picked});
+            loadWorkspaceHistory();
+        } catch (err) {
+            console.error('[AgentExec] 添加工作空间失败:', err);
+        }
+    };
+
+    const openCreateDialog = (presetWorkspacePath?: string) => {
         setSelectedRequirement(null);
         setManualRequirementText('');
         setReqMode('saved');
@@ -323,6 +367,7 @@ export default function AgentExecutionPage() {
         setWsBrowserOpen(false);
         setWsManualOpen(false);
         setManualWorkspacePath('');
+        if (presetWorkspacePath) setWorkspacePath(presetWorkspacePath);
         setShowCreateDialog(true);
         // 延迟调用 showModal，确保 DOM 已渲染
         requestAnimationFrame(() => dialogRef.current?.showModal());
@@ -355,6 +400,38 @@ export default function AgentExecutionPage() {
         }
         return [...map.values()];
     }, [workspaceHistory, savedWorkspaces]);
+
+    // 历史列表按工作空间（项目）分组：组名优先用已保存工作区的名称，否则取目录名
+    const groupedHistory = useMemo(() => {
+        const groups = new Map<string, { label: string; path?: string; items: AgentExecutionSummary[] }>();
+        const labelFor = (path: string) => {
+            const saved = savedWorkspaces.find((ws) => ws.path === path);
+            return saved?.name || path.split(/[\\/]/).filter(Boolean).pop() || path;
+        };
+        for (const exec of history) {
+            const key = exec.workspacePath || '__none__';
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    label: exec.workspacePath ? labelFor(exec.workspacePath) : '未指定工作空间',
+                    path: exec.workspacePath,
+                    items: [],
+                });
+            }
+            groups.get(key)!.items.push(exec);
+        }
+        // 组间按最近一条执行时间倒序
+        return [...groups.values()].sort((a, b) =>
+            new Date(b.items[0].createdAt).getTime() - new Date(a.items[0].createdAt).getTime());
+    }, [history, savedWorkspaces]);
+
+    const toggleGroup = (key: string) => {
+        setCollapsedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
 
     // 点击空白处关闭工作空间下拉
     useEffect(() => {
@@ -674,16 +751,16 @@ export default function AgentExecutionPage() {
             {/* ====== 左侧面板：执行历史列表 ====== */}
             <div className="w-64 flex flex-col border-r border-border bg-muted/10 shrink-0">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    <span className="label-strong text-xs uppercase tracking-wide">
                         执行历史
                     </span>
                     <div className="flex items-center gap-1.5">
                         <button
-                            onClick={openCreateDialog}
+                            onClick={handleAddWorkspace}
                             className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-                            title="新建执行"
+                            title="添加工作空间"
                         >
-                            <Plus className="h-4 w-4"/>
+                            <FolderPlus className="h-4 w-4"/>
                         </button>
                         {loadingHistory && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground"/>}
                     </div>
@@ -697,48 +774,75 @@ export default function AgentExecutionPage() {
                         </div>
                     )}
 
-                    {history.map((exec) => (
-                        <div
-                            key={exec.id}
-                            onClick={() => loadDetail(exec.id)}
-                            className={cn(
-                                'group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-border/50 transition-colors',
-                                activeId === exec.id
-                                    ? 'bg-primary/5 border-l-2 border-l-primary'
-                                    : 'hover:bg-accent/50'
-                            )}
-                        >
-                            <div className="mt-0.5 shrink-0">{statusIcon(exec.status)}</div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium truncate text-foreground">
-                                    {exec.requirementNumber ? `${exec.requirementNumber} ` : ''}{exec.requirementTitle || '未命名需求'}
-                                </p>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                    <Clock className="h-3 w-3 text-muted-foreground/50"/>
-                                    <span className="text-xs text-muted-foreground/60">
-                                        {formatRelativeTime(exec.createdAt)}
-                                    </span>
-                                </div>
-                                {exec.workspacePath && (
-                                    <div className="flex items-center gap-1 mt-0.5">
-                                        <FolderOpen className="h-3 w-3 text-muted-foreground/40"/>
-                                        <span className="text-xs text-muted-foreground/40 truncate font-mono">
-                                            {exec.workspacePath.split(/[/\\]/).pop()}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                            {exec.status !== 'running' && (
-                                <button
-                                    onClick={(e) => handleDelete(exec.id, exec.status, e)}
-                                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
-                                    title="删除"
+                    {groupedHistory.map((group) => {
+                        const groupKey = group.path || '__none__';
+                        const collapsed = collapsedGroups.has(groupKey);
+                        return (
+                            <div key={groupKey}>
+                                {/* 分组头：项目名 + 数量 + 折叠 + 新建（预填该项目空间） */}
+                                <div
+                                    onClick={() => toggleGroup(groupKey)}
+                                    className="group sticky top-0 z-10 flex items-center gap-1.5 px-3 py-1.5 bg-muted/40 border-b border-border/60 cursor-pointer select-none hover:bg-muted/70 transition-colors"
+                                    title={group.path || ''}
                                 >
-                                    <Trash2 className="h-3.5 w-3.5"/>
-                                </button>
-                            )}
-                        </div>
-                    ))}
+                                    <ChevronRight className={cn(
+                                        'h-3 w-3 shrink-0 text-muted-foreground/60 transition-transform',
+                                        !collapsed && 'rotate-90',
+                                    )}/>
+                                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-blue-400"/>
+                                    <span className="text-xs font-semibold truncate flex-1 min-w-0">{group.label}</span>
+                                    <span className="text-[10px] text-muted-foreground/60 shrink-0">{group.items.length}</span>
+                                    {group.path && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openCreateDialog(group.path);
+                                            }}
+                                            className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-primary/10 hover:text-primary transition-all shrink-0"
+                                            title={`在 ${group.label} 中新建执行`}
+                                        >
+                                            <Plus className="h-3.5 w-3.5"/>
+                                        </button>
+                                    )}
+                                </div>
+
+                                {!collapsed && group.items.map((exec) => (
+                                    <div
+                                        key={exec.id}
+                                        onClick={() => loadDetail(exec.id)}
+                                        className={cn(
+                                            'group flex items-start gap-2 px-3 py-2.5 pl-5 cursor-pointer border-b border-border/50 transition-colors',
+                                            activeId === exec.id
+                                                ? 'bg-primary/5 border-l-2 border-l-primary'
+                                                : 'hover:bg-accent/50'
+                                        )}
+                                    >
+                                        <div className="mt-0.5 shrink-0">{statusIcon(exec.status)}</div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-medium truncate text-foreground">
+                                                {exec.requirementNumber ? `${exec.requirementNumber} ` : ''}{exec.requirementTitle || '未命名需求'}
+                                            </p>
+                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                <Clock className="h-3 w-3 text-muted-foreground/50"/>
+                                                <span className="text-xs text-muted-foreground/60">
+                                                    {formatRelativeTime(exec.createdAt)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        {exec.status !== 'running' && (
+                                            <button
+                                                onClick={(e) => handleDelete(exec.id, exec.status, e)}
+                                                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-all shrink-0"
+                                                title="删除"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5"/>
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 
@@ -754,6 +858,27 @@ export default function AgentExecutionPage() {
                             <p className="text-xs text-muted-foreground mt-0.5">选择需求，Agent自主完成开发</p>
                         </div>
                         <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs btn-key border-primary/40"
+                                onClick={() => openCreateDialog()}
+                            >
+                                <Plus className="h-3.5 w-3.5 mr-1"/>
+                                新建执行
+                            </Button>
+                            {!showWsPanel && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs btn-key border-primary/40"
+                                    onClick={() => setShowWsPanel(true)}
+                                    title="工作区预览"
+                                >
+                                    <PanelRightOpen className="h-3.5 w-3.5 mr-1"/>
+                                    工作区
+                                </Button>
+                            )}
                             {activeId && statusMeta && (
                                 <div className={cn(
                                     'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors',
@@ -779,7 +904,7 @@ export default function AgentExecutionPage() {
                         <div className="flex items-center justify-center h-full">
                             <div className="flex flex-col items-center gap-3">
                                 <Terminal className="h-10 w-10 text-muted-foreground/30"/>
-                                <p className="text-sm text-muted-foreground">点击左上角 + 新建执行</p>
+                                <p className="text-sm text-muted-foreground">点击右上角「新建执行」开始</p>
                             </div>
                         </div>
                     )}
@@ -1067,6 +1192,34 @@ export default function AgentExecutionPage() {
                     )}
                 </div>
             </div>
+
+            {/* ====== 右侧：工作区预览侧边栏（跟随当前任务的项目空间，宽度可拖拽） ====== */}
+            {showWsPanel && (
+                <div className="relative shrink-0 border-l border-border flex flex-col" style={{width: wsPanelWidth}}>
+                    <div
+                        className="absolute inset-y-0 -left-1 w-2 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-20"
+                        onMouseDown={dragWsPanel}
+                    />
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+                        <span className="label-strong text-xs uppercase tracking-wide">
+                            工作区预览
+                        </span>
+                        <button
+                            onClick={() => setShowWsPanel(false)}
+                            className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+                            title="收起工作区"
+                        >
+                            <PanelRightClose className="h-4 w-4"/>
+                        </button>
+                    </div>
+                    <div className="flex-1 min-h-0">
+                        <WorkspacePanel
+                            defaultWorkspacePath={detail?.workspacePath}
+                            showWorkspaceList={false}
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* ====== 新建执行弹窗 ====== */}
             <dialog

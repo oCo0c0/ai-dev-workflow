@@ -22,8 +22,7 @@ import {cn} from '../lib/utils';
 import {
     FileText,
     FolderOpen,
-    FileCode,
-    Play,
+    Layers,
     TestTube,
     Zap,
     Plug,
@@ -49,13 +48,15 @@ import {ModelConfigModal} from './ModelConfigModal';
  */
 const navItems = [
     {path: '/', labelKey: 'nav.requirements', icon: FileText},
-    {path: '/workspace', labelKey: 'nav.workspace', icon: FolderOpen},
+    // 工作区/项目空间已改造：工作区改为各页面内嵌预览侧边栏，项目空间下线；
+    // 路由与页面代码保留，仅不再在侧边栏展示
+    // {path: '/workspace', labelKey: 'nav.workspace', icon: FolderOpen},
     {path: '/agent-execution', labelKey: 'nav.agentExecution', icon: Bot},
     {path: '/pipelines', labelKey: 'nav.pipelines', icon: GitBranch},
-    {path: '/plan', labelKey: 'nav.plan', icon: FileCode},
-    {path: '/execution', labelKey: 'nav.execution', icon: Play},
+    // 开发计划 + 代码执行已合并为「计划与执行」合页
+    {path: '/pipeline-run', labelKey: 'nav.pipelineRun', icon: Layers},
     {path: '/tests', labelKey: 'nav.tests', icon: TestTube},
-    {path: '/projects', labelKey: 'nav.projects', icon: FolderKanban},
+    // {path: '/projects', labelKey: 'nav.projects', icon: FolderKanban},
     {path: '/model-providers', labelKey: 'nav.modelProviders', icon: Cpu},
     {path: '/mcp', labelKey: 'nav.mcp', icon: Plug},
     {path: '/skills', labelKey: 'nav.skills', icon: Zap},
@@ -70,8 +71,7 @@ const pageTitleKeys: Record<string, string> = {
     '/projects': 'pageTitle.projects',
     '/workspace': 'pageTitle.workspace',
     '/agent-execution': 'pageTitle.agentExecution',
-    '/plan': 'pageTitle.plan',
-    '/execution': 'pageTitle.execution',
+    '/pipeline-run': 'pageTitle.pipelineRun',
     '/tests': 'pageTitle.tests',
     '/skills': 'pageTitle.skills',
     '/mcp': 'pageTitle.mcp',

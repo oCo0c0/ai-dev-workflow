@@ -19,8 +19,8 @@ import {useNavigate} from 'react-router-dom';
 const sectionRoutes = [
     '/',           // Ctrl+1: 需求管理
     '/workspace',  // Ctrl+2: 工作空间
-    '/plan',       // Ctrl+3: 开发计划
-    '/execution',  // Ctrl+4: 执行监控
+    '/agent-execution', // Ctrl+3: Agent 执行
+    '/pipeline-run',    // Ctrl+4: 计划与执行
     '/tests',      // Ctrl+5: 测试结果
     '/skills',     // Ctrl+6: 技能管理
     '/mcp',        // Ctrl+7: MCP 配置

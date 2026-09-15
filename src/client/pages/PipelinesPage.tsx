@@ -430,8 +430,8 @@ function ExecutionWizard({pipeline, onClose, savedWorkspaces}: ExecutionWizardPr
                 });
             }
 
-            // 跳转到计划页面，展示生成进度
-            navigate('/plan');
+            // 跳转到计划+执行合页，展示生成进度
+            navigate('/pipeline-run');
         } catch (err) {
             update({
                 starting: false,

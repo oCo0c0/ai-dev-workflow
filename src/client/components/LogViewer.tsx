@@ -48,12 +48,10 @@ export function LogViewer({
                               showJumpBar = false,
                           }: LogViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
-    const bottomRef = useRef<HTMLDivElement>(null);
     const [copiedAll, setCopiedAll] = useState(false);
 
     // ── 智能自动滚动 ──
     const [autoScroll, setAutoScroll] = useState(true);
-    const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const isNearBottom = useCallback(() => {
         const el = containerRef.current;
@@ -61,21 +59,19 @@ export function LogViewer({
         return el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     }, []);
 
-    /** 滚动到底部：requestAnimationFrame 双帧延迟确保 Markdown 渲染 + DOM 布局完成 */
+    /** 滚动到底部：单次 rAF，等当前帧渲染完成后直接置底。
+     *  刻意不做 MutationObserver/ResizeObserver/延时兜底——多重滚动联动
+     *  会在流式日志下互相触发，造成滚动卡顿甚至卡死 */
     const scrollToBottom = useCallback(() => {
-        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-        // 等两帧确保 DOM 绘制完成
         requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                bottomRef.current?.scrollIntoView({behavior: 'instant', block: 'end'});
-                // 延迟兜底（Markdown 包含图片/表格等重量内容时可能晚于两帧）
-                scrollTimeoutRef.current = setTimeout(() => {
-                    const el = containerRef.current;
-                    if (el) el.scrollTop = el.scrollHeight;
-                    scrollTimeoutRef.current = null;
-                }, 200);
-            });
+            const el = containerRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
         });
+    }, []);
+
+    /** 用户主动向上滚动：立即暂停自动滚动（恢复按钮在工具栏） */
+    const cancelAutoScrollOnUserScrollUp = useCallback(() => {
+        setAutoScroll(false);
     }, []);
 
     // ── 快速跳转栏：用户消息锚点 ──
@@ -115,8 +111,8 @@ export function LogViewer({
 
     const handleScroll = useCallback(() => {
         setAutoScroll(isNearBottom());
-        updateActiveAnchor();
-    }, [isNearBottom, updateActiveAnchor]);
+        if (showJumpBar) updateActiveAnchor();
+    }, [isNearBottom, updateActiveAnchor, showJumpBar]);
 
     // 消息更新时重算高亮（无滚动的静态场景，如历史加载）
     useEffect(() => {
@@ -138,41 +134,13 @@ export function LogViewer({
         }, 1600);
     }, []);
 
-    // 尺寸变化观察器：当容器高度因内容渲染而增长时自动滚动
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-
-        const ro = new ResizeObserver(() => {
-            if (autoScroll) scrollToBottom();
-        });
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, [autoScroll, scrollToBottom]);
-
-    // MutationObserver：DOM 节点新增后再次滚动（兜底 Markdown 异步渲染）
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-        const mo = new MutationObserver(() => {
-            if (autoScroll) {
-                requestAnimationFrame(() => {
-                    const el2 = containerRef.current;
-                    if (el2) el2.scrollTop = el2.scrollHeight;
-                });
-            }
-        });
-        mo.observe(el, {childList: true, subtree: true});
-        return () => mo.disconnect();
-    }, [autoScroll]);
-
+    // 新消息到达且自动滚动开启时置底（唯一的滚动触发点）
     useEffect(() => {
         if (autoScroll) scrollToBottom();
     }, [messages, autoScroll, scrollToBottom]);
 
     useEffect(() => {
         return () => {
-            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
             if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
         };
     }, []);
@@ -307,6 +275,10 @@ export function LogViewer({
                     showJumpBar && userAnchors.length > 0 ? 'py-3 pl-3 pr-9' : 'p-3',
                 )}
                 onScroll={handleScroll}
+                onWheel={(e) => {
+                    if (e.deltaY < 0) cancelAutoScrollOnUserScrollUp();
+                }}
+                onTouchMove={cancelAutoScrollOnUserScrollUp}
             >
                 {!hasContent ? (
                     <div className="text-muted-foreground text-center py-8 text-xs">{emptyText}</div>
@@ -368,8 +340,6 @@ export function LogViewer({
                                 </div>
                             );
                         })}
-                        {/* 底部哨兵：scrollIntoView 锚点 */}
-                        <div ref={bottomRef} className="h-0"/>
                     </div>
                 )}
             </div>
