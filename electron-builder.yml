@@ -26,6 +26,10 @@ directories:
 
 asar: false
 compression: maximum
+# 禁用 electron-builder 内置 GitHub 发布（发布由 CI 工作流的 release job 统一做）。
+# 注意：CI 构建步骤注入了 GH_TOKEN（用于认证下载提高限额），不加此配置
+# 它会因 token+tag 触发自动发布，把整个应用目录当成发布物传上去
+publish: null
 
 files:
   - dist/**
