@@ -751,6 +751,28 @@ function loadFontSettings(): FontSettings {
     }
 }
 
+/** CSS 泛型/系统字体族关键字——它们能命中所有字符(含汉字)，必须排在中文字体栈之后 */
+const GENERIC_FAMILIES = new Set([
+    'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy',
+    'system-ui', 'ui-sans-serif', 'ui-serif', 'ui-monospace', 'ui-rounded',
+    '-apple-system', 'blinkmacsystemfont',
+]);
+
+/**
+ * 合成西文字体栈：具体字体在前，中文字体栈居中，泛型族最后兜底。
+ *
+ * 西文栈若直接拼接在中文字体栈之前(如 "'JetBrains Mono', monospace")，
+ * 泛型族 monospace 能命中汉字，导致中文字体设置永远不生效；
+ * 故将泛型族摘出移到末尾，让汉字优先命中中文字体栈。
+ */
+export function composeEnFontFamily(fontFamilyEn: string, fontFamilyZh: string): string {
+    const parts = fontFamilyEn.split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+    const named = parts.filter((p) => !GENERIC_FAMILIES.has(p));
+    const generics = parts.filter((p) => GENERIC_FAMILIES.has(p));
+    const zhParts = fontFamilyZh.split(',').map((p) => p.trim()).filter(Boolean);
+    return [...named, ...zhParts, ...generics].join(', ');
+}
+
 /**
  * 将字体设置应用到 <html> 的 CSS 变量上
  *
@@ -765,7 +787,7 @@ function applyFontSettings(settings: FontSettings) {
     if (typeof document === 'undefined') return;
     const html = document.documentElement;
     html.style.setProperty('--app-font-zh', settings.fontFamilyZh);
-    html.style.setProperty('--app-font-en', settings.fontFamilyEn);
+    html.style.setProperty('--app-font-en', composeEnFontFamily(settings.fontFamilyEn, settings.fontFamilyZh));
     html.style.setProperty('--app-font-size', `${settings.fontSize}px`);
 }
 

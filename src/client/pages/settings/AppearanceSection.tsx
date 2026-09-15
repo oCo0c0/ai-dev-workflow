@@ -17,7 +17,7 @@
 import {useTranslation} from 'react-i18next';
 import {Moon, RotateCcw, Sun} from 'lucide-react';
 import {cn} from '../../lib/utils';
-import {useAppStore} from '../../stores/app-store';
+import {composeEnFontFamily, useAppStore} from '../../stores/app-store';
 import {Card, CardContent, CardHeader, CardTitle} from '../../components/ui/card';
 import {Input} from '../../components/ui/input';
 import {Button} from '../../components/ui/button';
@@ -257,7 +257,7 @@ export function AppearanceSection() {
                                 <p
                                     className="break-words"
                                     style={{
-                                        fontFamily: `${fontFamilyEn}, ${fontFamilyZh}`,
+                                        fontFamily: composeEnFontFamily(fontFamilyEn, fontFamilyZh),
                                         fontSize: `${fontSize}px`,
                                     }}
                                 >
