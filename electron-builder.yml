@@ -13,6 +13,9 @@
 appId: com.along.ai-dev-workbench
 productName: AI Dev Workbench
 copyright: Copyright © along
+# 可执行文件名：package.json 的 name 是 scope 包名(@along/ai-dev-workbench)，
+# 含 @ 无法用作文件路径，显式指定安全的可执行文件名
+executableName: ai-dev-workbench
 
 directories:
   output: release
@@ -63,3 +66,5 @@ linux:
     - deb
   category: Development
   artifactName: ${productName}-${version}-${arch}.${ext}
+  # 用 productName 生成 .desktop 消除 desktopName 未设置警告
+  syncDesktopName: true
