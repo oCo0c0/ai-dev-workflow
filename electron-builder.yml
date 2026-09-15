@@ -69,5 +69,6 @@ linux:
     - deb
   category: Development
   artifactName: ${productName}-${version}-${arch}.${ext}
-  # 用 productName 生成 .desktop 消除 desktopName 未设置警告
-  syncDesktopName: true
+  # .desktop 条目名（v24 无 syncDesktopName，用 desktop 项提供，消除 desktopName 未设置警告）
+  desktop:
+    Name: AI Dev Workbench
