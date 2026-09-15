@@ -1,0 +1,61 @@
+# 版本发布工作流：推送 v* tag 自动构建三平台安装包并发布到 GitHub Releases
+#
+# 用法：
+#   1. 更新 package.json 的 version 并提交
+#   2. git tag v0.x.0 && git push origin v0.x.0
+#   3. Actions 构建完成后，安装包出现在对应 tag 的 Release 页
+#
+# 说明：
+# - mac 打包必须在 macOS 主机（签名/公证同理），故用 matrix 分平台构建
+# - 产物未签名，Win 会弹 SmartScreen、mac 需右键打开；正式分发前需补签名
+# - 仓库公开时无需任何 secret（GITHUB_TOKEN 由 Actions 自动注入）
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+          - os: macos-latest
+            args: --mac
+          - os: ubuntu-latest
+            args: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and package
+        run: |
+          pnpm run build
+          pnpm run build:electron
+          pnpm exec electron-builder ${{ matrix.args }}
+
+      - name: Upload artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/**
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
