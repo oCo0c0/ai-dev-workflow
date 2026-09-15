@@ -83,6 +83,13 @@
         @apply border-border;
     }
 
+    /* 字号接入设置中心：Tailwind 的 text-sm/rem 间距等均相对根字号计算，
+       变量必须挂在 html 上才能全局生效（挂 body 会被组件显式字号类覆盖）。
+       store 注入时已按 16px 设计基准换算，未注入时保持默认 16px */
+    html {
+        font-size: var(--app-font-size, 16px);
+    }
+
     body {
         @apply text-foreground;
         /* 柔和多光晕渐变：为毛玻璃提供可模糊的背景层（无网格，避免与表格线交错） */
@@ -94,9 +101,8 @@
         background-attachment: fixed;
         /* 字体接入设置中心：--app-font-* 由 store 的 applyFontSettings 注入 <html>。
            西文栈在前、中文栈兜底——西文字体不含中文字形，中文字符自动回落到中文栈，
-           这是中英文字体分设生效的机制；字号带缺省兜底，变量未注入时保持 14px */
+           这是中英文字体分设生效的机制 */
         font-family: var(--app-font-en), var(--app-font-zh);
-        font-size: var(--app-font-size, 14px);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
     }

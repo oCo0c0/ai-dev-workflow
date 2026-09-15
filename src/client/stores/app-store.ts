@@ -788,7 +788,10 @@ function applyFontSettings(settings: FontSettings) {
     const html = document.documentElement;
     html.style.setProperty('--app-font-zh', settings.fontFamilyZh);
     html.style.setProperty('--app-font-en', composeEnFontFamily(settings.fontFamilyEn, settings.fontFamilyZh));
-    html.style.setProperty('--app-font-size', `${settings.fontSize}px`);
+    // 字号必须挂到根元素(html)：Tailwind 的 text-sm 等按 rem(相对根字号)计算，
+    // 挂在 body 上会被组件的显式字号类覆盖而失效。
+    // UI 按 16px 根字号设计，故按比例换算：fontSize=14(基准) → 根字号 16px
+    html.style.setProperty('--app-font-size', `${(settings.fontSize / DEFAULT_FONT_SIZE * 16).toFixed(2)}px`);
 }
 
 // === Zustand Store 实例 ===
