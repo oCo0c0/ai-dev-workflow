@@ -1,9 +1,12 @@
 # electron-builder 三平台打包配置
 #
 # 关键点：
-# - asar: false —— resources/pi-extensions 等需被后端派生的孙进程（pi RPC 子进程）
-#   按真实文件路径读取，asar 归档内的路径对普通 fs 不可见
+# - asar: false —— resources/pi-extensions 等需被后端派生的孙进程（pi RPC 子进程、
+#   系统 node 运行的 bridge）按真实文件路径读取，asar 归档内的路径对普通 fs 不可见；
+#   server 子进程的 require 也不解析 app.asar.unpacked/node_modules，故不可开 asar
 # - files 覆盖运行时所需的应用代码；生产依赖（node_modules）由 electron-builder 自动打入
+# - electron-builder 锁定 24.x：v26 的 JS 模块收集器逐文件打开依赖数过高，
+#   CI 上触发 EMFILE(too many open files)（issue #9094 重写引入）
 # - 产物输出到 release/（不入库）
 #
 # 构建命令：pnpm dist:win / dist:mac / dist:linux

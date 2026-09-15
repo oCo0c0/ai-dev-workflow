@@ -35,7 +35,7 @@
 
 ## 关键约束
 
-- **`asar: false`**（electron-builder.yml）——`resources/pi-extensions` 等需被孙进程（pi RPC 子进程）按真实文件路径读取
+- **`asar: false`**（electron-builder.yml）——`resources/pi-extensions` 等需被孙进程（pi RPC 子进程、系统 node 运行的 bridge）按真实文件路径读取；electron-builder 锁 24.x 避免 v26 收集器在 CI 触发 EMFILE
 - **ADW_PORT 环境变量**（`src/cli/port-finder.ts` 的 `resolvePreferredPort`）保证主进程选的端口与子进程监听端口一致
 - **不内嵌 AI 引擎 CLI**（claude/codex/pi），沿用 Provider 运行时自动检测
 - macOS/Linux GUI 启动无 shell PATH —— `fix-path.ts` 是所有 CLI 子进程能被找到的前提

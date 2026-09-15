@@ -49,7 +49,9 @@ jobs:
       - name: Build and package
         # --publish never：发布统一由下方 action 上传，禁用 electron-builder 内置发布
         # （否则它检测到 GitHub 仓库会自行发布并要求 GH_TOKEN）
+        # unix 平台先抬高文件句柄上限（macOS 默认 256，打包大量文件会 EMFILE）
         run: |
+          if [ "$RUNNER_OS" != "Windows" ]; then ulimit -n 10240; fi
           pnpm run build
           pnpm run build:electron
           pnpm exec electron-builder ${{ matrix.args }} --publish never
