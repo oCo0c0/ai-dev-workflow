@@ -24,8 +24,6 @@ import {
     FolderOpen,
     Layers,
     TestTube,
-    Zap,
-    Plug,
     GitBranch,
     PanelLeftClose,
     PanelLeft,
@@ -39,6 +37,7 @@ import {
     ImagePlus,
     Trash2,
     Sparkles,
+    Settings,
 } from 'lucide-react';
 import {ProviderSetupModal} from './ProviderSetupModal';
 import {ModelConfigModal} from './ModelConfigModal';
@@ -56,10 +55,8 @@ const navItems = [
     // 开发计划 + 代码执行已合并为「计划与执行」合页
     {path: '/pipeline-run', labelKey: 'nav.pipelineRun', icon: Layers},
     {path: '/tests', labelKey: 'nav.tests', icon: TestTube},
+    // 模型供应商 / MCP / Skills 三项已迁入设置中心（侧边栏底部设置按钮 → /settings）
     // {path: '/projects', labelKey: 'nav.projects', icon: FolderKanban},
-    {path: '/model-providers', labelKey: 'nav.modelProviders', icon: Cpu},
-    {path: '/mcp', labelKey: 'nav.mcp', icon: Plug},
-    {path: '/skills', labelKey: 'nav.skills', icon: Zap},
     {path: '/mineru', labelKey: 'nav.mineru', icon: FileSearch},
 ];
 
@@ -73,9 +70,7 @@ const pageTitleKeys: Record<string, string> = {
     '/agent-execution': 'pageTitle.agentExecution',
     '/pipeline-run': 'pageTitle.pipelineRun',
     '/tests': 'pageTitle.tests',
-    '/skills': 'pageTitle.skills',
-    '/mcp': 'pageTitle.mcp',
-    '/model-providers': 'pageTitle.modelProviders',
+    '/settings': 'pageTitle.settings',
     '/pipelines': 'pageTitle.pipelines',
     '/mineru': 'pageTitle.mineru',
 };
@@ -203,7 +198,12 @@ export default function Layout() {
         return () => window.removeEventListener('resize', handleResize);
     }, [setSidebarCollapsed]);
 
-    const currentTitle = t(pageTitleKeys[location.pathname] || 'common.appTitle');
+    // 顶栏标题：优先精确匹配路由；/settings/:section（含未知 section）统一显示设置标题
+    const currentTitle = t(
+        pageTitleKeys[location.pathname]
+            ?? (location.pathname.startsWith('/settings/') ? pageTitleKeys['/settings'] : undefined)
+            ?? 'common.appTitle'
+    );
 
     const handleToggleLocale = () => {
         const next = locale === 'zh' ? 'en' : 'zh';
@@ -277,6 +277,29 @@ export default function Layout() {
                 </nav>
 
                 <div className="border-t border-border/50 p-3 space-y-2">
+                    {/* 设置中心入口（模型供应商/MCP/Skills 已迁入 /settings） */}
+                    <NavLink
+                        to="/settings"
+                        className={({isActive}) =>
+                            cn(
+                                'flex items-center rounded-lg py-2 text-sm font-medium transition-all duration-200',
+                                sidebarCollapsed ? 'justify-center' : 'gap-3 px-3',
+                                isActive
+                                    ? 'brand-gradient-soft text-primary'
+                                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                            )
+                        }
+                        title={t('nav.settings')}
+                    >
+                        {({isActive}) => (
+                            <>
+                                <Settings
+                                    className={cn('h-4 w-4 shrink-0 transition-colors', isActive && 'text-primary')}
+                                />
+                                {!sidebarCollapsed && <span className="truncate">{t('nav.settings')}</span>}
+                            </>
+                        )}
+                    </NavLink>
                     <div className="flex items-center justify-center gap-2">
                         <span
                             className={cn(

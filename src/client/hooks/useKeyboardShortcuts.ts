@@ -22,8 +22,8 @@ const sectionRoutes = [
     '/agent-execution', // Ctrl+3: Agent 执行
     '/pipeline-run',    // Ctrl+4: 计划与执行
     '/tests',      // Ctrl+5: 测试结果
-    '/skills',     // Ctrl+6: 技能管理
-    '/mcp',        // Ctrl+7: MCP 配置
+    '/settings/skills', // Ctrl+6: 技能管理（设置中心 Skills 分类）
+    '/settings/mcp',    // Ctrl+7: MCP 配置（设置中心 MCP 分类）
     '/pipelines',  // Ctrl+8: 工作流管道
 ];
 

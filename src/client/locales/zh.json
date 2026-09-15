@@ -73,6 +73,7 @@
     "mineru": "文档解析",
     "agentExecution": "Agent执行",
     "pipelineRun": "计划与执行",
+    "settings": "设置",
     "agents": "Agent执行"
   },
   "pageTitle": {
@@ -89,6 +90,7 @@
     "skills": "技能管理",
     "mineru": "MinerU 文档解析",
     "agentExecution": "Agent执行",
+    "settings": "设置",
     "agents": "Agent执行"
   },
   "requirements": {

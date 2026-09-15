@@ -9,7 +9,7 @@
 
 import React, {useEffect} from 'react';
 import ReactDOM from 'react-dom/client';
-import {BrowserRouter, Routes, Route} from 'react-router-dom';
+import {BrowserRouter, Routes, Route, Navigate} from 'react-router-dom';
 import './i18n';
 import './index.css';
 import Layout from './components/Layout';
@@ -18,13 +18,13 @@ import WorkspacePage from './pages/WorkspacePage';
 // PlanPage/ExecutionPage 已合并为 PipelineRunPage（/plan、/execution 路由不再保留）
 import PipelineRunPage from './pages/PipelineRunPage';
 import TestsPage from './pages/TestsPage';
-import SkillsPage from './pages/SkillsPage';
-import MCPPage from './pages/MCPPage';
+// Skills/MCP/模型供应商三页已迁入设置中心（/settings/:section），
+// 旧路径仅保留重定向以兼容外部链接/引导
+import SettingsPage from './pages/SettingsPage';
 import PipelinesPage from './pages/PipelinesPage';
 import MinerUPage from './pages/MinerUPage';
 import ProjectsPage from './pages/ProjectsPage';
 import AgentExecutionPage from './pages/AgentExecutionPage';
-import ModelProvidersPage from './pages/ModelProvidersPage';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
 
@@ -90,9 +90,12 @@ function App() {
                     <Route path="/workspace" element={<WorkspacePage/>}/>
                     <Route path="/pipeline-run" element={<PipelineRunPage/>}/>
                     <Route path="/tests" element={<TestsPage/>}/>
-                    <Route path="/skills" element={<SkillsPage/>}/>
-                    <Route path="/mcp" element={<MCPPage/>}/>
-                    <Route path="/model-providers" element={<ModelProvidersPage/>}/>
+                    <Route path="/settings" element={<SettingsPage/>}/>
+                    <Route path="/settings/:section" element={<SettingsPage/>}/>
+                    {/* 旧全屏页路径保留重定向，兼容外部链接/引导流程 */}
+                    <Route path="/skills" element={<Navigate to="/settings/skills" replace/>}/>
+                    <Route path="/mcp" element={<Navigate to="/settings/mcp" replace/>}/>
+                    <Route path="/model-providers" element={<Navigate to="/settings/model-providers" replace/>}/>
                     <Route path="/pipelines" element={<PipelinesPage/>}/>
                     <Route path="/mineru" element={<MinerUPage/>}/>
                     <Route path="/agent-execution" element={<AgentExecutionPage/>}/>

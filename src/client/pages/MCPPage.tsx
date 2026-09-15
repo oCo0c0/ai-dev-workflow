@@ -68,8 +68,8 @@ interface MCPServerConfig {
  *
  * @component
  * @example
- * // 在路由中使用
- * <Route path="/mcp" element={<MCPPage />} />
+ * // 作为设置中心分类嵌入（旧 /mcp 路由已重定向至 /settings/mcp）
+ * <Route path="/settings/:section" element={<SettingsPage />} />
  */
 export default function MCPPage() {
     const {t} = useTranslation();
