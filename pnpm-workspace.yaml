@@ -1,5 +1,9 @@
 packages:
   - 'packages/*'
+# node-linker=hoisted：npm 式扁平 node_modules（默认 isolated 是 .pnpm 虚拟商店+符号链接）。
+# electron-builder 收集 pnpm 虚拟商店依赖会漏装传递依赖（如 express 的 body-parser），
+# 安装版启动报 MODULE_NOT_FOUND；pnpm 10+ 此设置须写在 pnpm-workspace.yaml（.npmrc 不生效）
+nodeLinker: hoisted
 # 子包（packages/*）以 --ignore-workspace 独立安装，pnpm run 的依赖状态自检会
 # 尝试整仓重装（无 TTY 时失败）。关闭自检：构建一律直接调 tsc/esbuild。
 verifyDepsBeforeRun: false
