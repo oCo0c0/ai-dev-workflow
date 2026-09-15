@@ -50,6 +50,8 @@ jobs:
         # --publish never：发布统一由下方 action 上传，禁用 electron-builder 内置发布
         # （否则它检测到 GitHub 仓库会自行发布并要求 GH_TOKEN）
         # unix 平台先抬高文件句柄上限（macOS 默认 256，打包大量文件会 EMFILE）
+        # 显式用 bash 执行：Windows runner 默认 pwsh，不识别 bash 语法
+        shell: bash
         run: |
           if [ "$RUNNER_OS" != "Windows" ]; then ulimit -n 10240; fi
           pnpm run build
