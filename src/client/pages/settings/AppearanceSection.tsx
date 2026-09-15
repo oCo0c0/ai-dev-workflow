@@ -14,6 +14,7 @@
  * localStorage 并同步到 <html> 的 --app-font-* CSS 变量，全局即时生效。
  */
 
+import {useMemo} from 'react';
 import {useTranslation} from 'react-i18next';
 import {Moon, RotateCcw, Sun} from 'lucide-react';
 import {cn} from '../../lib/utils';
@@ -36,9 +37,13 @@ const DEFAULT_FONT_SIZE = 14;
 
 /** 中文字体内置选项（labelKey 为 i18n 键，value 为写入 store 的完整字体栈） */
 const ZH_FONT_OPTIONS = [
+    {labelKey: 'settings.appearance.fontYaHei', value: "'Microsoft YaHei', sans-serif"},
+    {labelKey: 'settings.appearance.fontSimSun', value: "'SimSun', 'NSimSun', serif"},
+    {labelKey: 'settings.appearance.fontSimHei', value: "'SimHei', sans-serif"},
+    {labelKey: 'settings.appearance.fontKaiTi', value: "'KaiTi', '楷体', serif"},
+    {labelKey: 'settings.appearance.fontDengXian', value: "'DengXian', sans-serif"},
     {labelKey: 'settings.appearance.fontPingFang', value: "'PingFang SC', sans-serif"},
     {labelKey: 'settings.appearance.fontHiragino', value: "'Hiragino Sans GB', sans-serif"},
-    {labelKey: 'settings.appearance.fontYaHei', value: "'Microsoft YaHei', sans-serif"},
     {labelKey: 'settings.appearance.fontNotoSansSC', value: "'Noto Sans SC', sans-serif"},
     {labelKey: 'settings.appearance.fontSystemDefault', value: DEFAULT_FONT_ZH},
 ] as const;
@@ -51,6 +56,36 @@ const EN_FONT_OPTIONS = [
     {labelKey: 'settings.appearance.fontRoboto', value: "'Roboto', sans-serif"},
     {labelKey: 'settings.appearance.fontJetBrainsMono', value: "'JetBrains Mono', monospace"},
 ] as const;
+
+/**
+ * 检测本机是否安装了指定字体（canvas 测宽法）
+ *
+ * 原理：用待测字体与已知兜底字体(monospace/serif)分别渲染同一段混合文本，
+ * 宽度与兜底完全一致则说明待测字体未命中（未安装）。
+ *
+ * @param fontFamily - 单个字体族名（如 "Microsoft YaHei"）
+ * @returns 是否可用；canvas 不可用时视为可用（宁可不提示也不误禁）
+ */
+function isFontInstalled(fontFamily: string): boolean {
+    if (typeof document === 'undefined') return true;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return true;
+    const sample = '中文字体测试 Abc 0123 楷宋';
+    const widthOf = (font: string) => {
+        ctx.font = `48px ${font}`;
+        return ctx.measureText(sample).width;
+    };
+    const baseline = {mono: widthOf('monospace'), serif: widthOf('serif')};
+    const probed = {mono: widthOf(`'${fontFamily}', monospace`), serif: widthOf(`'${fontFamily}', serif`)};
+    return probed.mono !== baseline.mono || probed.serif !== baseline.serif;
+}
+
+/** 从字体栈中提取首个带引号的字体族名（用于安装检测），无引号名时返回 null */
+function firstQuotedFamily(stack: string): string | null {
+    const m = stack.match(/'([^']+)'/);
+    return m ? m[1] : null;
+}
 
 /** 下拉控件样式（沿用项目既有表单写法，见 MCPPage） */
 const SELECT_CLASS = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
@@ -116,6 +151,10 @@ export function AppearanceSection() {
         if (value.trim()) setFontFamily(fontFamilyZh, value);
     };
 
+    /** 各内置字体栈的本机可用性（首选项名未安装则整项禁用，挂载时检测一次） */
+    const zhInstalled = useMemo(() => ZH_FONT_OPTIONS.map(o => isFontInstalled(firstQuotedFamily(o.value) ?? '')), []);
+    const enInstalled = useMemo(() => EN_FONT_OPTIONS.map(o => isFontInstalled(firstQuotedFamily(o.value) ?? '')), []);
+
     return (
         <div className="h-full overflow-y-auto p-6">
             <div className="mx-auto max-w-2xl">
@@ -139,8 +178,14 @@ export function AppearanceSection() {
                                     }}
                                     className={SELECT_CLASS}
                                 >
-                                    {ZH_FONT_OPTIONS.map(opt => (
-                                        <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
+                                    {ZH_FONT_OPTIONS.map((opt, i) => (
+                                        <option
+                                            key={opt.value}
+                                            value={opt.value}
+                                            disabled={!zhInstalled[i] && opt.labelKey !== 'settings.appearance.fontSystemDefault'}
+                                        >
+                                            {t(opt.labelKey)}{!zhInstalled[i] ? t('settings.appearance.fontNotInstalled') : ''}
+                                        </option>
                                     ))}
                                     <option value={CUSTOM_VALUE}>{t('settings.appearance.fontCustom')}</option>
                                 </select>
@@ -164,8 +209,14 @@ export function AppearanceSection() {
                                     }}
                                     className={SELECT_CLASS}
                                 >
-                                    {EN_FONT_OPTIONS.map(opt => (
-                                        <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
+                                    {EN_FONT_OPTIONS.map((opt, i) => (
+                                        <option
+                                            key={opt.value}
+                                            value={opt.value}
+                                            disabled={!enInstalled[i] && opt.labelKey !== 'settings.appearance.fontSystemUi'}
+                                        >
+                                            {t(opt.labelKey)}{!enInstalled[i] ? t('settings.appearance.fontNotInstalled') : ''}
+                                        </option>
                                     ))}
                                     <option value={CUSTOM_VALUE}>{t('settings.appearance.fontCustom')}</option>
                                 </select>
