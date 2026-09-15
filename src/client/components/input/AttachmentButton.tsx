@@ -11,8 +11,14 @@ import {Loader2, Paperclip} from 'lucide-react';
 import {apiPostForm} from '../../api';
 import type {PendingAttachment} from '../ChatInputBox';
 
-/** 可解析的附件类型（其余类型交给 MinerU 报错） */
-const ACCEPT = '.pdf,.docx,.doc,.pptx,.xlsx,.xls,image/*';
+/** 可解析的附件类型：文本/代码直接读取、Excel 表格解析，其余交给 MinerU */
+const ACCEPT = [
+    '.pdf', '.docx', '.pptx', '.xlsx',
+    '.png', '.jpg', '.jpeg', '.webp', '.bmp',
+    '.txt', '.md', '.json', '.csv', '.tsv', '.log', '.xml', '.yml', '.yaml', '.ini', '.toml', '.sql',
+    '.java', '.py', '.js', '.jsx', '.ts', '.tsx', '.vue', '.go', '.rs', '.c', '.h', '.cpp', '.cs', '.php',
+    '.rb', '.kt', '.swift', '.scala', '.sh', '.bat', '.ps1', '.html', '.css', '.scss',
+].join(',');
 /** 错误提示自动清除时长（ms） */
 const ERROR_TTL_MS = 3500;
 

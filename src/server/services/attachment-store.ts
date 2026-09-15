@@ -77,5 +77,5 @@ export function formatAttachmentsBlock(atts: StoredAttachment[]): string {
     const body = atts
         .map(a => `<attachment name="${a.fileName}">\n${a.markdown}\n</attachment>`)
         .join('\n');
-    return `\n\n<attachments>\n以下是用户随消息附带的文档（已经 MinerU 解析为 markdown），请结合其内容理解用户需求：\n${body}\n</attachments>`;
+    return `\n\n<attachments>\n以下是用户随消息附带的文档（已解析为文本/markdown），请结合其内容理解用户需求：\n${body}\n</attachments>`;
 }

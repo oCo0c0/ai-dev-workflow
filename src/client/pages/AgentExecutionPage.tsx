@@ -335,8 +335,6 @@ export default function AgentExecutionPage() {
             setDetail(data);
             setActiveId(id);
             setWorkspacePath(data.workspacePath);
-            // 选中任务后自动展开工作区预览侧边栏（跟随该任务的项目空间）
-            setShowWsPanel(true);
             // 用历史日志初始化该执行的分桶（多 Agent 隔离：每个任务只读自己的桶）
             setAgentExecutionLogs(id, data.logs || []);
             // 记录当前活跃执行
