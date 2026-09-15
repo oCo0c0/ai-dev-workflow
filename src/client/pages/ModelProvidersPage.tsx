@@ -7,8 +7,10 @@
  * - 检测本地 Claude / Codex / Pi CLI 的外部配置源
  * - 一键导入外部配置（增量叠加、高优先级覆盖低优先级）
  * - 手动新增 / 编辑 / 删除供应商
+ * - 连通性测试（复用 POST /model-providers/models/fetch，只探测不写任何配置）
+ * - 默认模型标记（复用 defaultModel 字段，ModelPicker 下拉置顶展示）
  *
- * 布局：顶部操作栏 + 外部源检测区 + 左侧供应商列表 + 右侧编辑表单。
+ * 布局：顶部操作栏（主操作实心/次操作 ghost）+ 外部源检测区 + 左侧供应商卡片列表 + 右侧分节卡片表单。
  */
 
 import {useState, useEffect, useCallback} from 'react';
@@ -36,6 +38,8 @@ import {
     Server,
     KeyRound,
     Globe,
+    Star,
+    PlugZap,
 } from 'lucide-react';
 import type {
     SafeModelProviderRecord,
@@ -115,6 +119,11 @@ export default function ModelProvidersPage() {
     const [modelCandidates, setModelCandidates] = useState<string[]>([]);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [modelInput, setModelInput] = useState('');
+
+    // 连通性测试状态（复用 POST /model-providers/models/fetch，只探测不写任何配置）
+    const [testingForm, setTestingForm] = useState(false); // 表单“测试连接”进行中
+    const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+    const [testingId, setTestingId] = useState<string | null>(null); // 列表项测试中的供应商 id
 
     /** 拉取供应商列表 */
     const fetchProviders = useCallback(async () => {
@@ -208,6 +217,7 @@ export default function ModelProvidersPage() {
         setModelCandidates([]);
         setFetchError(null);
         setModelInput('');
+        setTestResult(null);
     };
 
     /** 更新表单单个字段 */
@@ -235,7 +245,14 @@ export default function ModelProvidersPage() {
         const v = id.trim();
         if (v && !modelsList.includes(v)) setModels([...modelsList, v]);
     };
-    const removeModel = (id: string) => setModels(modelsList.filter((m) => m !== id));
+    const removeModel = (id: string) => {
+        if (form.defaultModel === id) setField('defaultModel', ''); // 移除的是默认模型时清空标记，避免悬空引用
+        setModels(modelsList.filter((m) => m !== id));
+    };
+    /** 点击星标切换“设为默认模型”（单选语义：再次点击取消） */
+    const toggleDefaultModel = (id: string) => {
+        setField('defaultModel', form.defaultModel === id ? '' : id);
+    };
 
     /** 切换类型时预填 id/label（仅新增且用户未自定义时） */
     const handleKindChange = (kind: ModelProviderKind) => {
@@ -265,6 +282,57 @@ export default function ModelProvidersPage() {
             setModelCandidates([]);
         } finally {
             setFetchingModels(false);
+        }
+    };
+
+    /** 用表单当前凭据（未保存也可）测试连通性：复用 models/fetch 端点，只探测不写配置 */
+    const testConnection = async () => {
+        setTestingForm(true);
+        setTestResult(null);
+        try {
+            const resp = await apiPost<{ models: string[] }>('/model-providers/models/fetch', {
+                apiKey: form.apiKey.trim() || undefined,
+                baseUrl: form.baseUrl.trim() || undefined,
+                kind: form.kind,
+                id: editing?.id,
+            });
+            setTestResult({
+                ok: true,
+                message: t('modelProviders.testOk', {count: resp.models?.length ?? 0}),
+            });
+        } catch (err) {
+            setTestResult({
+                ok: false,
+                message: err instanceof Error ? err.message : t('modelProviders.testFail'),
+            });
+        } finally {
+            setTestingForm(false);
+        }
+    };
+
+    /** 用已保存配置的凭据测试列表中某个供应商：不传 key，由后端回退到已存凭据 */
+    const testProvider = async (provider: SafeModelProviderRecord) => {
+        setTestingId(provider.id);
+        setError(null);
+        setNotice(null);
+        try {
+            const resp = await apiPost<{ models: string[] }>('/model-providers/models/fetch', {
+                baseUrl: provider.baseUrl || undefined,
+                kind: provider.kind,
+                id: provider.id,
+            });
+            setNotice(
+                t('modelProviders.testOkNamed', {name: provider.label, count: resp.models?.length ?? 0}),
+            );
+        } catch (err) {
+            setError(
+                t('modelProviders.testFailNamed', {
+                    name: provider.label,
+                    message: err instanceof Error ? err.message : t('modelProviders.testFail'),
+                }),
+            );
+        } finally {
+            setTestingId(null);
         }
     };
 
@@ -347,14 +415,16 @@ export default function ModelProvidersPage() {
                     <h2 className="text-base font-semibold text-foreground">{t('pageTitle.modelProviders')}</h2>
                     <p className="text-xs text-muted-foreground mt-0.5">{t('modelProviders.subtitle')}</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={fetchProviders} disabled={loading}>
+                {/* 次操作归组为 ghost，主操作「新增」保持实心 */}
+                <Button variant="ghost" size="sm" onClick={fetchProviders} disabled={loading}
+                        title={t('common.refresh')}>
                     {loading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
                 </Button>
-                <Button variant="outline" size="sm" onClick={detectSources} disabled={detecting}>
+                <Button variant="ghost" size="sm" onClick={detectSources} disabled={detecting}>
                     {detecting ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <Server className="h-4 w-4 mr-1"/>}
                     {t('modelProviders.detect')}
                 </Button>
-                <Button size="sm" onClick={handleImport} disabled={importing}>
+                <Button variant="ghost" size="sm" onClick={handleImport} disabled={importing}>
                     {importing ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> :
                         <Download className="h-4 w-4 mr-1"/>}
                     {t('modelProviders.import')}
@@ -483,19 +553,37 @@ export default function ModelProvidersPage() {
                                     onClick={() => startEdit(provider)}
                                 >
                                     <CardContent className="p-3">
+                                        {/* 标题行：图标 + 名称 + 启用状态点 */}
                                         <div className="flex items-center gap-2">
                                             <Icon className="h-4 w-4 text-primary flex-shrink-0"/>
                                             <span
                                                 className="text-sm font-medium flex-1 truncate">{provider.label}</span>
-                                            <Badge variant={provider.enabled ? 'success' : 'secondary'}
-                                                   className="text-[10px]">
-                                                {provider.enabled ? t('modelProviders.on') : t('modelProviders.off')}
-                                            </Badge>
+                                            <span
+                                                className={cn(
+                                                    'h-2.5 w-2.5 rounded-full flex-shrink-0',
+                                                    provider.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30',
+                                                )}
+                                                title={provider.enabled ? t('modelProviders.on') : t('modelProviders.off')}
+                                            />
                                         </div>
+                                        {/* 徽标行：来源 + 模型数 + 默认模型 + pi 兼容 */}
                                         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                                             <Badge variant={sourceBadge.variant} className="text-[10px]">
                                                 {t(sourceBadge.labelKey)}
                                             </Badge>
+                                            <Badge variant="outline" className="text-[10px]">
+                                                {t('modelProviders.modelCount', {count: provider.models.length})}
+                                            </Badge>
+                                            {provider.defaultModel && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="text-[10px] gap-0.5 border-amber-500/40 text-amber-600"
+                                                    title={provider.defaultModel}
+                                                >
+                                                    <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400"/>
+                                                    {t('modelProviders.defaultBadge')}
+                                                </Badge>
+                                            )}
                                             {/* pi 类型记录：兼容模式徽标（运行时注入 key，建议迁移 pi 原生配置） */}
                                             {provider.kind === 'pi' && (
                                                 <Badge
@@ -526,18 +614,34 @@ export default function ModelProvidersPage() {
                                                 ? provider.models.join(', ')
                                                 : t('modelProviders.noModels')}
                                         </p>
-                                        <div className="mt-2.5 flex gap-2">
+                                        {/* 操作行：测试连接（已存凭据）/ 删除 */}
+                                        <div className="mt-2.5 flex items-center gap-1">
                                             <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 text-xs text-destructive hover:text-destructive"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-7 w-7"
+                                                title={t('modelProviders.testConnection')}
+                                                disabled={testingId === provider.id}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    testProvider(provider);
+                                                }}
+                                            >
+                                                {testingId === provider.id
+                                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin"/>
+                                                    : <PlugZap className="h-3.5 w-3.5"/>}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                                title={t('common.delete')}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleDelete(provider);
                                                 }}
                                             >
-                                                <Trash2 className="h-3 w-3 mr-1"/>
-                                                {t('common.delete')}
+                                                <Trash2 className="h-3.5 w-3.5"/>
                                             </Button>
                                         </div>
                                     </CardContent>
@@ -557,8 +661,8 @@ export default function ModelProvidersPage() {
                                     : t('modelProviders.editTitle', {name: editing?.label ?? editing?.id})}
                             </h3>
                             <div className="space-y-5">
-                                {/* ── 分区：基础信息 ── */}
-                                <section className="space-y-3">
+                                {/* ── 分区：基础信息（卡片化，glass 风格同 Card 组件） ── */}
+                                <section className="space-y-3 rounded-xl glass-card p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">
                                             {t('modelProviders.sectionBasic')}
@@ -623,8 +727,8 @@ export default function ModelProvidersPage() {
                                     </div>
                                 </section>
 
-                                {/* ── 分区：连接 ── */}
-                                <section className="space-y-3">
+                                {/* ── 分区：连接（卡片化；测试连接按钮与结果也在此就近展示） ── */}
+                                <section className="space-y-3 rounded-xl glass-card p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">
                                             {t('modelProviders.sectionConnection')}
@@ -663,8 +767,8 @@ export default function ModelProvidersPage() {
                                     </div>
                                 </section>
 
-                                {/* ── 分区：模型 ── */}
-                                <section className="space-y-3">
+                                {/* ── 分区：模型（卡片化） ── */}
+                                <section className="space-y-3 rounded-xl glass-card p-4">
                                     <div className="flex items-center gap-2">
                                         <div className="mr-auto">
                                             <h4 className="text-sm font-medium">
@@ -729,9 +833,31 @@ export default function ModelProvidersPage() {
                                         {modelsList.map((m) => (
                                             <span
                                                 key={m}
-                                                className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2.5 py-1 font-mono text-xs"
+                                                className={cn(
+                                                    'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-xs',
+                                                    form.defaultModel === m
+                                                        ? 'border-amber-500/50 bg-amber-500/10'
+                                                        : 'border-primary/40 bg-primary/5',
+                                                )}
                                             >
                                                 {m}
+                                                {/* 星标 = 设为默认模型（单选语义，写入 defaultModel 字段） */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleDefaultModel(m)}
+                                                    className={cn(
+                                                        'transition-colors',
+                                                        form.defaultModel === m
+                                                            ? 'text-amber-500'
+                                                            : 'text-muted-foreground/40 hover:text-amber-500',
+                                                    )}
+                                                    title={form.defaultModel === m
+                                                        ? t('modelProviders.unsetDefault')
+                                                        : t('modelProviders.setDefault')}
+                                                >
+                                                    <Star
+                                                        className={cn('h-3 w-3', form.defaultModel === m && 'fill-current')}/>
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => removeModel(m)}
@@ -761,6 +887,9 @@ export default function ModelProvidersPage() {
                                     <div>
                                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                                             {t('modelProviders.defaultModel')}
+                                            <span className="ml-2 font-normal text-muted-foreground/60">
+                                                {t('modelProviders.defaultModelHint')}
+                                            </span>
                                         </label>
                                         {modelsList.length > 0 ? (
                                             <select
@@ -784,13 +913,13 @@ export default function ModelProvidersPage() {
                                     </div>
                                 </section>
 
-                                {/* ── 分区：高级（折叠） ── */}
-                                <details className="rounded-lg border border-border/60">
+                                {/* ── 分区：高级（折叠，默认收起；卡片化与其他分区一致） ── */}
+                                <details className="rounded-xl glass-card">
                                     <summary
-                                        className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground">
+                                        className="cursor-pointer select-none px-4 py-2.5 text-xs font-medium text-muted-foreground">
                                         {t('modelProviders.sectionAdvanced')}
                                     </summary>
-                                    <div className="px-3 pb-3">
+                                    <div className="px-4 pb-4">
                                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                                             {t('modelProviders.env')}
                                         </label>
@@ -803,6 +932,23 @@ export default function ModelProvidersPage() {
                                         />
                                     </div>
                                 </details>
+
+                                {/* ── 测试连接结果（绿色成功 / 红色失败） ── */}
+                                {testResult && (
+                                    <div
+                                        className={cn(
+                                            'flex items-start gap-2 rounded-lg border p-2.5 text-xs',
+                                            testResult.ok
+                                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600'
+                                                : 'border-destructive/50 bg-destructive/10 text-destructive',
+                                        )}
+                                    >
+                                        {testResult.ok
+                                            ? <span className="mt-px flex-shrink-0">✓</span>
+                                            : <AlertCircle className="h-3.5 w-3.5 mt-px flex-shrink-0"/>}
+                                        <p>{testResult.message}</p>
+                                    </div>
+                                )}
 
                                 {/* ── 底部操作 ── */}
                                 <div className="flex items-center gap-2 border-t border-border/60 pt-3">
@@ -817,6 +963,20 @@ export default function ModelProvidersPage() {
                                         {t('modelProviders.enabled')}
                                     </label>
                                     <div className="ml-auto flex gap-2">
+                                        {/* 测试连接：用表单当前凭据探测，不落盘 */}
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={testConnection}
+                                            disabled={testingForm}
+                                        >
+                                            {testingForm
+                                                ? <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
+                                                : <PlugZap className="h-4 w-4 mr-1"/>}
+                                            {testingForm
+                                                ? t('modelProviders.testing')
+                                                : t('modelProviders.testConnection')}
+                                        </Button>
                                         <Button onClick={handleSave} size="sm" disabled={saving}>
                                             {saving
                                                 ? <Loader2 className="h-4 w-4 mr-1 animate-spin"/>

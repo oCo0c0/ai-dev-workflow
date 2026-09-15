@@ -48,6 +48,7 @@
       "engine": "Engine",
       "model": "Model",
       "notDetected": "Not detected",
+      "defaultModelBadge": "Default",
       "openModelConfig": "Advanced settings…",
       "zoom": "Zoom in",
       "optimize": "Optimize prompt",
@@ -660,7 +661,18 @@
     "candidatesHint": "Candidates returned by the endpoint; click to toggle",
     "noModelsSelected": "No models added yet",
     "removeModel": "Remove this model",
-    "addModelPlaceholder": "Type a model ID (e.g. deepseek-chat) and press Enter"
+    "addModelPlaceholder": "Type a model ID (e.g. deepseek-chat) and press Enter",
+    "testConnection": "Test Connection",
+    "testing": "Testing…",
+    "testOk": "Connection OK, {{count}} model(s) available",
+    "testOkNamed": "\"{{name}}\" connection OK, {{count}} model(s) available",
+    "testFail": "Connection failed",
+    "testFailNamed": "\"{{name}}\" connection failed: {{message}}",
+    "setDefault": "Set as default model",
+    "unsetDefault": "Unset default model",
+    "defaultBadge": "Default",
+    "defaultModelHint": "Click the star on a model to set it as default",
+    "modelCount": "{{count}} model(s)"
   },
   "settings": {
     "title": "Settings",

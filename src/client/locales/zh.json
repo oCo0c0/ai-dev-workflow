@@ -48,6 +48,7 @@
       "engine": "引擎",
       "model": "模型",
       "notDetected": "未检测",
+      "defaultModelBadge": "默认",
       "openModelConfig": "高级配置…",
       "zoom": "放大编辑",
       "optimize": "优化提示词",
@@ -688,7 +689,18 @@
     "candidatesHint": "端点返回的候选模型，点击选中/取消",
     "noModelsSelected": "尚未添加模型",
     "removeModel": "移除该模型",
-    "addModelPlaceholder": "输入模型 ID（如 deepseek-chat）后回车添加"
+    "addModelPlaceholder": "输入模型 ID（如 deepseek-chat）后回车添加",
+    "testConnection": "测试连接",
+    "testing": "测试中…",
+    "testOk": "连接成功，可用模型 {{count}} 个",
+    "testOkNamed": "「{{name}}」连接成功，可用模型 {{count}} 个",
+    "testFail": "连接失败",
+    "testFailNamed": "「{{name}}」连接失败：{{message}}",
+    "setDefault": "设为默认模型",
+    "unsetDefault": "取消默认模型",
+    "defaultBadge": "默认",
+    "defaultModelHint": "点击模型星标可快捷设为默认",
+    "modelCount": "{{count}} 个模型"
   },
   "settings": {
     "title": "设置",

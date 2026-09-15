@@ -9,13 +9,15 @@
  *       其余   → availableModels[active].tiers（label 显示「档位 → 实际模型名」）；
  *   - 底部「高级配置…」打开 Layout 常驻挂载的 ModelConfigModal（经 store 的
  *     cliProvider.showModelConfigModal 驱动）。
+ *   - custom 引擎若在供应商配置中标记了默认模型（meta.defaultModel），
+ *     该模型在下拉中置顶并带星标 + 「默认」徽标。
  *   按钮显示「引擎Label · 模型Label」；模型显示名解析镜像 Layout 顶栏（档位别名 → 实际模型名）。
  */
 
 import {useEffect, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {AnimatePresence, motion} from 'framer-motion';
-import {Check, ChevronDown, Cpu, Loader2, Settings2} from 'lucide-react';
+import {Check, ChevronDown, Cpu, Loader2, Settings2, Star} from 'lucide-react';
 import {apiPost} from '../../api';
 import {cn} from '../../lib/utils';
 import {useAppStore} from '../../stores/app-store';
@@ -57,10 +59,12 @@ export function ModelPicker() {
     const config = modelConfig[active] ?? {};
     const tiers = availableModels[active]?.tiers;
 
-    // custom 引擎的模型列表在 meta.models（store 中 meta 为 unknown，做安全收窄）
-    const meta = entry?.meta as {kind?: unknown; models?: unknown} | undefined;
+    // custom 引擎的模型列表在 meta.models（store 中 meta 为 unknown，做安全收窄）；
+    // meta.defaultModel 来自供应商配置（供应商页「设为默认」），用于置顶标注
+    const meta = entry?.meta as {kind?: unknown; models?: unknown; defaultModel?: unknown} | undefined;
     const rawModels = Array.isArray(meta?.models) ? meta.models : [];
     const customModels = rawModels.filter((m): m is string => typeof m === 'string');
+    const defaultModel = typeof meta?.defaultModel === 'string' && meta.defaultModel ? meta.defaultModel : undefined;
 
     // 模型显示名：档位别名 → 实际模型名（镜像 Layout 顶栏解析）；pi 引擎用 piMeta 匹配 name
     const rawModel = config.model ?? '';
@@ -78,6 +82,13 @@ export function ModelPicker() {
             : meta?.kind === 'custom'
                 ? customModels.map(m => ({value: m, label: m}))
                 : (tiers ?? []).map(item => ({value: item.value, label: `${item.label} → ${item.model}`}));
+
+    // 默认模型置顶（稳定排序，其余保持原顺序）
+    const orderedModels: Array<{value: string; label: string}> = defaultModel
+        ? [...modelOptions].sort(
+            (a, b) => Number(b.value === defaultModel) - Number(a.value === defaultModel),
+        )
+        : modelOptions;
 
     /** 切换引擎：后端选择成功后同步 store 并刷新模型配置与档位；期间禁用整个选择器 */
     const selectProvider = async (id: string) => {
@@ -162,7 +173,7 @@ export function ModelPicker() {
                                     {t('common.chatInput.model')}
                                 </p>
                                 <div className="max-h-56 overflow-y-auto">
-                                    {modelOptions.map(m => (
+                                    {orderedModels.map(m => (
                                         <button
                                             key={m.value}
                                             type="button"
@@ -176,6 +187,15 @@ export function ModelPicker() {
                                         >
                                             {m.value === config.model ? <Check className="h-3.5 w-3.5"/> : <span className="w-3.5"/>}
                                             <span className="truncate">{m.label}</span>
+                                            {/* 默认模型标注：星标 + 徽标（该模型已置顶） */}
+                                            {m.value === defaultModel && (
+                                                <span
+                                                    className="ml-auto inline-flex flex-shrink-0 items-center gap-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-[10px] text-amber-500"
+                                                >
+                                                    <Star className="h-2.5 w-2.5 fill-current"/>
+                                                    {t('common.chatInput.defaultModelBadge')}
+                                                </span>
+                                            )}
                                         </button>
                                     ))}
                                 </div>
