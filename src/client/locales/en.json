@@ -659,5 +659,45 @@
     "noModelsSelected": "No models added yet",
     "removeModel": "Remove this model",
     "addModelPlaceholder": "Type a model ID (e.g. deepseek-chat) and press Enter"
+  },
+  "settings": {
+    "title": "Settings",
+    "nav": {
+      "appearance": "Appearance",
+      "modelProviders": "Model Providers",
+      "mcp": "MCP",
+      "skills": "Skills"
+    },
+    "appearance": {
+      "fontZh": "Chinese Font",
+      "fontEn": "Latin Font",
+      "fontSize": "Font Size",
+      "fontPingFang": "PingFang SC",
+      "fontHiragino": "Hiragino Sans GB",
+      "fontYaHei": "Microsoft YaHei",
+      "fontNotoSansSC": "Noto Sans SC",
+      "fontSystemDefault": "System Default",
+      "fontInter": "Inter",
+      "fontSystemUi": "System UI",
+      "fontSegoeUi": "Segoe UI",
+      "fontRoboto": "Roboto",
+      "fontJetBrainsMono": "JetBrains Mono",
+      "fontCustom": "Custom",
+      "fontCustomPlaceholder": "Enter a custom font stack, e.g. \"My Font\", sans-serif",
+      "theme": "Theme",
+      "themeLight": "Light",
+      "themeDark": "Dark",
+      "language": "Language",
+      "langZh": "中文",
+      "langEn": "English",
+      "fontPreview": "预览 The quick brown fox 采纳敏捷开发 0123",
+      "reset": "Reset to Default"
+    },
+    "data": {
+      "export": "Export Config",
+      "import": "Import Config",
+      "exportDone": "Config exported",
+      "importDone": "Config imported"
+    }
   }
 }
