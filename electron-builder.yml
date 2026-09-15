@@ -69,6 +69,9 @@ linux:
     - deb
   category: Development
   artifactName: ${productName}-${version}-${arch}.${ext}
+  # deb 包必需的维护者信息
+  maintainer: along <wtl113114@gmail.com>
+  vendor: along
   # .desktop 条目名（v24 无 syncDesktopName，用 desktop 项提供，消除 desktopName 未设置警告）
   desktop:
     Name: AI Dev Workbench

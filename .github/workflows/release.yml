@@ -46,17 +46,36 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Cache electron binaries
+        uses: actions/cache@v4
+        with:
+          key: electron-${{ runner.os }}-39.8.10
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+
       - name: Build and package
         # --publish never：发布统一由下方 action 上传，禁用 electron-builder 内置发布
         # （否则它检测到 GitHub 仓库会自行发布并要求 GH_TOKEN）
         # unix 平台先抬高文件句柄上限（macOS 默认 256，打包大量文件会 EMFILE）
-        # 显式用 bash 执行：Windows runner 默认 pwsh，不识别 bash 语法
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" != "Windows" ]; then ulimit -n 10240; fi
-          pnpm run build
-          pnpm run build:electron
-          pnpm exec electron-builder ${{ matrix.args }} --publish never
+        # 显式用 bash 执行：Windows runner 默认 pwsh，不识别 bash 语法；
+        # retry 包装：下载 GitHub 二进制偶发触发匿名限流，自动重试
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 3
+          retry_on: error
+          timeout_minutes: 30
+          shell: bash
+          command: |
+            if [ "$RUNNER_OS" != "Windows" ]; then ulimit -n 10240; fi
+            cd "$GITHUB_WORKSPACE"
+            pnpm run build
+            pnpm run build:electron
+            pnpm exec electron-builder ${{ matrix.args }} --publish never
 
       - name: Upload artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
