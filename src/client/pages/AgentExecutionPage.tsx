@@ -12,6 +12,7 @@
 import {useEffect, useRef, useState, useCallback, useMemo} from 'react';
 import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiDelete, pickFolder} from '../api';
+import {notifyTaskResult} from '../utils/notification';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
 import {
@@ -280,6 +281,8 @@ export default function AgentExecutionPage() {
 
     // DOM 引用
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    // 本次任务期间是否见到过运行中状态（ref 跨 effect 重建保持，局部变量会因依赖抖动被重置）
+    const sawRunningRef = useRef(false);
 
     // 派生状态（基于 STATUS_META，新增状态无需改 UI 代码）
     const execStatus = detail?.status ?? 'idle';
@@ -694,14 +697,17 @@ export default function AgentExecutionPage() {
         if (!activeId) return;
 
         let cancelled = false;
+        sawRunningRef.current = false;
 
         const poll = async () => {
             try {
                 const data = await apiGet<AgentExecutionDetail>(`/agent-execution/${activeId}/detail`);
                 if (cancelled) return;
                 setDetail(data);
+                if (data.status === 'running') sawRunningRef.current = true;
                 if (['completed', 'failed', 'aborted'].includes(data.status)) {
                     if (pollRef.current) clearInterval(pollRef.current);
+                    if (sawRunningRef.current) notifyTaskResult(data.status, data.requirementTitle);
                     loadHistory();
                 }
             } catch {
@@ -845,7 +851,7 @@ export default function AgentExecutionPage() {
             </div>
 
             {/* ====== 右侧面板 ====== */}
-            <div className="flex-1 flex flex-col min-w-0">
+            <div className="adw-jumpbar-gutter relative flex-1 flex flex-col min-w-0">
                 {/* 页面头部 */}
                 <div className="border-b border-border px-6 py-3 shrink-0">
                     <div className="flex items-center justify-between">
@@ -1096,28 +1102,34 @@ export default function AgentExecutionPage() {
                             {/* --- 实时日志面板（统一 LogViewer：分组折叠 / 工具栏 / Markdown / 自动滚动） --- */}
                             <LogViewer
                                 key={activeId}
-                                className="min-h-[300px]"
+                                className="min-h-[420px]"
                                 messages={logMessages}
                                 title="执行日志"
                                 isStreaming={isRunning}
                                 emptyText={isRunning ? 'Agent正在执行...' : '等待执行...'}
                                 onClear={() => activeId && setAgentExecutionLogs(activeId, [])}
                                 showJumpBar
+                                bottomInset={240}
                             />
+                        </>
+                    )}
+                </div>
 
-                            {/* --- 底部消息输入 --- */}
-                            <Card className="border-primary/15">
-                                <CardContent className="p-3">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <MessageSquare className="h-4 w-4 text-primary"/>
-                                            <span className="text-sm font-semibold">发送消息给 Agent</span>
-                                        </div>
-                                        <ContextIndicator
-                                            logs={currentLogs}
-                                            onSuggestNewSession={handleNewSession}
-                                        />
+                {/* --- 底部消息输入（悬浮在日志区上方，不随内容滚动） --- */}
+                {activeId && detail && (
+                    <div className="absolute bottom-4 left-6 right-6 z-30">
+                        <Card className="border-primary/25 shadow-xl backdrop-blur-md bg-background/80">
+                            <CardContent className="p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <MessageSquare className="h-4 w-4 text-primary"/>
+                                        <span className="text-sm font-semibold">发送消息给 Agent</span>
                                     </div>
+                                    <ContextIndicator
+                                        logs={currentLogs}
+                                        onSuggestNewSession={handleNewSession}
+                                    />
+                                </div>
                                     {/* 排队消息条：运行中发送的消息在服务端排队（不上屏），消费时才进对话流 */}
                                     {pendingReplies.length > 0 && (
                                         <div className="mb-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
@@ -1186,9 +1198,8 @@ export default function AgentExecutionPage() {
                                     />
                                 </CardContent>
                             </Card>
-                        </>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
 
             {/* ====== 右侧：工作区预览侧边栏（跟随当前任务的项目空间，宽度可拖拽） ====== */}

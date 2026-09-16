@@ -36,6 +36,8 @@ interface LogViewerProps {
     className?: string;
     /** 显示用户消息快速跳转栏（默认关闭） */
     showJumpBar?: boolean;
+    /** 日志滚动区底部内边距（px）：输入框悬浮在日志区上方时，让最后一条消息能滚出悬浮层遮挡 */
+    bottomInset?: number;
 }
 
 export function LogViewer({
@@ -46,6 +48,7 @@ export function LogViewer({
                               isStreaming = false,
                               className,
                               showJumpBar = false,
+                              bottomInset = 0,
                           }: LogViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [copiedAll, setCopiedAll] = useState(false);
@@ -274,6 +277,7 @@ export function LogViewer({
                     'flex-1 overflow-y-auto min-h-[120px]',
                     showJumpBar && userAnchors.length > 0 ? 'py-3 pl-3 pr-9' : 'p-3',
                 )}
+                style={bottomInset > 0 ? {paddingBottom: bottomInset} : undefined}
                 onScroll={handleScroll}
                 onWheel={(e) => {
                     if (e.deltaY < 0) cancelAutoScrollOnUserScrollUp();

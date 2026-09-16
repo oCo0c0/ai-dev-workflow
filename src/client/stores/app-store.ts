@@ -413,6 +413,8 @@ interface AppState {
         fontFamilyEn: string;
         /** 基准字号（px，范围 12-18，默认 14，持久化到 localStorage） */
         fontSize: number;
+        /** 任务结果系统通知开关（执行成功/失败时通知，默认开启） */
+        notificationsEnabled: boolean;
     };
 
     // --- CLI Provider ---
@@ -550,6 +552,8 @@ interface AppState {
     setFontFamily: (zh: string, en: string) => void;
     /** 设置基准字号 px（持久化到 localStorage 并立即生效到 CSS 变量） */
     setFontSize: (size: number) => void;
+    /** 设置任务结果通知开关（持久化 localStorage） */
+    setNotificationsEnabled: (enabled: boolean) => void;
 
     // CLI Provider actions
     /** 设置 CLI Provider 配置状态 */
@@ -834,6 +838,7 @@ export const useAppStore = create<AppState>((set, get) => {
             fontFamilyZh: initialFont.fontFamilyZh,
             fontFamilyEn: initialFont.fontFamilyEn,
             fontSize: initialFont.fontSize,
+            notificationsEnabled: localStorage.getItem('ai-workbench-notifications') !== '0',
         },
         providerCatalog: [],
         availableModels: {},
@@ -965,6 +970,10 @@ export const useAppStore = create<AppState>((set, get) => {
             localStorage.setItem(FONT_KEY, JSON.stringify(settings));
             applyFontSettings(settings);
             return set((state) => ({ui: {...state.ui, fontSize: size}}));
+        },
+        setNotificationsEnabled: (enabled) => {
+            localStorage.setItem('ai-workbench-notifications', enabled ? '1' : '0');
+            set((state) => ({ui: {...state.ui, notificationsEnabled: enabled}}));
         },
 
         // === CLI Provider Actions ===

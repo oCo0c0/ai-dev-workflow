@@ -879,7 +879,8 @@ const PlanPanel = forwardRef<PanelHandle, PlanPanelProps>(function PlanPanel(
                 </div>
 
                 {/* 主内容区域：根据状态条件渲染不同的内容区块 */}
-                <div className="flex-1 overflow-y-auto p-6">
+                {/* 底部留白：合页的共用输入框悬浮在面板内容上方，避免最后一段内容被遮挡 */}
+                <div className="flex-1 overflow-y-auto p-6 pb-56">
                     {/* 空状态：无计划选中时显示提示信息 */}
                     {!activePlanId && !generating && (
                         <Card>
@@ -921,6 +922,7 @@ const PlanPanel = forwardRef<PanelHandle, PlanPanelProps>(function PlanPanel(
                                         isStreaming
                                         className="max-h-64"
                                         showJumpBar
+                                        bottomInset={240}
                                     />
                                 )}
 

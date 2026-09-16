@@ -371,7 +371,7 @@ export default function PipelineRunPage() {
             </div>
 
             {/* ====== 中间：tab + 面板 ====== */}
-            <div className="flex-1 flex flex-col min-w-0">
+            <div className="adw-jumpbar-gutter relative flex-1 flex flex-col min-w-0">
                 {/* tab 头 */}
                 <div className="border-b border-border px-6 pt-2 shrink-0 flex items-center justify-between">
                     <div className="flex">
@@ -428,10 +428,11 @@ export default function PipelineRunPage() {
                     )}
                 </div>
 
-                {/* 共用输入框：两个 tab 共用，动作按钮/占位文案由活跃面板上报 */}
+                {/* 共用输入框：两个 tab 共用，动作按钮/占位文案由活跃面板上报；
+                    悬浮在面板内容上方，不占布局流 */}
                 {inputState && (
-                    <div className="border-t border-border px-6 py-3 shrink-0">
-                        <Card className="border-primary/15">
+                    <div className="absolute bottom-4 left-6 right-6 z-30">
+                        <Card className="border-primary/25 shadow-xl backdrop-blur-md bg-background/80">
                             <CardContent className="p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">

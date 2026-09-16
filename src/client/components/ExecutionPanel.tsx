@@ -9,6 +9,7 @@
 import {useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle} from 'react';
 import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost} from '../api';
+import {notifyTaskResult} from '../utils/notification';
 import {useAppStore} from '../stores/app-store';
 import type {ExecutionLogEntry} from '../stores/app-store';
 import {cn} from '../lib/utils';
@@ -161,6 +162,8 @@ const ExecutionPanel = forwardRef<PanelHandle, ExecutionPanelProps>(function Exe
     }>({open: false});
     // DOM 引用：用于轮询清理
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    // 本次任务期间是否见到过运行中状态（ref 跨 effect 重建保持，局部变量会因依赖抖动被重置）
+    const sawRunningRef = useRef(false);
     const [pollKey, setPollKey] = useState(0); // 递增以重启轮询
 
     // 对外暴露 send()：共用输入框发送时调用
@@ -293,12 +296,15 @@ const ExecutionPanel = forwardRef<PanelHandle, ExecutionPanelProps>(function Exe
     useEffect(() => {
         if (!activeId) return;
 
+        sawRunningRef.current = false;
         const poll = async () => {
             try {
                 const data = await apiGet<ExecutionDetail>(`/execution/${activeId}/status`);
 
                 // 更新本地详情状态
                 updateDetail(data);
+
+                if (data.status === 'running') sawRunningRef.current = true;
 
                 // 如果当前活跃执行就是 store 中的实时执行，则同步更新 store 状态
                 if (activeId === storeExecutionId) {
@@ -319,6 +325,7 @@ const ExecutionPanel = forwardRef<PanelHandle, ExecutionPanelProps>(function Exe
                 // 执行结束时停止轮询，刷新历史列表，并自动聚焦回复输入框
                 if (['completed', 'failed', 'aborted'].includes(data.status)) {
                     if (pollRef.current) clearInterval(pollRef.current);
+                    if (sawRunningRef.current) notifyTaskResult(data.status, data.planId ? `计划 ${data.planId.slice(0, 8)}` : undefined);
                     loadHistory();
                 }
                 // 技能执行完成，等待用户确认
@@ -747,6 +754,7 @@ const ExecutionPanel = forwardRef<PanelHandle, ExecutionPanelProps>(function Exe
                                 emptyText={activeId ? t('execution.waitingOutput') : t('execution.noOutput')}
                                 onClear={clearExecutionLogs}
                                 showJumpBar
+                                bottomInset={240}
                             />
                         </div>
                     )}

@@ -119,6 +119,8 @@ export function AppearanceSection() {
     const setLocale = useAppStore(s => s.setLocale);
     const setFontFamily = useAppStore(s => s.setFontFamily);
     const setFontSize = useAppStore(s => s.setFontSize);
+    const notificationsEnabled = useAppStore(s => s.ui.notificationsEnabled);
+    const setNotificationsEnabled = useAppStore(s => s.setNotificationsEnabled);
 
     // 当前字体栈命中内置选项时取该选项，否则视为自定义（下拉显示"自定义"）
     const zhMatch = ZH_FONT_OPTIONS.find(o => o.value === fontFamilyZh);
@@ -297,6 +299,34 @@ export function AppearanceSection() {
                                         {t('settings.appearance.langEn')}
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="h-px bg-border/60"/>
+
+                        {/* 任务通知开关：执行成功/失败时弹系统通知 */}
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <p className="text-sm font-medium">{t('settings.appearance.notifications')}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    {t('settings.appearance.notificationsDesc')}
+                                </p>
+                            </div>
+                            <div className="flex w-40 shrink-0 rounded-lg border border-border/60 p-0.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setNotificationsEnabled(true)}
+                                    className={tabClass(notificationsEnabled)}
+                                >
+                                    {t('settings.appearance.notificationsOn')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setNotificationsEnabled(false)}
+                                    className={tabClass(!notificationsEnabled)}
+                                >
+                                    {t('settings.appearance.notificationsOff')}
+                                </button>
                             </div>
                         </div>
 

@@ -66,10 +66,18 @@ interface HoverPreview {
 
 export function MessageJumpBar({anchors, activeIndex, onJump, onHoverAnchor}: MessageJumpBarProps) {
     const [preview, setPreview] = useState<HoverPreview | null>(null);
-    // 悬浮位置：应用侧边栏（52px 折叠 ↔ 220px 展开）+ 页面执行历史列表（w-64=256px，
-    // 三页统一骨架）之后 12px —— 即历史列表与主内容区的分界处，不遮任何一侧
+    // 悬浮位置：应用侧边栏（52px 折叠 ↔ 220px 展开）+ 页面执行历史列表（w-64=256px）
+    // 之后 6px —— 落在主内容区为跳转栏让出的左侧槽位里（body.adw-jumpbar-active 时
+    // .adw-jumpbar-gutter 有 32px 左内边距），完全不遮日志窗口
     const sidebarCollapsed = useAppStore((s) => s.ui.sidebarCollapsed);
-    const railLeft = (sidebarCollapsed ? 52 : 220) + 256 + 12;
+    const railLeft = (sidebarCollapsed ? 52 : 220) + 256 + 6;
+
+    // 有锚点时给 body 挂标记，主内容区（.adw-jumpbar-gutter）让出左侧槽位
+    useEffect(() => {
+        if (anchors.length === 0) return;
+        document.body.classList.add('adw-jumpbar-active');
+        return () => document.body.classList.remove('adw-jumpbar-active');
+    }, [anchors.length]);
 
     // 卸载/空锚点时清掉日志区的高亮
     useEffect(() => {

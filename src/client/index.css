@@ -113,6 +113,12 @@
         -webkit-app-region: drag;
     }
 
+    /* 消息跳转栏激活时：主内容区（历史列表与日志区之间）让出左侧槽位，
+       跳转竖条悬浮在槽里而不遮挡日志窗口（槽位由 MessageJumpBar 挂 body class 切换） */
+    body.adw-jumpbar-active .adw-jumpbar-gutter {
+        padding-left: 32px;
+    }
+
     .app-no-drag {
         -webkit-app-region: no-drag;
     }
