@@ -12,7 +12,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -32,9 +31,11 @@ export const inject = ['webServer', 'tools', 'systemPrompt', 'llm']
 /**
  * Settings namespace of the adw capability — the section a settings surface
  * edits. Spelled here rather than imported: the browser half spells the same
- * value and must not depend on a Host package.
+ * value and must not depend on a Host package. Since dsh-settings 0.1.5 the
+ * namespace is a plain string matching /^[a-z][a-z0-9-]*$/ (the old
+ * settingsNamespace() helper was identity and has been removed).
  */
-export const ADW_SETTINGS_NAMESPACE = settingsNamespace('dsh-adw')
+export const ADW_SETTINGS_NAMESPACE = 'dsh-adw'
 
 /** Default dev-prompt template (placeholders rendered by renderDevPrompt). */
 export const DEFAULT_DEV_PROMPT_TEMPLATE = `基于以下需求完成开发任务。
@@ -204,12 +205,24 @@ function applyImpl(ctx: Context, config?: Config): void {
     }
   }
 
-  installSettingsSection(ctx, ADW_SETTINGS_NAMESPACE, Config, config ?? {}, {
-    setSource: (source) => { current = source },
-    onChange: sync,
+  // dsh-settings >= 0.1.5: the free function installSettingsSection() was
+  // folded into the provider as ctx.settings.installSection(). Attach through
+  // the optional service seam so the plugin still loads without settings.
+  // The hooks contract (setSource/onChange) is unchanged.
+  ctx.inject(['settings'], (settingsCtx) => {
+    const settings = (settingsCtx as Context & {settings: unknown}).settings as {
+      installSection: (owner: Context, ns: string, schema: z<Config>, entry: Config, hooks: {
+        setSource: (source: () => Config) => void
+        onChange: () => void
+      }) => unknown
+    }
+    settings.installSection(ctx, ADW_SETTINGS_NAMESPACE, Config, config ?? {}, {
+      setSource: (source) => { current = source },
+      onChange: sync,
+    })
   })
 
   // Initial registration from the composition entry (covers deployments with
-  // no settings service, whose installSettingsSection never fires its hooks).
+  // no settings service, whose installSection never fires its hooks).
   sync()
 }

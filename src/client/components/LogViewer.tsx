@@ -36,6 +36,9 @@ interface LogViewerProps {
     className?: string;
     /** 显示用户消息快速跳转栏（默认关闭） */
     showJumpBar?: boolean;
+    /** 跳转栏可见的页面路径前缀：keep-alive 下隐藏页面的 Portal 内容不会随祖先隐藏，
+     *  必须按路径显式限定，否则跳转栏会出现在所有页面上 */
+    jumpBarPaths?: string[];
     /** 日志滚动区底部内边距（px）：输入框悬浮在日志区上方时，让最后一条消息能滚出悬浮层遮挡 */
     bottomInset?: number;
 }
@@ -48,6 +51,7 @@ export function LogViewer({
                               isStreaming = false,
                               className,
                               showJumpBar = false,
+                              jumpBarPaths,
                               bottomInset = 0,
                           }: LogViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -359,6 +363,7 @@ export function LogViewer({
                     activeIndex={activeAnchor}
                     onJump={jumpToAnchor}
                     onHoverAnchor={setHoveredAnchor}
+                    visiblePaths={jumpBarPaths}
                 />
             )}
         </div>

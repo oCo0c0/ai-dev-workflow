@@ -250,8 +250,8 @@ export default function AgentExecutionPage() {
     };
 
     // UI 折叠
-    const [thoughtsExpanded, setThoughtsExpanded] = useState(true);
-    const [stepsExpanded, setStepsExpanded] = useState(true);
+    const [thoughtsExpanded, setThoughtsExpanded] = useState(false);
+    const [stepsExpanded, setStepsExpanded] = useState(false);
     const [expandedStepLogs, setExpandedStepLogs] = useState<Set<string>>(new Set());
     // 历史列表分组折叠（key 为 workspacePath，undefined 表示无工作空间组）
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -1109,6 +1109,7 @@ export default function AgentExecutionPage() {
                                 emptyText={isRunning ? 'Agent正在执行...' : '等待执行...'}
                                 onClear={() => activeId && setAgentExecutionLogs(activeId, [])}
                                 showJumpBar
+                                jumpBarPaths={['/agent-execution']}
                                 bottomInset={240}
                             />
                         </>

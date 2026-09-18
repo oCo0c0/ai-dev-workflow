@@ -754,6 +754,7 @@ const ExecutionPanel = forwardRef<PanelHandle, ExecutionPanelProps>(function Exe
                                 emptyText={activeId ? t('execution.waitingOutput') : t('execution.noOutput')}
                                 onClear={clearExecutionLogs}
                                 showJumpBar
+                                jumpBarPaths={['/pipeline-run']}
                                 bottomInset={240}
                             />
                         </div>

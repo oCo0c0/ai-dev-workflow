@@ -19,6 +19,7 @@
 
 import {useEffect, useState} from 'react';
 import {createPortal} from 'react-dom';
+import {useLocation} from 'react-router-dom';
 import {User} from 'lucide-react';
 import {cn} from '../lib/utils';
 import {useAppStore} from '../stores/app-store';
@@ -42,6 +43,9 @@ interface MessageJumpBarProps {
     onJump: (index: number) => void;
     /** 悬停节点（null = 离开）：供日志区同步高亮目标消息 */
     onHoverAnchor?: (index: number | null) => void;
+    /** 可见页面路径前缀：keep-alive 下隐藏页面的 Portal 不随祖先隐藏，
+     *  当前路径不匹配任何前缀时不渲染（undefined = 不限制） */
+    visiblePaths?: string[];
 }
 
 /** 悬停预览的摘要长度上限 */
@@ -64,27 +68,34 @@ interface HoverPreview {
     y: number;
 }
 
-export function MessageJumpBar({anchors, activeIndex, onJump, onHoverAnchor}: MessageJumpBarProps) {
+export function MessageJumpBar({anchors, activeIndex, onJump, onHoverAnchor, visiblePaths}: MessageJumpBarProps) {
     const [preview, setPreview] = useState<HoverPreview | null>(null);
+    const location = useLocation();
+
+    // keep-alive：本组件经 Portal 挂到 body，隐藏页面的 visibility:hidden 管不到它，
+    // 必须按当前路径自行判断是否可见（visiblePaths 由各页面传入自己的路径前缀）。
+    // 注意判定要放在所有 hooks 之后（条件提前返回会破坏 hooks 顺序）
+    const pathVisible = !visiblePaths || visiblePaths.some((p) => location.pathname.startsWith(p));
+
     // 悬浮位置：应用侧边栏（52px 折叠 ↔ 220px 展开）+ 页面执行历史列表（w-64=256px）
     // 之后 6px —— 落在主内容区为跳转栏让出的左侧槽位里（body.adw-jumpbar-active 时
     // .adw-jumpbar-gutter 有 32px 左内边距），完全不遮日志窗口
     const sidebarCollapsed = useAppStore((s) => s.ui.sidebarCollapsed);
     const railLeft = (sidebarCollapsed ? 52 : 220) + 256 + 6;
 
-    // 有锚点时给 body 挂标记，主内容区（.adw-jumpbar-gutter）让出左侧槽位
+    // 有锚点且当前页面可见时给 body 挂标记，主内容区（.adw-jumpbar-gutter）让出左侧槽位
     useEffect(() => {
-        if (anchors.length === 0) return;
+        if (anchors.length === 0 || !pathVisible) return;
         document.body.classList.add('adw-jumpbar-active');
         return () => document.body.classList.remove('adw-jumpbar-active');
-    }, [anchors.length]);
+    }, [anchors.length, pathVisible]);
 
     // 卸载/空锚点时清掉日志区的高亮
     useEffect(() => {
-        if (anchors.length === 0) onHoverAnchor?.(null);
-    }, [anchors.length, onHoverAnchor]);
+        if (anchors.length === 0 || !pathVisible) onHoverAnchor?.(null);
+    }, [anchors.length, pathVisible, onHoverAnchor]);
 
-    if (anchors.length === 0) return null;
+    if (!pathVisible || anchors.length === 0) return null;
 
     /** 悬停节点：按节点实时视口坐标记录预览位置，并通知日志区高亮目标消息 */
     const handleNodeEnter = (event: React.MouseEvent<HTMLButtonElement>, anchor: JumpAnchor, order: number) => {

@@ -267,7 +267,7 @@ export class PiProvider implements CLIProvider {
             try {
                 const store = new ModelProviderStore();
                 for (const rec of store.list()) {
-                    if (rec.kind !== 'pi' || rec.enabled === false || !rec.apiKey) continue;
+                    if (rec.kind !== 'pi' || !rec.enabled || !rec.apiKey) continue;
                     const providerId = rec.id.startsWith('pi:') ? rec.id.slice(3) : rec.id;
                     if (models.some((m) => m.provider === providerId)) continue;
                     const modelId = rec.defaultModel || rec.models?.[0];
@@ -580,14 +580,14 @@ export class PiProvider implements CLIProvider {
             const {MCPRegistryService} = await import('../mcp-registry-service.js');
             const registry = new MCPRegistryService();
             return registry.list()
-                .filter((s) => s.enabled !== false)
+                .filter((s) => s.enabled)
                 .map((s) => ({
                     name: s.name,
                     type: s.type ?? 'custom',
                     command: s.command,
                     args: s.args,
                     env: s.env,
-                    enabled: s.enabled !== false,
+                    enabled: s.enabled,
                     status: 'disconnected' as const,
                 }));
         } catch {
@@ -634,7 +634,7 @@ export class PiProvider implements CLIProvider {
         try {
             const store = new ModelProviderStore();
             const rec = store.list().find(
-                (r) => r.kind === 'pi' && r.enabled !== false && r.apiKey,
+                (r) => r.kind === 'pi' && r.enabled && r.apiKey,
             );
             if (rec) {
                 return {
@@ -658,7 +658,7 @@ export class PiProvider implements CLIProvider {
         try {
             const store = new ModelProviderStore();
             for (const rec of store.list()) {
-                if (rec.kind !== 'pi' || rec.enabled === false || !rec.apiKey) continue;
+                if (rec.kind !== 'pi' || !rec.enabled || !rec.apiKey) continue;
                 const providerId = rec.id.startsWith('pi:') ? rec.id.slice(3) : rec.id;
                 const envName = PI_PROVIDER_ENV_KEYS[providerId];
                 if (envName) env[envName] = rec.apiKey;

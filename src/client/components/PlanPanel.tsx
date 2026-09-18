@@ -922,6 +922,7 @@ const PlanPanel = forwardRef<PanelHandle, PlanPanelProps>(function PlanPanel(
                                         isStreaming
                                         className="max-h-64"
                                         showJumpBar
+                                        jumpBarPaths={['/pipeline-run']}
                                         bottomInset={240}
                                     />
                                 )}

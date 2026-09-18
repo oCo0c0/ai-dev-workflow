@@ -18,7 +18,7 @@
  * 引导逻辑不受嵌入影响。
  */
 
-import {NavLink, Navigate, useParams} from 'react-router-dom';
+import {NavLink, Navigate, useLocation} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import {Cpu, Database, Plug, SlidersHorizontal, Zap} from 'lucide-react';
 import {cn} from '../lib/utils';
@@ -45,7 +45,15 @@ const SECTIONS = [
  */
 export default function SettingsPage() {
     const {t} = useTranslation();
-    const {section} = useParams<{section?: string}>();
+    const location = useLocation();
+
+    // keep-alive 常驻：非设置路径时本页处于隐藏态，不渲染、不重定向
+    // （否则切到其他导航页时这里会误触发 Navigate）
+    if (!location.pathname.startsWith('/settings')) return null;
+
+    // section 从路径解析而非路由参数：keep-alive 方案下页面不经过路由匹配
+    // （Layout 常驻渲染），/settings/:section 的 params 拿不到
+    const section = location.pathname.split('/')[2];
 
     // 未知/缺失 section：统一重定向回外观设置（replace 避免污染历史记录）
     if (!section || !SECTIONS.some((s) => s.id === section)) {

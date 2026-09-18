@@ -10,8 +10,8 @@
  * - 全局初始化：启动 WebSocket 连接、注册键盘快捷键
  */
 
-import {useEffect, useState, useRef, type ChangeEvent} from 'react';
-import {NavLink, Outlet, useLocation} from 'react-router-dom';
+import {useEffect, useState, useRef, type ChangeEvent, type ComponentType} from 'react';
+import {NavLink, Navigate, useLocation} from 'react-router-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import {useTranslation} from 'react-i18next';
 import {useAppStore, type Theme} from '../stores/app-store';
@@ -19,6 +19,15 @@ import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useWebSocket} from '../hooks/useWebSocket';
 import SetupWizard from './SetupWizard';
 import {cn} from '../lib/utils';
+import RequirementsPage from '../pages/RequirementsPage';
+import WorkspacePage from '../pages/WorkspacePage';
+import PipelineRunPage from '../pages/PipelineRunPage';
+import TestsPage from '../pages/TestsPage';
+import PipelinesPage from '../pages/PipelinesPage';
+import MinerUPage from '../pages/MinerUPage';
+import ProjectsPage from '../pages/ProjectsPage';
+import AgentExecutionPage from '../pages/AgentExecutionPage';
+import SettingsPage from '../pages/SettingsPage';
 import {
     FileText,
     FolderOpen,
@@ -41,6 +50,30 @@ import {
 } from 'lucide-react';
 import {ProviderSetupModal} from './ProviderSetupModal';
 import {ModelConfigModal} from './ModelConfigModal';
+
+/**
+ * Keep-alive 常驻页面表：所有主页面一次性挂载，切换导航仅切换可见性，
+ * 不卸载组件——切走再切回时页面保持原样（选中的需求/执行、滚动位置、输入内容都保留），
+ * 运行中的任务轮询在后台继续，通知也能跨页面触发。
+ */
+const KEEP_ALIVE_PAGES: Array<{key: string; match: (p: string) => boolean; component: ComponentType}> = [
+    {key: '/', match: (p) => p === '/', component: RequirementsPage},
+    {key: '/agent-execution', match: (p) => p === '/agent-execution', component: AgentExecutionPage},
+    {key: '/pipeline-run', match: (p) => p === '/pipeline-run', component: PipelineRunPage},
+    {key: '/tests', match: (p) => p === '/tests', component: TestsPage},
+    {key: '/settings', match: (p) => p.startsWith('/settings'), component: SettingsPage},
+    {key: '/pipelines', match: (p) => p === '/pipelines', component: PipelinesPage},
+    {key: '/mineru', match: (p) => p === '/mineru', component: MinerUPage},
+    {key: '/workspace', match: (p) => p === '/workspace', component: WorkspacePage},
+    {key: '/projects', match: (p) => p === '/projects', component: ProjectsPage},
+];
+
+/** 旧路由 → 新路由重定向（原 main.tsx 内的路由重定向移到布局层处理） */
+const REDIRECTS: Record<string, string> = {
+    '/mcp': '/settings/mcp',
+    '/skills': '/settings/skills',
+    '/model-providers': '/settings/model-providers',
+};
 
 /**
  * 侧边栏导航菜单项配置数组
@@ -210,6 +243,12 @@ export default function Layout() {
         setLocale(next);
         i18n.changeLanguage(next);
     };
+
+    // 旧路由（/mcp /skills /model-providers 等）重定向到设置页对应分类
+    const redirectTo = REDIRECTS[location.pathname];
+    if (redirectTo) {
+        return <Navigate to={redirectTo} replace/>;
+    }
 
     return (
         <div className="flex h-screen overflow-hidden bg-transparent text-foreground">
@@ -444,18 +483,24 @@ export default function Layout() {
                     </div>
                 </header>
 
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={location.pathname}
-                        initial={{opacity: 0, y: 8}}
-                        animate={{opacity: 1, y: 0}}
-                        exit={{opacity: 0, y: -8}}
-                        transition={{duration: 0.2, ease: [0.25, 0.1, 0.25, 1]}}
-                        className="flex-1 overflow-y-auto"
-                    >
-                        <Outlet/>
-                    </motion.div>
-                </AnimatePresence>
+                {/* ====== 内容区：keep-alive 常驻页面，切换导航只切可见性不卸载 ======
+                    各页面 wrapper 为绝对定位铺满，非活跃页 visibility:hidden 保留 DOM
+                    与滚动位置；旧路由重定向在组件树顶部处理 */}
+                <div className="relative flex-1 min-h-0">
+                    {KEEP_ALIVE_PAGES.map(({key, match, component: Page}) => {
+                        const active = match(location.pathname);
+                        return (
+                            <div
+                                key={key}
+                                className="absolute inset-0 flex flex-col overflow-hidden"
+                                style={{visibility: active ? 'visible' : 'hidden', pointerEvents: active ? 'auto' : 'none'}}
+                                aria-hidden={!active}
+                            >
+                                <Page/>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
 
             {/* CLI Provider 切换弹窗 */}

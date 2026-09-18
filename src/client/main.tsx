@@ -2,7 +2,8 @@
  * @file 应用入口模块
  * @description AI 开发工作台的前端入口文件，负责初始化 React 应用、
  *              配置客户端路由并挂载根组件到 DOM。
- *              采用 React Router v6 的嵌套路由方案，所有页面共享 Layout 布局。
+ *              路由采用「顶层重定向 + Layout 内 keep-alive 常驻页面」方案：
+ *              所有主页面常驻挂载、切换导航仅切可见性，页面状态不丢失。
  *
  *              启动时检查 CLI Provider 是否已配置，未配置时弹出引导弹窗。
  */
@@ -13,18 +14,6 @@ import {BrowserRouter, Routes, Route, Navigate} from 'react-router-dom';
 import './i18n';
 import './index.css';
 import Layout from './components/Layout';
-import RequirementsPage from './pages/RequirementsPage';
-import WorkspacePage from './pages/WorkspacePage';
-// PlanPage/ExecutionPage 已合并为 PipelineRunPage（/plan、/execution 路由不再保留）
-import PipelineRunPage from './pages/PipelineRunPage';
-import TestsPage from './pages/TestsPage';
-// Skills/MCP/模型供应商三页已迁入设置中心（/settings/:section），
-// 旧路径仅保留重定向以兼容外部链接/引导
-import SettingsPage from './pages/SettingsPage';
-import PipelinesPage from './pages/PipelinesPage';
-import MinerUPage from './pages/MinerUPage';
-import ProjectsPage from './pages/ProjectsPage';
-import AgentExecutionPage from './pages/AgentExecutionPage';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
 
@@ -84,22 +73,12 @@ function App() {
     return (
         <BrowserRouter>
             <Routes>
-                <Route element={<Layout/>}>
-                    <Route path="/" element={<RequirementsPage/>}/>
-                    <Route path="/projects" element={<ProjectsPage/>}/>
-                    <Route path="/workspace" element={<WorkspacePage/>}/>
-                    <Route path="/pipeline-run" element={<PipelineRunPage/>}/>
-                    <Route path="/tests" element={<TestsPage/>}/>
-                    <Route path="/settings" element={<SettingsPage/>}/>
-                    <Route path="/settings/:section" element={<SettingsPage/>}/>
-                    {/* 旧全屏页路径保留重定向，兼容外部链接/引导流程 */}
-                    <Route path="/skills" element={<Navigate to="/settings/skills" replace/>}/>
-                    <Route path="/mcp" element={<Navigate to="/settings/mcp" replace/>}/>
-                    <Route path="/model-providers" element={<Navigate to="/settings/model-providers" replace/>}/>
-                    <Route path="/pipelines" element={<PipelinesPage/>}/>
-                    <Route path="/mineru" element={<MinerUPage/>}/>
-                    <Route path="/agent-execution" element={<AgentExecutionPage/>}/>
-                </Route>
+                {/* 旧路由重定向（在 Layout 之外，优先匹配） */}
+                <Route path="/skills" element={<Navigate to="/settings/skills" replace/>}/>
+                <Route path="/mcp" element={<Navigate to="/settings/mcp" replace/>}/>
+                <Route path="/model-providers" element={<Navigate to="/settings/model-providers" replace/>}/>
+                {/* 其余全部交给 Layout：内部 keep-alive 常驻渲染所有主页面，切换导航不卸载 */}
+                <Route path="*" element={<Layout/>}/>
             </Routes>
         </BrowserRouter>
     );
