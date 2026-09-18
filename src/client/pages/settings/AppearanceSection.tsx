@@ -18,7 +18,7 @@ import {useMemo} from 'react';
 import {useTranslation} from 'react-i18next';
 import {Moon, RotateCcw, Sun} from 'lucide-react';
 import {cn} from '../../lib/utils';
-import {composeEnFontFamily, useAppStore} from '../../stores/app-store';
+import {composeEnFontFamily, DEFAULT_OPACITY, useAppStore} from '../../stores/app-store';
 import {Card, CardContent, CardHeader, CardTitle} from '../../components/ui/card';
 import {Input} from '../../components/ui/input';
 import {Button} from '../../components/ui/button';
@@ -121,6 +121,8 @@ export function AppearanceSection() {
     const setFontSize = useAppStore(s => s.setFontSize);
     const notificationsEnabled = useAppStore(s => s.ui.notificationsEnabled);
     const setNotificationsEnabled = useAppStore(s => s.setNotificationsEnabled);
+    const opacity = useAppStore(s => s.ui.opacity);
+    const setOpacity = useAppStore(s => s.setOpacity);
 
     // 当前字体栈命中内置选项时取该选项，否则视为自定义（下拉显示"自定义"）
     const zhMatch = ZH_FONT_OPTIONS.find(o => o.value === fontFamilyZh);
@@ -136,10 +138,11 @@ export function AppearanceSection() {
         i18n.changeLanguage(next);
     };
 
-    /** 恢复默认外观：字体栈重置为 store 默认常量值，字号重置为 14 */
+    /** 恢复默认外观：字体栈重置为 store 默认常量值，字号重置为 14，透明度恢复默认 */
     const handleReset = () => {
         setFontFamily(DEFAULT_FONT_ZH, DEFAULT_FONT_EN);
         setFontSize(DEFAULT_FONT_SIZE);
+        setOpacity(DEFAULT_OPACITY);
     };
 
     /**
@@ -300,6 +303,34 @@ export function AppearanceSection() {
                                     </button>
                                 </div>
                             </div>
+                        </div>
+
+                        <div className="h-px bg-border/60"/>
+
+                        {/* 透明度：全局 / 菜单栏与顶栏 / 悬浮输入框 */}
+                        <div className="space-y-3">
+                            <p className="text-sm font-medium">{t('settings.appearance.opacity')}</p>
+                            {([
+                                {key: 'global' as const, labelKey: 'settings.appearance.opacityGlobal'},
+                                {key: 'sidebar' as const, labelKey: 'settings.appearance.opacitySidebar'},
+                                {key: 'input' as const, labelKey: 'settings.appearance.opacityInput'},
+                            ]).map(({key, labelKey}) => (
+                                <div key={key} className="flex items-center gap-3">
+                                    <span className="w-28 shrink-0 text-xs text-muted-foreground">{t(labelKey)}</span>
+                                    <input
+                                        type="range"
+                                        min={30}
+                                        max={100}
+                                        step={5}
+                                        value={Math.round(opacity[key] * 100)}
+                                        onChange={(e) => setOpacity({[key]: Number(e.target.value) / 100})}
+                                        className="h-1.5 w-full cursor-pointer accent-primary"
+                                    />
+                                    <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                                        {Math.round(opacity[key] * 100)}%
+                                    </span>
+                                </div>
+                            ))}
                         </div>
 
                         <div className="h-px bg-border/60"/>

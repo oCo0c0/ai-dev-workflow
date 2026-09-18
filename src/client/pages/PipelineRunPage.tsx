@@ -429,11 +429,11 @@ export default function PipelineRunPage() {
                 </div>
 
                 {/* 共用输入框：两个 tab 共用，动作按钮/占位文案由活跃面板上报；
-                    悬浮在面板内容上方，不占布局流 */}
+                    悬浮在面板内容上方不占布局流，样式统一 floating-input-card */}
                 {inputState && (
                     <div className="absolute bottom-4 left-6 right-6 z-30">
-                        <Card className="border-primary/25 shadow-xl backdrop-blur-md bg-background/80">
-                            <CardContent className="p-3">
+                        <div className="floating-input-card rounded-xl border border-primary/25 shadow-xl">
+                            <div className="p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <MessageSquare className="h-4 w-4 text-primary"/>
@@ -453,7 +453,7 @@ export default function PipelineRunPage() {
                                     onChange={setReplyText}
                                     onSend={(text, atts) => handleSharedSend(text, atts.map(a => a.attachmentId))}
                                     placeholder={inputState.placeholder}
-                                    rows={2}
+                                    rows={3}
                                     disabled={inputState.disabled}
                                     title={activeTab === 'plan' ? t('plan.replyTitle') : t('execution.replyTitle')}
                                     optimizable
@@ -463,8 +463,8 @@ export default function PipelineRunPage() {
                                     branchDisabled={inputState.branchDisabled}
                                     actions={inputState.actions}
                                 />
-                            </CardContent>
-                        </Card>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

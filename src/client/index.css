@@ -34,10 +34,19 @@
         --bg-glow-3: 0 82% 62% / 0.11;
         /* 自定义背景照片遮罩（有照片时启用：轻度压白保证可读，照片透出） */
         --bg-overlay: 0 0% 100% / 0.38;
-        /* 玻璃透明度（浅色通透，玻璃感明显） */
-        --glass-bar-bg: 0 0% 100% / 0.62;
-        --glass-card-bg: 0 0% 100% / 0.55;
-        --glass-panel-bg: 0 0% 100% / 0.80;
+        /* 玻璃透明度（浅色通透，玻璃感明显）——颜色与 alpha 分离，alpha 乘以设置中心的透明度系数 */
+        --glass-bar-bg: 0 0% 100%;
+        --glass-bar-alpha: 0.62;
+        --glass-card-bg: 0 0% 100%;
+        --glass-card-alpha: 0.55;
+        --glass-panel-bg: 0 0% 100%;
+        --glass-panel-alpha: 0.80;
+        /* 透明度设置系数（由 app-store applyOpacitySettings 注入 <html>，缺省不衰减） */
+        --app-opacity-global: 1;
+        --app-opacity-sidebar: 1;
+        --app-opacity-input: 0.8;
+        /* 自定义背景照片衰减（body.has-bg 时置 <1，让照片从菜单栏/顶栏透出） */
+        --app-opacity-has-bg: 1;
     }
 
     /* === 深色主题（中性灰黑，非纯黑、不偏紫；品牌红渐变）=== */
@@ -72,9 +81,12 @@
         /* 自定义背景照片遮罩（有照片时启用：轻度压暗保证可读，照片透出） */
         --bg-overlay: 203 30% 12% / 0.42;
         /* 玻璃透明度（深色更实心，保证可读） */
-        --glass-bar-bg: 203 30% 19% / 0.85;
-        --glass-card-bg: 203 30% 19% / 0.80;
-        --glass-panel-bg: 203 30% 18% / 0.92;
+        --glass-bar-bg: 203 30% 19%;
+        --glass-bar-alpha: 0.85;
+        --glass-card-bg: 203 30% 19%;
+        --glass-card-alpha: 0.80;
+        --glass-panel-bg: 203 30% 18%;
+        --glass-panel-alpha: 0.92;
     }
 }
 
@@ -140,6 +152,8 @@
     /* 用户自定义背景照片（有背景时由 JS 挂 has-bg 并设置 --user-bg）
        层级顺序：红光晕(最上) → 照片遮罩(压暗保证可读) → 照片(最底，透出显示) */
     body.has-bg {
+        /* 有背景照片时衰减菜单栏/顶栏的玻璃不透明度，让照片透出（内容区玻璃本就较透，无需处理） */
+        --app-opacity-has-bg: 0.5;
         background-image:
             radial-gradient(80% 60% at 20% 0%, hsl(var(--bg-glow-1)), transparent 55%),
             radial-gradient(60% 50% at 80% 10%, hsl(var(--bg-glow-2)), transparent 55%),
@@ -152,22 +166,22 @@
     }
 }
 
-/* === 毛玻璃效果 === */
+/* === 毛玻璃效果（透明度系数由设置中心控制，见 --app-opacity-*）=== */
 .glass {
-    background: hsl(var(--glass-bar-bg));
+    background: hsl(var(--glass-bar-bg) / calc(var(--glass-bar-alpha) * var(--app-opacity-sidebar) * var(--app-opacity-has-bg)));
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
 .glass-sidebar {
-    background: hsl(var(--glass-bar-bg));
+    background: hsl(var(--glass-bar-bg) / calc(var(--glass-bar-alpha) * var(--app-opacity-sidebar) * var(--app-opacity-has-bg)));
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
 /* === 玻璃卡片 / 玻璃面板（苹果风格：半透明 + 顶部高光 + 柔和投影）=== */
 .glass-card {
-    background: hsl(var(--glass-card-bg));
+    background: hsl(var(--glass-card-bg) / calc(var(--glass-card-alpha) * var(--app-opacity-global)));
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     backdrop-filter: blur(24px) saturate(180%);
     border: 1px solid hsl(var(--foreground) / 0.10);
@@ -177,13 +191,20 @@
 }
 
 .glass-panel {
-    background: hsl(var(--glass-panel-bg));
+    background: hsl(var(--glass-panel-bg) / calc(var(--glass-panel-alpha) * var(--app-opacity-global)));
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     backdrop-filter: blur(28px) saturate(180%);
     border: 1px solid hsl(var(--foreground) / 0.12);
     box-shadow:
         inset 0 1px 0 hsl(0 0% 100% / 0.08),
         0 20px 60px hsl(var(--foreground) / 0.12);
+}
+
+/* === 悬浮输入框（各页面统一外观：背景透明度独立可调，毛玻璃 + 圆角 + 主色描边）=== */
+.floating-input-card {
+    background: hsl(var(--background) / var(--app-opacity-input));
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
 }
 
 /* === Apple 风格阴影 === */

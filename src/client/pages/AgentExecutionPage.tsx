@@ -1116,11 +1116,11 @@ export default function AgentExecutionPage() {
                     )}
                 </div>
 
-                {/* --- 底部消息输入（悬浮在日志区上方，不随内容滚动） --- */}
+                {/* --- 底部消息输入（悬浮在日志区上方，不随内容滚动；样式统一 floating-input-card） --- */}
                 {activeId && detail && (
                     <div className="absolute bottom-4 left-6 right-6 z-30">
-                        <Card className="border-primary/25 shadow-xl backdrop-blur-md bg-background/80">
-                            <CardContent className="p-3">
+                        <div className="floating-input-card rounded-xl border border-primary/25 shadow-xl">
+                            <div className="p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <MessageSquare className="h-4 w-4 text-primary"/>
@@ -1197,8 +1197,8 @@ export default function AgentExecutionPage() {
                                             ) : undefined
                                         }
                                     />
-                                </CardContent>
-                            </Card>
+                                </div>
+                        </div>
                     </div>
                 )}
             </div>

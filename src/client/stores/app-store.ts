@@ -415,6 +415,8 @@ interface AppState {
         fontSize: number;
         /** 任务结果系统通知开关（执行成功/失败时通知，默认开启） */
         notificationsEnabled: boolean;
+        /** 界面透明度设置（0.3-1：全局玻璃卡片 / 菜单栏与顶栏 / 悬浮输入框） */
+        opacity: OpacitySettings;
     };
 
     // --- CLI Provider ---
@@ -554,6 +556,8 @@ interface AppState {
     setFontSize: (size: number) => void;
     /** 设置任务结果通知开关（持久化 localStorage） */
     setNotificationsEnabled: (enabled: boolean) => void;
+    /** 设置界面透明度（部分更新，持久化 localStorage 并立即生效到 CSS 变量） */
+    setOpacity: (patch: Partial<OpacitySettings>) => void;
 
     // CLI Provider actions
     /** 设置 CLI Provider 配置状态 */
@@ -733,6 +737,54 @@ interface FontSettings {
     fontSize: number;
 }
 
+/** 界面透明度设置（各系数 0.3-1，作用于对应玻璃层） */
+export interface OpacitySettings {
+    /** 全局：玻璃卡片/面板 */
+    global: number;
+    /** 菜单栏与顶栏 */
+    sidebar: number;
+    /** 悬浮输入框 */
+    input: number;
+}
+
+const OPACITY_KEY = 'ai-workbench-opacity';
+
+/** 透明度默认值（外观面板"恢复默认"使用） */
+export const DEFAULT_OPACITY: OpacitySettings = {global: 1, sidebar: 1, input: 0.8};
+
+/**
+ * 从 localStorage 加载透明度设置
+ * @returns 保存的设置；未保存、解析失败或字段缺失时以默认值补齐
+ */
+function loadOpacitySettings(): OpacitySettings {
+    if (typeof window === 'undefined') return {...DEFAULT_OPACITY};
+    try {
+        const stored = localStorage.getItem(OPACITY_KEY);
+        if (!stored) return {...DEFAULT_OPACITY};
+        const parsed = JSON.parse(stored) as Partial<OpacitySettings>;
+        const clamp = (v: unknown, fallback: number) =>
+            typeof v === 'number' && v >= 0.3 && v <= 1 ? v : fallback;
+        return {
+            global: clamp(parsed.global, DEFAULT_OPACITY.global),
+            sidebar: clamp(parsed.sidebar, DEFAULT_OPACITY.sidebar),
+            input: clamp(parsed.input, DEFAULT_OPACITY.input),
+        };
+    } catch {
+        return {...DEFAULT_OPACITY};
+    }
+}
+
+/**
+ * 将透明度设置应用到 <html> 的 CSS 变量（index.css 的玻璃层消费）
+ */
+function applyOpacitySettings(settings: OpacitySettings): void {
+    if (typeof document === 'undefined') return;
+    const html = document.documentElement;
+    html.style.setProperty('--app-opacity-global', String(settings.global));
+    html.style.setProperty('--app-opacity-sidebar', String(settings.sidebar));
+    html.style.setProperty('--app-opacity-input', String(settings.input));
+}
+
 /**
  * 从 localStorage 加载保存的字体设置
  * @returns 保存的字体设置；未保存、JSON 解析失败或字段缺失时以默认值补齐
@@ -814,6 +866,7 @@ export const useAppStore = create<AppState>((set, get) => {
     applyTheme(initialTheme);
     applyBgImage(initialBgImage);
     applyFontSettings(initialFont);
+    applyOpacitySettings(loadOpacitySettings());
 
     return {
         // === 初始状态 ===
@@ -839,6 +892,7 @@ export const useAppStore = create<AppState>((set, get) => {
             fontFamilyEn: initialFont.fontFamilyEn,
             fontSize: initialFont.fontSize,
             notificationsEnabled: localStorage.getItem('ai-workbench-notifications') !== '0',
+            opacity: loadOpacitySettings(),
         },
         providerCatalog: [],
         availableModels: {},
@@ -974,6 +1028,12 @@ export const useAppStore = create<AppState>((set, get) => {
         setNotificationsEnabled: (enabled) => {
             localStorage.setItem('ai-workbench-notifications', enabled ? '1' : '0');
             set((state) => ({ui: {...state.ui, notificationsEnabled: enabled}}));
+        },
+        setOpacity: (patch) => {
+            const opacity = {...get().ui.opacity, ...patch};
+            localStorage.setItem(OPACITY_KEY, JSON.stringify(opacity));
+            applyOpacitySettings(opacity);
+            set((state) => ({ui: {...state.ui, opacity}}));
         },
 
         // === CLI Provider Actions ===
