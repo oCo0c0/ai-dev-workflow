@@ -2,29 +2,24 @@
  * @file SettingsPage.tsx
  * @description 设置中心页面 —— 左侧二级分类栏 + 右侧内容区。
  *
- * - 分类栏五项：外观 / 模型供应商 / MCP / Skills / 数据，点击切换 /settings/<section>，
- *   当前项高亮（窄屏下收窄为纯图标列，label 隐藏、以 title 提示）
- * - 右侧按 useParams 的 section 渲染对应面板：
- *   - appearance      → AppearanceSection（设置中心专属外观面板）
+ * - 分类栏：环境体检 / 模型供应商 / MCP / Skills / 数据（点击切换 /settings/<section>，
+ *   当前项高亮；窄屏下收窄为纯图标列，label 隐藏、以 title 提示）
+ * - 外观 / 壁纸 / 字体 / 吉祥物 / 效果 / 高级 已迁至顶栏调色按钮唤出的
+ *   「悬浮快捷设置面板」（FloatingSettingsPanel），不再占用设置中心栏目；
+ * - 右侧按 section 渲染对应面板：
+ *   - environment     → EnvironmentSection（环境体检）
  *   - model-providers → ModelProvidersPage（原独立页组件直接嵌入）
  *   - mcp             → MCPPage（同上）
  *   - skills          → SkillsPage（同上）
  *   - data            → DataSection（配置导入/导出）
- * - 未知或缺失 section 时重定向到 /settings/appearance
- *
- * 被嵌入的三个页面原为全屏页（根容器 `p-6 h-full flex flex-col`），
- * 右侧内容区提供确定高度（h-full 链路）与 overflow-y-auto，
- * 其内部分栏的滚动行为与嵌入前保持一致；页面内部的 useGuide（Joyride）
- * 引导逻辑不受嵌入影响。
+ * - 未知或缺失 section 时重定向到 /settings/environment
  */
 
 import {NavLink, Navigate, useLocation} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
-import {Cpu, Database, Image, MonitorCheck, Plug, SlidersHorizontal, Zap} from 'lucide-react';
+import {Cpu, Database, MonitorCheck, Plug, Zap} from 'lucide-react';
 import {cn} from '../lib/utils';
-import {AppearanceSection} from './settings/AppearanceSection';
 import {DataSection} from './settings/DataSection';
-import {WallpaperSection} from './settings/WallpaperSection';
 import {EnvironmentSection} from './settings/EnvironmentSection';
 import ModelProvidersPage from './ModelProvidersPage';
 import MCPPage from './MCPPage';
@@ -32,8 +27,6 @@ import SkillsPage from './SkillsPage';
 
 /** 设置分类配置（id 即 /settings/:section 的路由参数值） */
 const SECTIONS = [
-    {id: 'appearance', labelKey: 'settings.nav.appearance', icon: SlidersHorizontal},
-    {id: 'wallpaper', labelKey: 'settings.nav.wallpaper', icon: Image},
     {id: 'environment', labelKey: 'settings.nav.environment', icon: MonitorCheck},
     {id: 'model-providers', labelKey: 'settings.nav.modelProviders', icon: Cpu},
     {id: 'mcp', labelKey: 'settings.nav.mcp', icon: Plug},
@@ -59,9 +52,10 @@ export default function SettingsPage() {
     // （Layout 常驻渲染），/settings/:section 的 params 拿不到
     const section = location.pathname.split('/')[2];
 
-    // 未知/缺失 section：统一重定向回外观设置（replace 避免污染历史记录）
+    // 未知/缺失 section（含旧链接 /settings/appearance、/settings/wallpaper）：
+    // 统一重定向到环境体检（replace 避免污染历史记录）
     if (!section || !SECTIONS.some((s) => s.id === section)) {
-        return <Navigate to="/settings/appearance" replace/>;
+        return <Navigate to="/settings/environment" replace/>;
     }
 
     return (
@@ -108,8 +102,6 @@ export default function SettingsPage() {
 
             {/* 右侧内容区：确定高度 + 纵向滚动，嵌入页根容器 h-full 在此正常撑满 */}
             <div className="flex-1 min-w-0 h-full overflow-y-auto">
-                {section === 'appearance' && <AppearanceSection/>}
-                {section === 'wallpaper' && <WallpaperSection/>}
                 {section === 'environment' && <EnvironmentSection/>}
                 {section === 'model-providers' && <ModelProvidersPage/>}
                 {section === 'mcp' && <MCPPage/>}

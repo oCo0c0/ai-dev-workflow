@@ -126,6 +126,7 @@ export default function Layout() {
     const locale = useAppStore((s) => s.ui.locale);
     const setLocale = useAppStore((s) => s.setLocale);
     const mascotEnabled = useAppStore((s) => s.ui.mascot.enabled);
+    const quickSettingsOpen = useAppStore((s) => s.ui.quickSettings.open);
     const setQuickSettingsOpen = useAppStore((s) => s.setQuickSettingsOpen);
     const wsConnected = useAppStore((s) => s.ws.connected);
     const cliProvider = useAppStore((s) => s.cliProvider);
@@ -375,9 +376,10 @@ export default function Layout() {
                         >
                             <Languages className="h-4 w-4"/>
                         </button>
-                        {/* 快捷设置（外观/壁纸/字体/吉祥物/效果/高级 悬浮面板） */}
+                        {/* 快捷设置（外观/壁纸/字体/吉祥物/效果/高级 悬浮面板）：
+                            toggle 语义 —— 面板开着时点按即收起（外点关闭的触发按钮例外） */}
                         <button
-                            onClick={() => setQuickSettingsOpen(true)}
+                            onClick={() => setQuickSettingsOpen(!quickSettingsOpen)}
                             className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 app-no-drag"
                             title={t('settings.qs.title')}
                         >

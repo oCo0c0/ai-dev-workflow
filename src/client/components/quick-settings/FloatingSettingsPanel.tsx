@@ -8,7 +8,7 @@
  *   （framer-motion layoutId 平滑滑动），上次页签持久化；
  * - 壁纸选择弹窗由面板挂载（pickerOpen 来自 wallpaper-store，含上传/隐藏/恢复）。
  */
-import {useEffect} from 'react';
+import {useEffect, useRef} from 'react';
 import {createPortal} from 'react-dom';
 import {useTranslation} from 'react-i18next';
 import {AnimatePresence, motion} from 'framer-motion';
@@ -52,11 +52,28 @@ export function FloatingSettingsPanel() {
         return () => document.removeEventListener('keydown', onKey);
     }, [open, setOpen]);
 
+    // 点击主页面（面板外任意区域）自动关闭：悬浮 HUD 的标准交互。
+    // - mousedown 阶段判定（早于 click，主页面元素的动作不受影响）；
+    // - 壁纸选择弹窗打开期间暂停外点关闭（弹窗本身就是从面板唤出的二级层）；
+    // - 顶栏调色按钮自身可反复点按切换开合（Layout 侧为 toggle 语义）。
+    const asideRef = useRef<HTMLElement>(null);
+    useEffect(() => {
+        if (!open) return;
+        const onMouseDown = (e: MouseEvent) => {
+            if (pickerOpen) return;
+            const el = asideRef.current;
+            if (el && e.target instanceof Node && !el.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onMouseDown);
+        return () => document.removeEventListener('mousedown', onMouseDown);
+    }, [open, pickerOpen, setOpen]);
+
     return createPortal(
         <>
             <AnimatePresence>
                 {open && (
                     <motion.aside
+                        ref={asideRef}
                         initial={{x: 56, opacity: 0}}
                         animate={{x: 0, opacity: 1}}
                         exit={{x: 56, opacity: 0}}
