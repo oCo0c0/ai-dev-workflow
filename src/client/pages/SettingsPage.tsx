@@ -20,11 +20,12 @@
 
 import {NavLink, Navigate, useLocation} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
-import {Cpu, Database, Image, Plug, SlidersHorizontal, Zap} from 'lucide-react';
+import {Cpu, Database, Image, MonitorCheck, Plug, SlidersHorizontal, Zap} from 'lucide-react';
 import {cn} from '../lib/utils';
 import {AppearanceSection} from './settings/AppearanceSection';
 import {DataSection} from './settings/DataSection';
 import {WallpaperSection} from './settings/WallpaperSection';
+import {EnvironmentSection} from './settings/EnvironmentSection';
 import ModelProvidersPage from './ModelProvidersPage';
 import MCPPage from './MCPPage';
 import SkillsPage from './SkillsPage';
@@ -33,6 +34,7 @@ import SkillsPage from './SkillsPage';
 const SECTIONS = [
     {id: 'appearance', labelKey: 'settings.nav.appearance', icon: SlidersHorizontal},
     {id: 'wallpaper', labelKey: 'settings.nav.wallpaper', icon: Image},
+    {id: 'environment', labelKey: 'settings.nav.environment', icon: MonitorCheck},
     {id: 'model-providers', labelKey: 'settings.nav.modelProviders', icon: Cpu},
     {id: 'mcp', labelKey: 'settings.nav.mcp', icon: Plug},
     {id: 'skills', labelKey: 'settings.nav.skills', icon: Zap},
@@ -108,6 +110,7 @@ export default function SettingsPage() {
             <div className="flex-1 min-w-0 h-full overflow-y-auto">
                 {section === 'appearance' && <AppearanceSection/>}
                 {section === 'wallpaper' && <WallpaperSection/>}
+                {section === 'environment' && <EnvironmentSection/>}
                 {section === 'model-providers' && <ModelProvidersPage/>}
                 {section === 'mcp' && <MCPPage/>}
                 {section === 'skills' && <SkillsPage/>}

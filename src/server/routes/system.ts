@@ -16,6 +16,7 @@
  */
 
 import {Router} from 'express';
+import {exec} from 'child_process';
 import {CLIRunnerService, CUSTOM_MODEL_ENGINE_ID} from '../services/cli-runner-service.js';
 import {MCPRegistryService} from '../services/mcp-registry-service.js';
 import type {SandboxService} from '../services/sandbox-service.js';
@@ -39,6 +40,39 @@ export function createSystemRoutes(
     sandboxService?: SandboxService
 ): Router {
     const router = Router();
+
+    // GET /api/system/env-check - 环境体检：AI 引擎与基础工具的就绪检测
+    // 语言中立：只返回 事实（installed/version），标签/用途/安装指引由前端 i18n 映射。
+    // 任一 AI CLI（claude/codex/pi）可用即可启用执行链路（BYO-CLI 设计，见 electron-builder.yml）。
+    const checkCommand = (command: string, timeoutMs = 5000): Promise<{installed: boolean; version: string}> =>
+        new Promise((resolve) => {
+            exec(command, {timeout: timeoutMs, windowsHide: true}, (err, stdout) => {
+                if (err && !stdout) {
+                    resolve({installed: false, version: ''});
+                    return;
+                }
+                const first = String(stdout || '').split(/\r?\n/).find((line) => line.trim());
+                resolve({installed: true, version: first ? first.trim().slice(0, 80) : ''});
+            });
+        });
+
+    router.get('/env-check', async (_req, res) => {
+        try {
+            const [node, git, claude, codex, pi] = await Promise.all([
+                checkCommand('node --version'),
+                checkCommand('git --version'),
+                checkCommand('claude --version'),
+                checkCommand('codex --version'),
+                checkCommand('pi --version'),
+            ]);
+            res.json({
+                platform: process.platform,
+                checks: {node, git, claude, codex, pi},
+            });
+        } catch (err) {
+            res.status(500).json({code: 'ENV_CHECK_ERROR', message: getErrorMessage(err)});
+        }
+    });
 
     // GET /api/system/status - 获取系统综合状态信息
     router.get('/status', async (_req, res) => {
