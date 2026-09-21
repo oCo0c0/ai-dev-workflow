@@ -781,6 +781,7 @@
       "fontCustom": "Custom Text Style",
       "fontCustomHint": "Toggle off to restore theme text appearance instantly",
       "fontColor": "Text color",
+      "fontColorHint": "Colors primary and secondary text; auto-lightened in dark theme",
       "fontWeight": "Font weight",
       "caretColor": "Caret color",
       "caretColorHint": "Adjust when the caret blends into wallpaper/glass",

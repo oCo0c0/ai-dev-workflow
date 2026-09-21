@@ -976,7 +976,8 @@ export interface FontColorSettings {
     caretColor: string | null;
 }
 
-const DEFAULT_FONT_COLOR: FontColorSettings = {enabled: false, color: '#3a3f4a', weight: 400, caretColor: null};
+/** 默认开启即可见（蓝 600，与两套主题默认字色都有明显区分）；旧默认 #3a3f4a 与浅色主题字色过于接近，曾让功能看起来「没反应」 */
+const DEFAULT_FONT_COLOR: FontColorSettings = {enabled: false, color: '#2563eb', weight: 400, caretColor: null};
 
 function loadFontColorSettings(): FontColorSettings {
     if (typeof window === 'undefined') return {...DEFAULT_FONT_COLOR};

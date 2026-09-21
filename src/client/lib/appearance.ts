@@ -120,6 +120,7 @@ function flushPatchStyle(): void {
 /**
  * 应用配色（主题感知）：:root 浅色档 + .dark 深色档（主色/渐变提亮一档，
  * 光晕 alpha 恢复浅深各自的设计值）。pair = null 清除段，恢复样式表主题默认。
+ * 所有变量声明带 !important：对加载顺序/HMR 插入的样式表时序免疫。
  */
 export function applyAccent(pair: AccentPair | null): void {
     if (typeof document === 'undefined') return;
@@ -133,10 +134,10 @@ export function applyAccent(pair: AccentPair | null): void {
     const fromD = triplet(lightenHex(pair.from, 12));
     const toD = triplet(lightenHex(pair.to, 8));
     patchSegments.accent = [
-        `:root{--brand-from:${fromL};--brand-to:${toL};--primary:${fromL};--ring:${fromL};` +
-        `--bg-glow-1:${fromL}/0.20;--bg-glow-2:${toL}/0.15;--bg-glow-3:${fromL}/0.11}`,
-        `.dark{--brand-from:${fromD};--brand-to:${toD};--primary:${fromD};--ring:${fromD};` +
-        `--bg-glow-1:${fromD}/0.32;--bg-glow-2:${toD}/0.26;--bg-glow-3:${fromD}/0.18}`,
+        `:root{--brand-from:${fromL} !important;--brand-to:${toL} !important;--primary:${fromL} !important;--ring:${fromL} !important;` +
+        `--bg-glow-1:${fromL}/0.20 !important;--bg-glow-2:${toL}/0.15 !important;--bg-glow-3:${fromL}/0.14 !important}`,
+        `.dark{--brand-from:${fromD} !important;--brand-to:${toD} !important;--primary:${fromD} !important;--ring:${fromD} !important;` +
+        `--bg-glow-1:${fromD}/0.32 !important;--bg-glow-2:${toD}/0.26 !important;--bg-glow-3:${fromD}/0.18 !important}`,
     ].join('\n');
     flushPatchStyle();
 }
@@ -155,14 +156,15 @@ export function applyGlassColor(hex: string | null): void {
     const light = triplet(hex);
     const dark = darkVariant(hex, 16, 0.6);
     const vars = ['--glass-bar-bg', '--glass-card-bg', '--glass-panel-bg'];
-    const set = (v: string) => vars.map(name => `${name}:${v}`).join(';');
+    const set = (v: string) => vars.map(name => `${name}:${v} !important`).join(';');
     patchSegments.glass = `:root{${set(light)}}.dark{${set(dark)}}`;
     flushPatchStyle();
 }
 
 /**
- * 应用字体颜色（主题感知）：浅色用所选色，深色自动提亮一档保证可读。
- * 覆盖 --foreground token（muted 次级保持主题层次）。hex = null 清除段。
+ * 应用字体颜色（主题感知）：同时着色主文字（--foreground）与次级文字
+ * （--muted-foreground，应用内大量说明文字用这个 token，只改主文字几乎看不出），
+ * 深色主题自动提亮一档保证可读。hex = null 清除段恢复主题默认。
  */
 export function applyFontColorPatch(hex: string | null): void {
     if (typeof document === 'undefined') return;
@@ -171,8 +173,14 @@ export function applyFontColorPatch(hex: string | null): void {
         flushPatchStyle();
         return;
     }
+    const {h, s} = hexToHsl(hex);
     const light = triplet(hex);
+    const lightMuted = `${h} ${Math.round(s * 0.55)}% 42%`;
     const dark = triplet(lightenHex(hex, 35));
-    patchSegments.text = `:root{--foreground:${light}}.dark{--foreground:${dark}}`;
+    const darkMuted = `${h} ${Math.round(s * 0.35)}% 68%`;
+    patchSegments.text = [
+        `:root{--foreground:${light} !important;--muted-foreground:${lightMuted} !important}`,
+        `.dark{--foreground:${dark} !important;--muted-foreground:${darkMuted} !important}`,
+    ].join('\n');
     flushPatchStyle();
 }

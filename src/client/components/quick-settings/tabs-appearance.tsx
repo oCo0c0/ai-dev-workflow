@@ -355,7 +355,7 @@ export function FontTab() {
                 </Row>
                 {fontColor.enabled && (
                     <>
-                        <Row label={t('settings.qs.fontColor')}>
+                        <Row label={t('settings.qs.fontColor')} hint={t('settings.qs.fontColorHint')}>
                             <label
                                 className="relative h-7 w-7 cursor-pointer overflow-hidden rounded-full border border-border/60 shadow-sm"
                                 title={t('settings.qs.fontColor')}
@@ -375,6 +375,13 @@ export function FontTab() {
                             onChange={(v) => setFontColor({weight: v})}
                             format={(v) => String(v)}
                         />
+                        {/* 实时预览（内联着色）：取色器选中即所见 */}
+                        <p
+                            className="mt-1 rounded-lg bg-secondary/50 px-3 py-2 text-sm"
+                            style={{color: fontColor.color, fontWeight: fontColor.weight}}
+                        >
+                            {t('settings.appearance.fontPreview')}
+                        </p>
                     </>
                 )}
             </section>

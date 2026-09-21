@@ -809,6 +809,7 @@
       "fontCustom": "字体自定义",
       "fontCustomHint": "关闭即一键恢复主题文字外观",
       "fontColor": "字体颜色",
+      "fontColorHint": "主文字与次级说明文字统一着色，深色主题自动提亮",
       "fontWeight": "字重",
       "caretColor": "输入光标颜色",
       "caretColorHint": "光标与壁纸/玻璃颜色相近看不清时单独调整",
