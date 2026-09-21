@@ -14,6 +14,7 @@ import {BrowserRouter, Routes, Route, Navigate} from 'react-router-dom';
 import './i18n';
 import './index.css';
 import Layout from './components/Layout';
+import PetRoot from './components/mascot/PetRoot';
 import {useAppStore} from './stores/app-store';
 import {apiGet} from './api';
 
@@ -85,8 +86,22 @@ function App() {
 }
 
 // 获取 HTML 中的根挂载节点，以严格模式渲染 React 应用
-ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-        <App/>
-    </React.StrictMode>
-);
+// 桌面宠物悬浮窗分支：Electron 透明小窗以 ?pet=1 加载轻量页面（不挂路由/主界面）；
+// 隐藏 body 背景与溢出，交由 PetRoot 自绘透明内容（见 index.css body.pet-window）
+const isPetWindow = new URLSearchParams(window.location.search).get('pet') === '1';
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+if (isPetWindow) {
+    document.body.classList.add('pet-window');
+    document.title = 'AI Dev Workbench Pet';
+    root.render(
+        <React.StrictMode>
+            <PetRoot/>
+        </React.StrictMode>
+    );
+} else {
+    root.render(
+        <React.StrictMode>
+            <App/>
+        </React.StrictMode>
+    );
+}

@@ -126,6 +126,7 @@ pnpm start   # 或 adw
 | `/api/agent-execution` | `routes/agent-execution.ts` | Agent 自主执行（思考/工具调用解析） |
 | `/api/model-providers` | `routes/model-providers.ts` | 自定义模型供应商记录（models.json）增删查、检测、导入、拉取模型列表 |
 | `/api/prompts` | `routes/prompts.ts` | AI Prompt 优化 |
+| `/api/wallpapers` | `routes/wallpapers.ts` | 壁纸库：上传（octet-stream）、媒体流（Range 206）、缩略图、隐藏/删除、设置持久化（`~/.ai-dev-workbench/wallpapers/`） |
 
 ## WebSocket 事件
 
@@ -175,6 +176,8 @@ pnpm start   # 或 adw
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-09-20 | 更新 | 悬浮快捷设置面板 + 桌面宠物（二期，继续参考 dsh-wallpaper-engine）：① 顶栏调色按钮唤出 FloatingSettingsPanel 右侧悬浮玻璃抽屉（六页签 壁纸/外观/字体/吉祥物/效果/高级，framer-motion 滑动胶囊指示器，页签持久化，非模态可边调边看）；② 外观页签替换原 AppearanceSection：配色（6 预设+自定义取色，applyAccent 覆盖 --brand/--primary/--ring/--bg-glow-*）+ 玻璃颜色（6 预设+自定义+跟随主题，applyGlassColor 覆盖 --glass-*-bg）+ 主题/透明度/背景照片(经典)/语言；③ 字体页签自外观分区迁移（lib/font-options.ts 抽共享）；④ Bongo Cat 桌面宠物：components/mascot/（BongoCat 纯 SVG 打字猫 + useAgentActivity 独立 /ws 连接推导 typing/happy/sad + MascotWidget Web 右下角降级 + PetRoot 宠物窗口分支）+ main.tsx ?pet=1 分支 + Electron 透明置顶不可聚焦悬浮窗（main.ts createPetWindow，IPC adw:set-pet-visible，托盘最小化后宠物仍实时反映任务动态）；⑤ 吉祥物偏好（开/大小/气泡）localStorage 持久化；验证：client+electron tsc 通过、vite build 通过、dist:win 重打包成功（2.4.2） |
+| 2026-09-20 | 更新 | 壁纸库功能落地（设计参考 dsh-wallpaper-engine，MIT）：服务端 `WallpaperStoreService` + `/api/wallpapers` 路由（octet-stream 上传 2GB 上限、sendFile Range 206 媒体流、前端 canvas 生成缩略图、软删除隐藏/恢复、设置持久化 `~/.ai-dev-workbench/wallpapers/` 端口无关）；前端 `wallpaper-store`（localStorage 秒开缓存 + 服务端事实源合并、300ms 防抖持久化）+ `WallpaperLayer`（body 下 z:-2 壁纸层 + z:-1 scrim portal，播放意图/元素真实态分离、AbortError 自动补播、换源前 pause+清 src 释放解码器、遮挡暂停三档）；`index.css` 升级 iOS 液态玻璃配方（镜面高光渐变 + 内阴影三件套 + 模糊-饱和度联动 + @supports 近实色回退 + `body[data-wallpaper-active]` 玻璃更透/浅色文字压深/边框增强）；设置中心新增「壁纸」分区（八效果滑杆 accent 填充、胶囊开关、黑胶唱片、倍速/翻转/适配）+ 壁纸选择弹窗（缩略图网格、类型过滤、隐藏恢复、上传自动应用）；中英文案齐备。验证：双端 tsc 通过、vite build 通过、API 全链路冒烟（上传/清单/Range 206/缩略图/设置/隐藏/删除/落盘）通过；vitest 受会话沙箱 spawn 限制未跑（既有测试不导入新模块，无回归影响面） |
 | 2026-09-11 | 优化 | 桌面安装包瘦身 252.7→140.9MB：electron-builder files 剔除 AI 引擎平台二进制（@anthropic-ai/claude-agent-sdk-{win32,darwin,linux}-*、@openai/codex-{win32,darwin,linux}-*，约 500MB，BYO-CLI 设计），compression 升 maximum。运行时回退链：claude 桥接 `resolveClaudeCliPath` 增原生安装器（~/.local/bin/claude[.exe]）与 PATH 查找（where/which，仅真实可执行、跳过 .cmd/.ps1 shim）；codex `createClient` 在 SDK 自有平台包全部不可解析时经 `codex-binary.ts`（`getNpmGlobalRoot` execPath 推导优先、npm root -g 兜底；`resolveSystemCodexBinary` 兼容嵌套/平铺 × bin/codex 子布局）定位系统二进制并传 `codexPathOverride`。真机验证：nvm 布局 codex.exe 与原生 claude.exe 均解析成功 |
 | 2026-09-11 | 更新 | 桌面版里程碑 1（分支 feat/desktop-electron）：新增 `src/electron/` 模块（Electron 壳，服务端以 ELECTRON_RUN_AS_NODE 子进程启动、GUI PATH 修复、ADW_PORT 端口协调）；`package.json` main 指向 `dist-electron/electron/main.js`，新增 `dev:desktop`/`build:electron`/`dist:win|mac|linux` 脚本；electron-builder 三平台打包（asar:false 保证 pi 扩展真实路径可读）；electron 锁定 39.x。服务链路冒烟通过（SPA 200 + API 200）；测试套件有 8 个预存失败（基线复现，与本变更无关），详见 `docs/plans/2026-09-10-desktop-electron.md` |
 | 2026-07-23 | 修复 | 附件面板重定义「解析输入清单」语义（主应用 + 插件内核 store 同步）：只保留 ① 原有真实 http URL 的附件（解析端可按 URL 下载）② 已本地化且被文档引用的（URL 改写为本地地址）；wiki 源整页历史图（无 URL hash 资源）未被文档引用的一律不下载不列出；收集/改写不再要求附件自带 URL（空 URL 的 `[Image:]` 引用也能走 wiki token 下载）；下载失败的标记改写为明示 `[图片未下载：x]` 不再伪造本地链接；占位文本 URL（非 http）视同无 URL。契约 prompt 加「无真实 URL 时省略 url 字段」。实测 CWXT-129290 附件 9→2（文档实际引用数），全部本地 URL |

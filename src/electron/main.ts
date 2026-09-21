@@ -13,7 +13,7 @@
  * 打包要求 asar: false —— resources/pi-extensions 等需被孙进程按真实文件路径读取。
  */
 
-import {app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, Tray} from 'electron';
 import {ChildProcess, spawn} from 'child_process';
 import http from 'http';
 import os from 'os';
@@ -32,6 +32,10 @@ const SERVER_READY_TIMEOUT_MS = 60_000;
 
 let serverProc: ChildProcess | null = null;
 let win: BrowserWindow | null = null;
+/** 桌面宠物悬浮窗（透明置顶小窗，Bongo Cat；见 createPetWindow） */
+let petWin: BrowserWindow | null = null;
+/** 主窗口加载的应用 URL（宠物窗口复用同一来源，附加 ?pet=1 进入轻量页面分支） */
+let appUrl = '';
 /** 是否正在主动退出（区分服务端异常退出与正常关闭；托盘「退出」也置位） */
 let quitting = false;
 /** 系统托盘（Windows；Tray 无引用会被 GC 回收，须模块级持有） */
@@ -125,11 +129,12 @@ function createWindow(url: string): void {
         autoHideMenuBar: true,
         ...(isWindows
             ? {
-                  // Windows：隐藏系统标题栏，应用顶栏即标题栏（Codex/Qoder 风格一体化）；
-                  // 原生窗口按钮以主题色覆盖层叠于右上（高度对齐前端顶栏 h-14 = 56px，
-                  // 前端以 titlebar-safe-right 避让，顶栏 app-drag 提供拖拽）
+                  // Windows：隐藏系统标题栏；窗口控制按钮（最小化/最大化/关闭）由前端
+                  // 在玻璃顶栏内自绘（WindowControls 组件 + adw:window-control IPC），
+                  // 不用 titleBarOverlay —— 原生覆盖层会画一条不透明实色条，把顶栏的
+                  // 毛玻璃/壁纸透明效果整条盖死。双击拖拽区（app-drag）默认可切换
+                  // 最大化；Win11 原生吸附布局弹层随之不可用（自绘按钮的已知取舍）。
                   titleBarStyle: 'hidden' as const,
-                  titleBarOverlay: {color: '#142d3c', symbolColor: '#e2e8f0', height: 56},
               }
             : {}),
         webPreferences: {
@@ -141,6 +146,17 @@ function createWindow(url: string): void {
     win.once('ready-to-show', () => win?.show());
     win.on('closed', () => {
         win = null;
+    });
+    // 最大化状态推送给前端（自绘最大化/还原图标切换）
+    win.on('maximize', () => win?.webContents.send('adw:maximize-changed', true));
+    win.on('unmaximize', () => win?.webContents.send('adw:maximize-changed', false));
+    // Bongo Cat 输入镜像：主窗口键盘输入（main 进程 before-input-event 捕获，
+    // 不干扰正常输入、无系统级钩子）。IME 组合期与纯修饰键跳过。
+    win.webContents.on('before-input-event', (_event, input) => {
+        if (input.type !== 'keyDown') return;
+        if (input.isComposing || !input.code) return;
+        if (/^(Shift|Control|Alt|Meta)(Left|Right)$/.test(input.code)) return;
+        forwardPetInput({kind: 'key', side: pawSideOfCode(input.code)});
     });
     // 关闭行为：tray=隐藏到托盘 / quit=直接退出 / ask=首次弹询问框（可记住选择）
     win.on('close', (e) => {
@@ -178,6 +194,85 @@ function createWindow(url: string): void {
         })();
     });
     void win.loadURL(url);
+}
+
+/**
+ * 创建桌面宠物悬浮窗（Bongo Cat 打字猫）
+ *
+ * 特性：
+ * - 透明 + 无边框 + 无阴影：只有猫和气泡浮在桌面上；
+ * - screen-saver 层级置顶 + 不进任务栏 + 不可聚焦（点击不会抢走正在敲码的焦点）；
+ * - 内容加载 `appUrl?pet=1`（主 SPA 的轻量分支，自持 /ws 连接实时反映 agent 动态）；
+ * - 整窗可拖拽（页面内 -webkit-app-region: drag），位置不持久化（重启回右下角）。
+ * 主窗口最小化到托盘后宠物窗口继续存在 —— 桌面悬浮宠物的核心场景。
+ */
+function createPetWindow(): void {
+    if (petWin && !petWin.isDestroyed()) return;
+    const width = 260;
+    const height = 220;
+    const workArea = screen.getPrimaryDisplay().workArea;
+    petWin = new BrowserWindow({
+        width,
+        height,
+        x: workArea.x + workArea.width - width - 24,
+        y: workArea.y + workArea.height - height - 24,
+        transparent: true,
+        frame: false,
+        hasShadow: false,
+        resizable: false,
+        movable: true,
+        skipTaskbar: true,
+        show: false,
+        focusable: false,
+        alwaysOnTop: true,
+        title: 'ADW Pet',
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            // 复用主窗口 preload：宠物页需要 onPetInput 桥接收输入镜像事件
+            preload: path.join(__dirname, 'preload.js'),
+        },
+    });
+    // screen-saver 层级：盖过普通置顶窗口，仍在全屏应用之下
+    petWin.setAlwaysOnTop(true, 'screen-saver');
+    petWin.once('ready-to-show', () => petWin?.show());
+    petWin.on('closed', () => {
+        petWin = null;
+    });
+    const base = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+    void petWin.loadURL(`${base}/?pet=1`);
+}
+
+/** 关闭并释放宠物悬浮窗 */
+function destroyPetWindow(): void {
+    if (!petWin || petWin.isDestroyed()) {
+        petWin = null;
+        return;
+    }
+    petWin.destroy();
+    petWin = null;
+}
+
+/** 输入镜像：未知键位的左右爪交替开关 */
+let pawParity = false;
+
+/**
+ * 键位 → 猫爪左右分区（与 client 的 lib/paw-side.ts 保持同一逻辑，
+ * 主进程不能 import client 代码，故此处持有一份副本）
+ */
+function pawSideOfCode(code: string): 'left' | 'right' {
+    const LEFT_ZONE = /^(Digit[1-5]|Key[QWERTASDFGZXCB]|ShiftLeft|ControlLeft|AltLeft|MetaLeft|Backquote|Tab|CapsLock|F[1-6])$/;
+    pawParity = !pawParity;
+    if (code === 'Space' || !(code.startsWith('Key') || code.startsWith('Digit'))) {
+        return pawParity ? 'left' : 'right';
+    }
+    return LEFT_ZONE.test(code) ? 'left' : 'right';
+}
+
+/** 把一次输入敲击转发给宠物窗口（镜像不存在时静默跳过） */
+function forwardPetInput(input: {kind: 'key' | 'mouse'; side: 'left' | 'right'}): void {
+    if (!petWin || petWin.isDestroyed()) return;
+    petWin.webContents.send('adw:pet-input', input);
 }
 
 /** 隐藏主窗口到系统托盘（win32）并气泡提示去向 */
@@ -253,6 +348,31 @@ if (!gotLock) {
                 }
             });
 
+            // 吉祥物开关 → 桌面宠物悬浮窗的显隐（悬浮面板「吉祥物」页签 / 偏好恢复）
+            ipcMain.on('adw:set-pet-visible', (_event, visible: boolean) => {
+                if (visible) createPetWindow();
+                else destroyPetWindow();
+            });
+
+            // 自绘窗口控制按钮（titleBarStyle hidden 无覆盖层；close 走既有关闭行为询问）
+            ipcMain.on('adw:window-control', (_event, action: 'minimize' | 'toggle-maximize' | 'close') => {
+                if (!win || win.isDestroyed()) return;
+                if (action === 'minimize') {
+                    win.minimize();
+                } else if (action === 'toggle-maximize') {
+                    if (win.isMaximized()) win.unmaximize();
+                    else win.maximize();
+                } else {
+                    win.close();
+                }
+            });
+
+            // 主窗口鼠标点击 → 宠物镜像（键盘走 before-input-event，无需渲染进程上报）
+            ipcMain.on('adw:input-activity', (_event, kind: 'mouse') => {
+                pawParity = !pawParity;
+                forwardPetInput({kind, side: pawParity ? 'left' : 'right'});
+            });
+
             // 必须在任何子进程派生之前修复 PATH（子进程继承主进程环境）
             fixPath();
 
@@ -280,6 +400,7 @@ if (!gotLock) {
                 ? (process.env.ADW_DEV_SERVER_URL ?? 'http://localhost:5173')
                 : `http://localhost:${port}`;
             console.log(`[desktop] ready at ${url}`);
+            appUrl = url;
             settingsDir = app.getPath('userData');
             createWindow(url);
             createTray();
@@ -305,6 +426,7 @@ if (!gotLock) {
         // POSIX: SIGTERM → 服务端既有优雅清理（dispose 沙箱/子进程后自行退出）
         // Windows: kill() 为 TerminateProcess 强杀（已知限制，见计划文档）
         serverProc?.kill();
+        destroyPetWindow();
         tray?.destroy();
         tray = null;
     });

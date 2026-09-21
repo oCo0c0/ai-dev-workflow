@@ -37,6 +37,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `agent-execution.ts` | `/api/agent-execution` | Agent 自主执行（create/start/abort/reply） |
 | `model-providers.ts` | `/api/model-providers` | 自定义模型供应商（models.json）增删查、检测、导入、拉取模型列表 |
 | `prompts.ts` | `/api/prompts` | AI Prompt 优化 |
+| `wallpapers.ts` | `/api/wallpapers` | 壁纸库：清单、上传（octet-stream 原始字节流）、媒体流（sendFile Range 206）、缩略图、隐藏/恢复/删除、设置持久化 |
 
 ### services/ -- 服务层
 
@@ -150,6 +151,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 - `memory/` -- 记忆子系统
 - `analytics/` -- 分析数据
 - `pipelines.json` -- 管线配置
+- `wallpapers/` -- 壁纸库（uploads/ 文件、thumbs/ 缩略图、meta.json 元数据、settings.json 设置持久化，端口无关）
 
 ## 测试覆盖
 
@@ -165,6 +167,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-09-20 | 更新 | 壁纸库服务端：新增 `services/wallpaper-store-service.ts`（WallpaperStoreService：uploads/thumbs/meta.json/settings.json，设置合并 + 数值夹取 + id 白名单防路径穿越）与 `routes/wallpapers.ts`（清单/上传/缩略图/媒体/更新/删除/设置读写）；上传走 `express.raw` octet-stream（与全局 express.json 互不干扰，2GB 上限），媒体流 `res.sendFile` 自动支持 Range 206（视频可拖动进度）；`index.ts` 注册 `/api/wallpapers`。全链路冒烟通过（上传/清单/Range/缩略图/设置/隐藏/删除/落盘） |
 | 2026-07-23 | 修复 | 附件面板=解析输入清单：`requirement-store-service.downloadImages` 只保留「真实 http URL」或「已本地化且被文档引用」的附件；下载集=真实 URL 附件+`[Image:]` 引用（不再盲收全部无 URL hash 资源）；下载失败改写为明示未下载；`mcp-registry-service` 磁盘格式标准化 mcpServers 方言（兼容读旧格式，保存自动迁移） |
 | 2026-07-23 | 修复 | ONES wiki 图片 0/N 全挂：任务描述 wiki 链接为 `/team/{t}/page/{uuid}`（无 space 段），`ones-image-service.getWikiPageUuids` 旧正则强制 space 段匹配不到 → 兜底拿任务 UUID 当 wiki 页必 404；放宽路由正则与 ai-dev-requirements 对齐（space 可选 + descriptionText 扫描 + URL 解码）。`requirement-store-service` 附件本地化范围收敛为图片 + Excel（xls/xlsx/xlsm），其他格式保留源链接；fetch prompt 加"图片标记原样保留"约束 |
 | 2026-07-23 | 修复 | pi 引擎"agent 拉取看不到 MCP 工具"三重根因：① spawn 传 `--tools` 硬白名单静默禁用扩展平台工具（主因，已移除）；② 扩展工具注册从 `session_start` 挪到 async factory 顶层（pi 官方 await 语义，rpc 模式下 session_start 注册不进首轮模型工具清单）；③ 冷启动容错（网关 per-server 软超时 + 降级目录短冷却 + 扩展空目录重试 + `?servers=` 白名单定向枚举） |

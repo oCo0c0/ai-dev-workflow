@@ -62,6 +62,10 @@ import {createTaskRoutes} from './routes/projects.js';
 import {createAgentExecutionRoutes} from './routes/agent-execution.js';
 import {createModelProviderRoutes} from './routes/model-providers.js';
 import {createPromptsRoutes} from './routes/prompts.js';
+import {createWallpaperRoutes} from './routes/wallpapers.js';
+import {WallpaperStoreService} from './services/wallpaper-store-service.js';
+import {createUiPreferencesRoutes} from './routes/ui-preferences.js';
+import {UiPreferencesService} from './services/ui-preferences-service.js';
 
 /**
  * 创建并启动应用服务器
@@ -286,6 +290,12 @@ export async function createServer(port: number): Promise<http.Server> {
     }, workspaceService, mineruService));
     app.use('/api/model-providers', createModelProviderRoutes(modelProviderStore));
     app.use('/api/prompts', createPromptsRoutes(cliRunnerService));
+    // 壁纸库：上传/媒体流/设置持久化（服务端文件托管，端口无关）
+    const wallpaperStore = new WallpaperStoreService();
+    app.use('/api/wallpapers', createWallpaperRoutes(wallpaperStore));
+    // UI 偏好（主题/配色/字体/透明度/吉祥物等）：服务端持久化，端口无关 ——
+    // localStorage 按 origin 隔离，桌面版随机端口/多来源启动时偏好互不可见
+    app.use('/api/ui-preferences', createUiPreferencesRoutes(new UiPreferencesService()));
 
     // 保留引用避免服务被 GC（它们的副作用是 eventBus 订阅）
     void analyticsService;

@@ -1,17 +1,17 @@
 /**
- * @file AppearanceSection.tsx
- * @description 设置中心「外观」分区 —— 引导卡片
+ * @file WallpaperSection.tsx
+ * @description 设置中心「壁纸」分区 —— 引导卡片
  *
- * 外观（配色/玻璃颜色/透明度/主题/背景照片）、字体、壁纸、吉祥物、效果、高级
- * 已升级为顶栏调色按钮唤出的「悬浮快捷设置面板」（FloatingSettingsPanel，
- * 对齐 dsh-wallpaper-engine 的六页签液态玻璃设计）。本分区保留路由并引导前往。
+ * 壁纸/外观/字体/吉祥物/效果/高级 已升级为顶栏调色按钮唤出的「悬浮快捷设置面板」
+ * （FloatingSettingsPanel，对齐 dsh-wallpaper-engine 的六页签设计）。
+ * 本分区保留路由（/settings/wallpaper）并引导用户前往悬浮面板。
  */
 import {useTranslation} from 'react-i18next';
 import {PanelRightOpen} from 'lucide-react';
 import {Card, CardContent} from '../../components/ui/card';
 import {useAppStore} from '../../stores/app-store';
 
-export function AppearanceSection() {
+export function WallpaperSection() {
     const {t} = useTranslation();
     const setQuickSettingsOpen = useAppStore(s => s.setQuickSettingsOpen);
     const setQuickSettingsTab = useAppStore(s => s.setQuickSettingsTab);
@@ -30,7 +30,7 @@ export function AppearanceSection() {
                             type="button"
                             className="mt-1 rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
                             onClick={() => {
-                                setQuickSettingsTab('appearance');
+                                setQuickSettingsTab('wallpaper');
                                 setQuickSettingsOpen(true);
                             }}
                         >

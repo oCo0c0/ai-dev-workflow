@@ -17,7 +17,7 @@
 import {create} from 'zustand';
 import type {AgentExecutionSummary} from '../types/agent-types';
 import {apiPut} from '../api';
-import {OVERLAY_COLORS} from '../../shared/titlebar-colors';
+import {applyAccent, applyGlassColor, hexToHsl, type AccentPair} from '../lib/appearance';
 
 // === 数据模型接口定义 ===
 
@@ -417,6 +417,16 @@ interface AppState {
         notificationsEnabled: boolean;
         /** 界面透明度设置（0.3-1：全局玻璃卡片 / 菜单栏与顶栏 / 悬浮输入框） */
         opacity: OpacitySettings;
+        /** 品牌配色（null = 跟随主题经典红；持久化 localStorage） */
+        accent: AccentPair | null;
+        /** 玻璃面板底色（null = 跟随主题；持久化 localStorage） */
+        glassColor: string | null;
+        /** 字体颜色/字重/光标设置（持久化 localStorage） */
+        fontColor: FontColorSettings;
+        /** 吉祥物（Bongo Cat）设置 */
+        mascot: MascotSettings;
+        /** 悬浮快捷设置面板开关与页签（面板位置不持久化，页签持久化） */
+        quickSettings: {open: boolean; tab: QuickSettingsTab};
     };
 
     // --- CLI Provider ---
@@ -558,6 +568,18 @@ interface AppState {
     setNotificationsEnabled: (enabled: boolean) => void;
     /** 设置界面透明度（部分更新，持久化 localStorage 并立即生效到 CSS 变量） */
     setOpacity: (patch: Partial<OpacitySettings>) => void;
+    /** 设置品牌配色（null = 恢复主题默认；持久化 localStorage 并立即生效到 CSS 变量） */
+    setAccent: (pair: AccentPair | null) => void;
+    /** 设置玻璃面板底色（null = 跟随主题；持久化 localStorage 并立即生效到 CSS 变量） */
+    setGlassColor: (hex: string | null) => void;
+    /** 设置吉祥物偏好（部分更新，持久化 localStorage；桌面端同步开关宠物悬浮窗） */
+    setMascot: (patch: Partial<MascotSettings>) => void;
+    /** 打开/关闭悬浮快捷设置面板 */
+    setQuickSettingsOpen: (open: boolean) => void;
+    /** 切换悬浮快捷设置面板页签（持久化 localStorage，下次打开回到上次页签） */
+    setQuickSettingsTab: (tab: QuickSettingsTab) => void;
+    /** 设置字体颜色/字重/光标（部分更新，持久化 localStorage 并立即生效） */
+    setFontColor: (patch: Partial<FontColorSettings>) => void;
 
     // CLI Provider actions
     /** 设置 CLI Provider 配置状态 */
@@ -674,11 +696,10 @@ function applyTheme(theme: Theme) {
         html.classList.remove('dark');
     }
     localStorage.setItem('ai-workbench-theme', theme);
-    // 桌面版：顶栏切为与窗口控制按钮覆盖层同色的实色条（共享常量，像素级一致）；
-    // 浏览器中无 adwDesktop 桥，保持毛玻璃外观零影响
+    // 桌面版：窗口控制按钮已改为玻璃顶栏内自绘（WindowControls + adw:window-control），
+    // 不再使用不透明的原生 titleBarOverlay 覆盖层，顶栏毛玻璃/壁纸透明效果不受限。
+    // 保留主题模式通知（旧 IPC 通道，主进程侧对无覆盖层窗口为无害 no-op）。
     if (window.adwDesktop) {
-        document.documentElement.classList.add('titlebar-solid');
-        document.documentElement.style.setProperty('--titlebar-bg', OVERLAY_COLORS[mode].color);
         window.adwDesktop.setWindowControlsTheme(mode);
     }
 }
@@ -776,13 +797,20 @@ function loadOpacitySettings(): OpacitySettings {
 
 /**
  * 将透明度设置应用到 <html> 的 CSS 变量（index.css 的玻璃层消费）
+ *
+ * 透明度语义（v2，越大越透）：设置值为 0.3-1 的「透明度」，换算为玻璃底色的
+ * alpha 系数 factor = clamp(1.15 - v, 0.12, 1) —— 拉满时玻璃底色只剩 ~12-15%
+ * （配合 backdrop blur 文字仍可读），拉到最低则接近原始实色。
+ * 旧版直接把设置值当系数（max=1 等于不衰减），顶栏/侧栏基础 alpha 高（0.62/0.85）
+ * 导致调满也不透 —— 这就是「透明度调到最大还不透」的根因。
  */
 function applyOpacitySettings(settings: OpacitySettings): void {
     if (typeof document === 'undefined') return;
     const html = document.documentElement;
-    html.style.setProperty('--app-opacity-global', String(settings.global));
-    html.style.setProperty('--app-opacity-sidebar', String(settings.sidebar));
-    html.style.setProperty('--app-opacity-input', String(settings.input));
+    const factor = (v: number): string => Math.max(0.12, Math.min(1, 1.15 - v)).toFixed(3);
+    html.style.setProperty('--app-opacity-global', factor(settings.global));
+    html.style.setProperty('--app-opacity-sidebar', factor(settings.sidebar));
+    html.style.setProperty('--app-opacity-input', factor(settings.input));
 }
 
 /**
@@ -850,6 +878,148 @@ function applyFontSettings(settings: FontSettings) {
     html.style.setProperty('--app-font-size', `${(settings.fontSize / DEFAULT_FONT_SIZE * 16).toFixed(2)}px`);
 }
 
+// === 辅助函数：配色 / 玻璃颜色 / 吉祥物 / 快捷面板页签 持久化 ===
+
+/** 品牌配色 localStorage key（JSON：AccentPair） */
+const ACCENT_KEY = 'ai-workbench-accent';
+
+/** 玻璃底色 localStorage key（hex 字符串） */
+const GLASS_COLOR_KEY = 'ai-workbench-glass-color';
+
+/** 吉祥物偏好 localStorage key */
+const MASCOT_KEY = 'ai-workbench-mascot';
+
+/** 快捷面板页签 localStorage key */
+const QS_TAB_KEY = 'ai-workbench-qs-tab';
+
+/** 宠物形象（自绘 SVG 三选一） */
+export type PetForm = 'kitty' | 'shiba' | 'penguin';
+
+const PET_FORMS: PetForm[] = ['kitty', 'shiba', 'penguin'];
+
+/** 吉祥物设置 */
+export interface MascotSettings {
+    /** 是否显示（桌面端 = 宠物悬浮窗；Web = 应用内右下角组件） */
+    enabled: boolean;
+    /** 缩放 0.5-2.5 */
+    size: number;
+    /** 是否显示状态气泡 */
+    bubble: boolean;
+    /** 宠物形象 */
+    form: PetForm;
+}
+
+const DEFAULT_MASCOT: MascotSettings = {enabled: true, size: 1, bubble: true, form: 'kitty'};
+
+/** 悬浮快捷面板页签（六页签，对齐 dsh-wallpaper-engine 的分区） */
+export type QuickSettingsTab = 'wallpaper' | 'appearance' | 'font' | 'mascot' | 'effects' | 'advanced';
+
+const QS_TABS: QuickSettingsTab[] = ['wallpaper', 'appearance', 'font', 'mascot', 'effects', 'advanced'];
+
+function loadAccent(): AccentPair | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        const stored = localStorage.getItem(ACCENT_KEY);
+        if (!stored) return null;
+        const parsed = JSON.parse(stored) as Partial<AccentPair>;
+        if (typeof parsed.from === 'string' && typeof parsed.to === 'string') {
+            return {from: parsed.from, to: parsed.to};
+        }
+    } catch { /* ignore */ }
+    return null;
+}
+
+function loadGlassColor(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(GLASS_COLOR_KEY);
+}
+
+function loadMascotSettings(): MascotSettings {
+    if (typeof window === 'undefined') return {...DEFAULT_MASCOT};
+    try {
+        const stored = localStorage.getItem(MASCOT_KEY);
+        if (!stored) return {...DEFAULT_MASCOT};
+        const parsed = JSON.parse(stored) as Partial<MascotSettings>;
+        const size = typeof parsed.size === 'number' && parsed.size >= 0.5 && parsed.size <= 2.5
+            ? parsed.size : DEFAULT_MASCOT.size;
+        return {
+            enabled: parsed.enabled !== false,
+            size,
+            bubble: parsed.bubble !== false,
+            form: parsed.form && PET_FORMS.includes(parsed.form) ? parsed.form : DEFAULT_MASCOT.form,
+        };
+    } catch {
+        return {...DEFAULT_MASCOT};
+    }
+}
+
+function loadQuickSettingsTab(): QuickSettingsTab {
+    if (typeof window === 'undefined') return 'wallpaper';
+    const stored = localStorage.getItem(QS_TAB_KEY) as QuickSettingsTab | null;
+    return stored && QS_TABS.includes(stored) ? stored : 'wallpaper';
+}
+
+// === 辅助函数：字体颜色 / 字重 / 光标颜色 ===
+
+/** 字体颜色设置 localStorage key */
+const FONT_COLOR_KEY = 'ai-workbench-font-color';
+
+/** 字体颜色/字重/光标设置 */
+export interface FontColorSettings {
+    /** 总开关：关闭 = 完全恢复主题文字外观（字体颜色与字重一并失效） */
+    enabled: boolean;
+    /** 全局主文字颜色（hex，覆盖 --foreground token） */
+    color: string;
+    /** 全局字重 100-900（继承生效，组件显式字重不受影响） */
+    weight: number;
+    /** 输入光标颜色（null = 自动跟随主题；独立于总开关） */
+    caretColor: string | null;
+}
+
+const DEFAULT_FONT_COLOR: FontColorSettings = {enabled: false, color: '#3a3f4a', weight: 400, caretColor: null};
+
+function loadFontColorSettings(): FontColorSettings {
+    if (typeof window === 'undefined') return {...DEFAULT_FONT_COLOR};
+    try {
+        const stored = localStorage.getItem(FONT_COLOR_KEY);
+        if (!stored) return {...DEFAULT_FONT_COLOR};
+        const parsed = JSON.parse(stored) as Partial<FontColorSettings>;
+        const weight = typeof parsed.weight === 'number' && parsed.weight >= 100 && parsed.weight <= 900
+            ? Math.round(parsed.weight / 50) * 50 : DEFAULT_FONT_COLOR.weight;
+        return {
+            enabled: parsed.enabled === true,
+            color: typeof parsed.color === 'string' ? parsed.color : DEFAULT_FONT_COLOR.color,
+            weight,
+            caretColor: typeof parsed.caretColor === 'string' ? parsed.caretColor : null,
+        };
+    } catch {
+        return {...DEFAULT_FONT_COLOR};
+    }
+}
+
+/**
+ * 将字体颜色/字重/光标设置应用到 <html>
+ *
+ * - 字体颜色走覆盖 --foreground token：全应用主文字（含显式 text-foreground 类）
+ *   统一跟随，muted/次级文字保持主题层次不被染糊；
+ * - 字重挂 html 的 font-weight（继承生效，不影响按钮/标题等显式字重）；
+ * - 光标颜色 caret-color 为继承属性，挂 html 全局生效，null = 自动。
+ */
+function applyFontColorSettings(s: FontColorSettings): void {
+    if (typeof document === 'undefined') return;
+    const style = document.documentElement.style;
+    if (s.enabled && s.color) {
+        const {h, s: sat, l} = hexToHsl(s.color);
+        style.setProperty('--foreground', `${h} ${sat}% ${l}%`);
+        style.setProperty('--app-font-weight', String(s.weight));
+    } else {
+        style.removeProperty('--foreground');
+        style.removeProperty('--app-font-weight');
+    }
+    if (s.caretColor) style.setProperty('caret-color', s.caretColor);
+    else style.removeProperty('caret-color');
+}
+
 // === Zustand Store 实例 ===
 
 /**
@@ -862,11 +1032,18 @@ export const useAppStore = create<AppState>((set, get) => {
     const initialTheme = loadTheme();
     const initialBgImage = loadBgImage();
     const initialFont = loadFontSettings();
+    const initialAccent = loadAccent();
+    const initialGlassColor = loadGlassColor();
+    const initialFontColor = loadFontColorSettings();
     // Store 初始化时立即应用主题、背景与字体，避免页面闪烁
     applyTheme(initialTheme);
     applyBgImage(initialBgImage);
     applyFontSettings(initialFont);
     applyOpacitySettings(loadOpacitySettings());
+    // 配色与玻璃底色（null = 跟随主题，apply 内部做 removeProperty 幂等处理）
+    applyAccent(initialAccent);
+    applyGlassColor(initialGlassColor);
+    applyFontColorSettings(initialFontColor);
 
     return {
         // === 初始状态 ===
@@ -893,6 +1070,11 @@ export const useAppStore = create<AppState>((set, get) => {
             fontSize: initialFont.fontSize,
             notificationsEnabled: localStorage.getItem('ai-workbench-notifications') !== '0',
             opacity: loadOpacitySettings(),
+            accent: initialAccent,
+            glassColor: initialGlassColor,
+            fontColor: initialFontColor,
+            mascot: loadMascotSettings(),
+            quickSettings: {open: false, tab: loadQuickSettingsTab()},
         },
         providerCatalog: [],
         availableModels: {},
@@ -1034,6 +1216,35 @@ export const useAppStore = create<AppState>((set, get) => {
             localStorage.setItem(OPACITY_KEY, JSON.stringify(opacity));
             applyOpacitySettings(opacity);
             set((state) => ({ui: {...state.ui, opacity}}));
+        },
+        setAccent: (pair) => {
+            applyAccent(pair);
+            if (pair) localStorage.setItem(ACCENT_KEY, JSON.stringify(pair));
+            else localStorage.removeItem(ACCENT_KEY);
+            set((state) => ({ui: {...state.ui, accent: pair}}));
+        },
+        setGlassColor: (hex) => {
+            applyGlassColor(hex);
+            if (hex) localStorage.setItem(GLASS_COLOR_KEY, hex);
+            else localStorage.removeItem(GLASS_COLOR_KEY);
+            set((state) => ({ui: {...state.ui, glassColor: hex}}));
+        },
+        setMascot: (patch) => {
+            const mascot = {...get().ui.mascot, ...patch};
+            localStorage.setItem(MASCOT_KEY, JSON.stringify(mascot));
+            set((state) => ({ui: {...state.ui, mascot}}));
+        },
+        setQuickSettingsOpen: (open) =>
+            set((state) => ({ui: {...state.ui, quickSettings: {...state.ui.quickSettings, open}}})),
+        setQuickSettingsTab: (tab) => {
+            localStorage.setItem(QS_TAB_KEY, tab);
+            set((state) => ({ui: {...state.ui, quickSettings: {...state.ui.quickSettings, tab}}}));
+        },
+        setFontColor: (patch) => {
+            const fontColor = {...get().ui.fontColor, ...patch};
+            localStorage.setItem(FONT_COLOR_KEY, JSON.stringify(fontColor));
+            applyFontColorSettings(fontColor);
+            set((state) => ({ui: {...state.ui, fontColor}}));
         },
 
         // === CLI Provider Actions ===
@@ -1250,3 +1461,168 @@ export const useAppStore = create<AppState>((set, get) => {
             })
     };
 });
+
+// === UI 偏好跨来源同步（服务端持久化，端口无关）===
+//
+// localStorage 按 origin 隔离：dev:desktop(5173)、生产 electron(随机端口)、
+// 浏览器(3000) 是互不相通的存储空间 —— 这就是「两种方式启动设置不一致」的根因。
+// 同步策略（与 wallpaper-store 同款）：localStorage 秒开回显 → 启动时 GET
+// /api/ui-preferences 以服务端为准合并 → 之后本机变更 400ms 防抖 PUT 回服务端。
+
+const PREFS_URL = '/api/ui-preferences';
+const PREFS_PUT_DELAY = 400;
+
+let prefsSyncStarted = false;
+let lastSyncedSnapshot = '';
+let prefsPutTimer: ReturnType<typeof setTimeout> | null = null;
+
+type UiSlice = AppState['ui'];
+
+/** 收集需要跨来源同步的偏好子集（quickSettings.open 等会话态不进同步） */
+function collectPreferences(ui: UiSlice): Record<string, unknown> {
+    return {
+        theme: ui.theme,
+        locale: ui.locale,
+        fontFamilyZh: ui.fontFamilyZh,
+        fontFamilyEn: ui.fontFamilyEn,
+        fontSize: ui.fontSize,
+        notificationsEnabled: ui.notificationsEnabled,
+        opacity: ui.opacity,
+        accent: ui.accent,
+        glassColor: ui.glassColor,
+        fontColor: ui.fontColor,
+        mascot: ui.mascot,
+        bgImage: ui.bgImage,
+    };
+}
+
+function preferencesSnapshot(ui: UiSlice): string {
+    try {
+        return JSON.stringify(collectPreferences(ui));
+    } catch {
+        return '';
+    }
+}
+
+/** 把服务端下发的偏好补丁应用进 store（校验 + 走各 applier 立即生效） */
+function applyPreferencePatch(patch: Record<string, unknown>): void {
+    const ui = useAppStore.getState().ui;
+    const next: Partial<UiSlice> = {};
+
+    if (typeof patch.theme === 'string' && patch.theme in THEME_MODES) {
+        next.theme = patch.theme as Theme;
+        applyTheme(next.theme);
+    }
+    if (patch.locale === 'zh' || patch.locale === 'en') next.locale = patch.locale;
+    if (typeof patch.fontFamilyZh === 'string' && patch.fontFamilyZh.trim()) next.fontFamilyZh = patch.fontFamilyZh;
+    if (typeof patch.fontFamilyEn === 'string' && patch.fontFamilyEn.trim()) next.fontFamilyEn = patch.fontFamilyEn;
+    if (typeof patch.fontSize === 'number' && patch.fontSize >= 12 && patch.fontSize <= 18) next.fontSize = patch.fontSize;
+    if (typeof patch.notificationsEnabled === 'boolean') next.notificationsEnabled = patch.notificationsEnabled;
+
+    if (patch.opacity && typeof patch.opacity === 'object') {
+        const p = patch.opacity as Partial<OpacitySettings>;
+        const clampO = (v: unknown, fb: number) => (typeof v === 'number' && v >= 0.3 && v <= 1 ? v : fb);
+        next.opacity = {
+            global: clampO(p.global, ui.opacity.global),
+            sidebar: clampO(p.sidebar, ui.opacity.sidebar),
+            input: clampO(p.input, ui.opacity.input),
+        };
+        applyOpacitySettings(next.opacity);
+    }
+    if ('accent' in patch) {
+        const a = patch.accent as AccentPair | null;
+        if (a === null || (Boolean(a) && typeof a.from === 'string' && typeof a.to === 'string')) {
+            next.accent = a;
+            applyAccent(a);
+        }
+    }
+    if ('glassColor' in patch) {
+        const gc = patch.glassColor;
+        if (gc === null || typeof gc === 'string') {
+            next.glassColor = gc;
+            applyGlassColor(gc);
+        }
+    }
+    if (patch.fontColor && typeof patch.fontColor === 'object') {
+        const fc = {...ui.fontColor, ...(patch.fontColor as Partial<FontColorSettings>)};
+        next.fontColor = {
+            enabled: fc.enabled === true,
+            color: typeof fc.color === 'string' ? fc.color : DEFAULT_FONT_COLOR.color,
+            weight: typeof fc.weight === 'number' && fc.weight >= 100 && fc.weight <= 900 ? fc.weight : 400,
+            caretColor: typeof fc.caretColor === 'string' ? fc.caretColor : null,
+        };
+        applyFontColorSettings(next.fontColor);
+    }
+    if (patch.mascot && typeof patch.mascot === 'object') {
+        const m = {...ui.mascot, ...(patch.mascot as Partial<MascotSettings>)};
+        next.mascot = {
+            enabled: m.enabled !== false,
+            size: typeof m.size === 'number' && m.size >= 0.5 && m.size <= 2.5 ? m.size : 1,
+            bubble: m.bubble !== false,
+            form: m.form === 'shiba' || m.form === 'penguin' ? m.form : 'kitty',
+        };
+    }
+    if ('bgImage' in patch) {
+        const b = patch.bgImage;
+        if (b === null || typeof b === 'string') {
+            next.bgImage = b;
+            applyBgImage(b);
+        }
+    }
+
+    if (Object.keys(next).length > 0) {
+        useAppStore.setState((state) => ({ui: {...state.ui, ...next}}));
+        // 应用后的状态即新基线：防止同步本身触发回环 PUT
+        lastSyncedSnapshot = preferencesSnapshot(useAppStore.getState().ui);
+    }
+}
+
+/**
+ * 启动 UI 偏好同步（幂等，Layout 挂载时调用一次）
+ * localStorage 秒开 → 服务端为准合并（服务端为空则反向播种）→ 变更防抖回写
+ */
+export function syncUiPreferences(): void {
+    if (prefsSyncStarted) return;
+    prefsSyncStarted = true;
+    lastSyncedSnapshot = preferencesSnapshot(useAppStore.getState().ui);
+
+    void (async () => {
+        let serverHasPrefs = false;
+        try {
+            const res = await fetch(PREFS_URL);
+            if (res.ok) {
+                const prefs = (await res.json()) as Record<string, unknown>;
+                if (prefs && typeof prefs === 'object' && Object.keys(prefs).length > 0) {
+                    serverHasPrefs = true;
+                    applyPreferencePatch(prefs);
+                }
+            }
+        } catch { /* 服务端不可达：沿用 localStorage */ }
+
+        // 服务端还没有偏好（首次）：把当前本地值播种上去，后续来源即可收敛
+        if (!serverHasPrefs) {
+            try {
+                void fetch(PREFS_URL, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(collectPreferences(useAppStore.getState().ui)),
+                });
+            } catch { /* ignore */ }
+        }
+
+        // 后续本机变更：快照变化才防抖 PUT（全量）
+        useAppStore.subscribe((state) => {
+            const snap = preferencesSnapshot(state.ui);
+            if (!snap || snap === lastSyncedSnapshot) return;
+            lastSyncedSnapshot = snap;
+            if (prefsPutTimer) clearTimeout(prefsPutTimer);
+            prefsPutTimer = setTimeout(() => {
+                void fetch(PREFS_URL, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(collectPreferences(useAppStore.getState().ui)),
+                }).catch(() => undefined);
+            }, PREFS_PUT_DELAY);
+        });
+    })();
+}

@@ -100,6 +100,8 @@
        store 注入时已按 16px 设计基准换算，未注入时保持默认 16px */
     html {
         font-size: var(--app-font-size, 16px);
+        /* 字重接入设置中心：继承生效（按钮/标题等显式字重不受影响） */
+        font-weight: var(--app-font-weight, 400);
     }
 
     body {
@@ -135,18 +137,11 @@
         -webkit-app-region: no-drag;
     }
 
-    /* 避让 Windows 窗口控制按钮（最小化/最大化/关闭）覆盖层；
-       浏览器中 env() 回退值使计算结果为 0，不影响 Web 使用 */
+    /* 避让 Windows 窗口控制按钮区域的历史规则：窗口控制按钮已改为玻璃顶栏内
+       自绘（WindowControls），原生 titleBarOverlay 已移除；env() 回退值为 0，
+       规则保留为无害兜底（若未来重启用覆盖层可继续生效） */
     .titlebar-safe-right {
         padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
-    }
-
-    /* 桌面版（Windows 无边框）顶栏实色：与窗口控制按钮覆盖层同色（--titlebar-bg
-       由 applyTheme 按共享常量注入），整条导航栏颜色一致，覆盖层不再像补丁 */
-    html.titlebar-solid .app-titlebar {
-        background: var(--titlebar-bg, transparent) !important;
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
     }
 
     /* 用户自定义背景照片（有背景时由 JS 挂 has-bg 并设置 --user-bg）
@@ -166,38 +161,162 @@
     }
 }
 
-/* === 毛玻璃效果（透明度系数由设置中心控制，见 --app-opacity-*）=== */
+/* === 毛玻璃效果（透明度系数由设置中心控制，见 --app-opacity-*）===
+   iOS 液态玻璃配方（参考 dsh-wallpaper-engine，MIT）：
+   - 顶部镜面高光渐变：平面色 tint → "湿玻璃"的关键；
+   - 内阴影三件套（顶部折射高光/底部反光/发丝描边）+ 海拔投影：厚玻璃立体感；
+   - 模糊半径与饱和度联动：壁纸颜色"融化"成柔光而不是灰糊（0 模糊 → 无融化）。 */
 .glass {
     background: hsl(var(--glass-bar-bg) / calc(var(--glass-bar-alpha) * var(--app-opacity-sidebar) * var(--app-opacity-has-bg)));
+    background-image: linear-gradient(180deg, hsl(0 0% 100% / 0.14), hsl(0 0% 100% / 0.04) 38%, hsl(0 0% 100% / 0.01));
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+        inset 0 1px 0 hsl(0 0% 100% / 0.32),
+        inset 0 -1px 0 hsl(0 0% 100% / 0.08),
+        inset 0 0 0 0.5px hsl(0 0% 100% / 0.08);
 }
 
 .glass-sidebar {
     background: hsl(var(--glass-bar-bg) / calc(var(--glass-bar-alpha) * var(--app-opacity-sidebar) * var(--app-opacity-has-bg)));
+    background-image: linear-gradient(180deg, hsl(0 0% 100% / 0.14), hsl(0 0% 100% / 0.04) 38%, hsl(0 0% 100% / 0.01));
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
+    box-shadow:
+        inset 0 1px 0 hsl(0 0% 100% / 0.32),
+        inset 0 -1px 0 hsl(0 0% 100% / 0.08),
+        inset 0 0 0 0.5px hsl(0 0% 100% / 0.08);
+}
+
+/* 壁纸激活时：玻璃模糊半径/饱和度改由「玻璃」滑杆驱动（--wp-glass-* 由
+   wallpaper-store 注入 body；滑杆归零 → blur(0) 也不留常驻滤镜层） */
+body[data-wallpaper-active] .glass {
+    backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.8)) brightness(1.04) contrast(1.01);
+    -webkit-backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.8)) brightness(1.04) contrast(1.01);
+}
+
+body[data-wallpaper-active] .glass-sidebar {
+    backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.8)) brightness(1.04) contrast(1.01);
+    -webkit-backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.8)) brightness(1.04) contrast(1.01);
 }
 
 /* === 玻璃卡片 / 玻璃面板（苹果风格：半透明 + 顶部高光 + 柔和投影）=== */
 .glass-card {
-    background: hsl(var(--glass-card-bg) / calc(var(--glass-card-alpha) * var(--app-opacity-global)));
+    background: hsl(var(--glass-card-bg) / calc(var(--glass-card-alpha) * var(--app-opacity-global) * var(--wp-glass-scale, 1)));
+    background-image: linear-gradient(180deg, hsl(0 0% 100% / 0.16), hsl(0 0% 100% / 0.05) 38%, hsl(0 0% 100% / 0.02));
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     backdrop-filter: blur(24px) saturate(180%);
     border: 1px solid hsl(var(--foreground) / 0.10);
     box-shadow:
-        inset 0 1px 0 hsl(0 0% 100% / 0.08),
+        inset 0 1px 0 hsl(0 0% 100% / 0.32),
+        inset 0 -1px 0 hsl(0 0% 100% / 0.08),
+        inset 0 0 0 0.5px hsl(0 0% 100% / 0.08),
         0 8px 32px hsl(var(--foreground) / 0.08);
 }
 
 .glass-panel {
-    background: hsl(var(--glass-panel-bg) / calc(var(--glass-panel-alpha) * var(--app-opacity-global)));
+    background: hsl(var(--glass-panel-bg) / calc(var(--glass-panel-alpha) * var(--app-opacity-global) * var(--wp-glass-scale, 1)));
+    background-image: linear-gradient(180deg, hsl(0 0% 100% / 0.14), hsl(0 0% 100% / 0.04) 38%, hsl(0 0% 100% / 0.01));
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     backdrop-filter: blur(28px) saturate(180%);
     border: 1px solid hsl(var(--foreground) / 0.12);
     box-shadow:
-        inset 0 1px 0 hsl(0 0% 100% / 0.08),
+        inset 0 1px 0 hsl(0 0% 100% / 0.32),
+        inset 0 -1px 0 hsl(0 0% 100% / 0.08),
+        inset 0 0 0 0.5px hsl(0 0% 100% / 0.08),
         0 20px 60px hsl(var(--foreground) / 0.12);
+}
+
+/* 壁纸激活时玻璃卡片走「玻璃」滑杆 + 整体更透一档（让壁纸从卡片后透出） */
+body[data-wallpaper-active] .glass-card,
+body[data-wallpaper-active] .glass-panel {
+    -webkit-backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.8)) brightness(1.04) contrast(1.01);
+    backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.8)) brightness(1.04) contrast(1.01);
+}
+
+/* 不支持 backdrop-filter 的浏览器：回退近实色，保证文字可读（透明度仍然生效） */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass,
+    .glass-sidebar,
+    .glass-card,
+    .glass-panel {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+    .glass {
+        background: hsl(var(--glass-bar-bg) / calc((var(--glass-bar-alpha) + 0.3) * var(--app-opacity-sidebar)));
+    }
+
+    .glass-sidebar {
+        background: hsl(var(--glass-bar-bg) / calc((var(--glass-bar-alpha) + 0.3) * var(--app-opacity-sidebar)));
+    }
+
+    .glass-card {
+        background: hsl(var(--glass-card-bg) / calc((var(--glass-card-alpha) + 0.37) * var(--app-opacity-global)));
+    }
+
+    .glass-panel {
+        background: hsl(var(--glass-panel-bg) / calc((var(--glass-panel-alpha) + 0.05) * var(--app-opacity-global)));
+    }
+}
+
+/* === 壁纸层（界面后方的固定图层）===
+   层级：根画布背景(body 渐变/照片) → .wp-layer 壁纸(z -2) → .wp-scrim 遮罩(z -1)
+   → 应用内容(z ≥ 0)。identity 状态不设变量（opacity:1/transform:none 不创建
+   合成层 —— 常驻合成层是 Chromium 全屏窗口偶发闪白的帮凶）。 */
+.wp-layer {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: var(--wp-opacity, 1);
+}
+
+.wp-media {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    background: transparent;
+    border: 0;
+    /* 滤镜与变换只在非 identity 时输出（见 wallpaper-store applyEffects）*/
+    filter: var(--wp-media-filter, none);
+    transform: var(--wp-transform, none);
+    transform-origin: center;
+}
+
+/* 画面适配（封面/包含/居中/拉伸）—— 仅此规则读变量 */
+.wp-media--fit {
+    object-fit: var(--wp-object-fit, cover);
+}
+
+.wp-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--wp-scrim, rgba(0, 0, 0, 0.25));
+}
+
+/* === 壁纸激活时的可读性适配（参考 dsh-wallpaper-engine 浅色文字对比度策略）=== */
+/* 玻璃卡片/面板在壁纸上整体更透一档，让壁纸从内容面柔和透出 */
+body[data-wallpaper-active] {
+    --wp-glass-scale: 0.62;
+    /* 边框增强：中性灰提升发丝线在壁纸上的可见度（「边框」滑杆驱动强度不足时兜底） */
+    --border: 240 6% 74%;
+}
+
+/* 浅色主题：灰阶文字原本按近白页面调校，壁纸+浅遮罩上对比度不足 —— 整条灰阶压深 */
+body[data-wallpaper-active]:not(.dark) {
+    --foreground: 240 6% 8%;
+    --muted-foreground: 240 4% 38%;
+}
+
+/* 深色主题：边框略提亮（深色文字本身对比已足够） */
+html.dark body[data-wallpaper-active] {
+    --border: 203 20% 34%;
 }
 
 /* === 悬浮输入框（各页面统一外观：背景透明度独立可调，毛玻璃 + 圆角 + 主色描边）=== */
@@ -205,6 +324,244 @@
     background: hsl(var(--background) / var(--app-opacity-input));
     -webkit-backdrop-filter: blur(16px) saturate(160%);
     backdrop-filter: blur(16px) saturate(160%);
+}
+
+/* === 壁纸设置滑杆（accent 填充轨道：左段主色，macOS/Linear 质感）=== */
+.wp-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+    background: linear-gradient(90deg,
+        hsl(var(--primary)) var(--wp-fill, 0%),
+        hsl(var(--muted-foreground) / 0.25) var(--wp-fill, 0%));
+}
+
+.wp-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: hsl(var(--primary));
+    border: 2px solid hsl(0 0% 100%);
+    box-shadow: 0 1px 3px hsl(0 0% 0% / 0.3);
+    transition: transform 0.15s ease;
+}
+
+.wp-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+
+.wp-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: hsl(var(--primary));
+    border: 2px solid hsl(0 0% 100%);
+    box-shadow: 0 1px 3px hsl(0 0% 0% / 0.3);
+}
+
+/* === 黑胶唱片（当前壁纸封面当唱片标签；播放旋转，减少动态效果时停用）=== */
+.wp-vinyl {
+    position: relative;
+    display: flex;
+    height: 64px;
+    width: 64px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: radial-gradient(circle, #3a3a3e 0%, #17171a 70%);
+    box-shadow:
+        inset 0 1px 0 hsl(0 0% 100% / 0.18),
+        0 4px 12px hsl(0 0% 0% / 0.35);
+}
+
+.wp-vinyl__grooves {
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: repeating-radial-gradient(circle, transparent 0 3px, hsl(0 0% 100% / 0.045) 3px 4px);
+}
+
+.wp-vinyl__cover {
+    position: relative;
+    display: flex;
+    height: 36px;
+    width: 36px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 50%;
+    background: hsl(var(--muted));
+}
+
+.wp-vinyl__cover img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+}
+
+.wp-vinyl__hole {
+    position: absolute;
+    height: 6px;
+    width: 6px;
+    border-radius: 50%;
+    background: hsl(var(--background));
+    box-shadow: 0 0 0 1px hsl(0 0% 100% / 0.2);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .wp-vinyl--playing {
+        animation: wp-vinyl-spin 6s linear infinite;
+    }
+}
+
+@keyframes wp-vinyl-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* === Bongo Cat 打字猫（吉祥物）===
+   typing：左右爪交替敲击 + 身体轻微起伏 + 头顶代码符号上浮；
+   prefers-reduced-motion 时全部动画停用（静息趴伏）。 */
+.bongo-cat__paw--l {
+    transform-origin: 122px 128px;
+}
+
+.bongo-cat__paw--r {
+    transform-origin: 172px 128px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .bongo-cat--typing .bongo-cat__paw--l {
+        animation: bongo-paw-l 0.3s ease-in-out infinite;
+    }
+
+    .bongo-cat--typing .bongo-cat__paw--r {
+        animation: bongo-paw-r 0.3s ease-in-out infinite;
+    }
+
+    .bongo-cat--typing {
+        animation: bongo-bob 0.6s ease-in-out infinite;
+    }
+
+    .bongo-cat__bit {
+        opacity: 0;
+        animation: bongo-bit 1.5s ease-out infinite;
+    }
+
+    .bongo-cat__bit--2 {
+        animation-delay: 0.5s;
+    }
+
+    .bongo-cat__bit--3 {
+        animation-delay: 1s;
+    }
+}
+
+@keyframes bongo-paw-l {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(7px);
+    }
+}
+
+@keyframes bongo-paw-r {
+    0%,
+    100% {
+        transform: translateY(7px);
+    }
+
+    50% {
+        transform: translateY(0);
+    }
+}
+
+@keyframes bongo-bob {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-1.5px);
+    }
+}
+
+@keyframes bongo-bit {
+    0% {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    25% {
+        opacity: 0.9;
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateY(-14px);
+    }
+}
+
+/* 用户输入镜像的单次敲击（paw-tap.ts 摘/挂类重触发；置于 typing 循环规则之后，
+   同特异性下后者覆盖 —— 敲击瞬间盖过循环动画，结束后自动恢复） */
+.bongo-cat__paw--l.paw-tap,
+.bongo-cat__paw--r.paw-tap {
+    animation: bongo-paw-tap 0.14s ease-out;
+}
+
+@keyframes bongo-paw-tap {
+    0% {
+        transform: translateY(0);
+    }
+
+    45% {
+        transform: translateY(7px);
+    }
+
+    100% {
+        transform: translateY(0);
+    }
+}
+
+/* === 桌面宠物悬浮窗（Electron 透明小窗，?pet=1 分支）===
+   背景全透明 + 整窗拖拽区；气泡用近实色玻璃保证任意桌面背景下可读。 */
+body.pet-window {
+    background: transparent !important;
+    background-image: none !important;
+    overflow: hidden;
+}
+
+body.pet-window #root {
+    background: transparent;
+}
+
+.pet-root {
+    -webkit-app-region: drag;
+    padding: 4px 6px 8px;
+}
+
+.pet-bubble {
+    background: hsl(var(--glass-card-bg) / 0.92);
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--foreground) / 0.12);
+    box-shadow:
+        inset 0 1px 0 hsl(0 0% 100% / 0.32),
+        0 4px 14px hsl(0 0% 0% / 0.2);
 }
 
 /* === Apple 风格阴影 === */
