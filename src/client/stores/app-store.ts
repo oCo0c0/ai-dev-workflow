@@ -17,7 +17,7 @@
 import {create} from 'zustand';
 import type {AgentExecutionSummary} from '../types/agent-types';
 import {apiPut} from '../api';
-import {applyAccent, applyGlassColor, hexToHsl, type AccentPair} from '../lib/appearance';
+import {applyAccent, applyFontColorPatch, applyGlassColor, type AccentPair} from '../lib/appearance';
 
 // === 数据模型接口定义 ===
 
@@ -807,7 +807,7 @@ function loadOpacitySettings(): OpacitySettings {
 function applyOpacitySettings(settings: OpacitySettings): void {
     if (typeof document === 'undefined') return;
     const html = document.documentElement;
-    const factor = (v: number): string => Math.max(0.12, Math.min(1, 1.15 - v)).toFixed(3);
+    const factor = (v: number): string => Math.max(0.35, Math.min(1, 1.15 - v)).toFixed(3);
     html.style.setProperty('--app-opacity-global', factor(settings.global));
     html.style.setProperty('--app-opacity-sidebar', factor(settings.sidebar));
     html.style.setProperty('--app-opacity-input', factor(settings.input));
@@ -1000,22 +1000,17 @@ function loadFontColorSettings(): FontColorSettings {
 /**
  * 将字体颜色/字重/光标设置应用到 <html>
  *
- * - 字体颜色走覆盖 --foreground token：全应用主文字（含显式 text-foreground 类）
- *   统一跟随，muted/次级文字保持主题层次不被染糊；
+ * - 字体颜色走主题感知补丁样式表（浅/深各一档，见 lib/appearance.ts）——
+ *   不能用内联样式：内联会把 :root 与 .dark 两套主题值同时压死（明暗切换失效回归）；
  * - 字重挂 html 的 font-weight（继承生效，不影响按钮/标题等显式字重）；
  * - 光标颜色 caret-color 为继承属性，挂 html 全局生效，null = 自动。
  */
 function applyFontColorSettings(s: FontColorSettings): void {
     if (typeof document === 'undefined') return;
+    applyFontColorPatch(s.enabled && s.color ? s.color : null);
     const style = document.documentElement.style;
-    if (s.enabled && s.color) {
-        const {h, s: sat, l} = hexToHsl(s.color);
-        style.setProperty('--foreground', `${h} ${sat}% ${l}%`);
-        style.setProperty('--app-font-weight', String(s.weight));
-    } else {
-        style.removeProperty('--foreground');
-        style.removeProperty('--app-font-weight');
-    }
+    if (s.enabled) style.setProperty('--app-font-weight', String(s.weight));
+    else style.removeProperty('--app-font-weight');
     if (s.caretColor) style.setProperty('caret-color', s.caretColor);
     else style.removeProperty('caret-color');
 }

@@ -1,12 +1,13 @@
 /**
  * @file appearance.ts
- * @description 外观引擎 —— 配色（accent）与玻璃底色（glassColor）的 CSS 变量注入
+ * @description 外观引擎 —— 配色（accent）/ 玻璃底色（glassColor）/ 字体颜色的主题感知注入
  *
- * 设计参考 dsh-wallpaper-engine（MIT）的「配色 + 玻璃颜色」双旋钮：
- * - 配色管控件（按钮/开关/滑块/高光/品牌渐变），玻璃颜色管玻璃面板底色；
- * - 通过 <html> 内联 CSS 变量覆盖样式表 token（内联优先级高于 :root/.dark），
- *   深浅主题统一使用同一配色（与插件行为一致）；
- * - null = 恢复跟随主题（removeProperty 回退到样式表默认值）。
+ * ⚠️ 实现要点（v2，修复「明暗切换失效」回归）：
+ * 早期版本用 <html> 内联样式覆盖 CSS 变量 —— 内联优先级高于一切选择器，
+ * 会把 :root（浅色）与 .dark（深色）两套主题值同时压死，导致切换主题时
+ * 文字/主色/玻璃底色不再跟随。现改为注入一张主题感知样式表
+ *（<style id="adw-appearance-patch">）：每个特性一段规则，:root 写浅色档、
+ * .dark 写自动派生的深色档（文字/主色提亮、玻璃底色压暗），明暗切换完整保留。
  */
 
 /** 品牌配色对（from→to 渐变两端，hex） */
@@ -68,6 +69,12 @@ function triplet(hex: string): string {
     return `${h} ${s}% ${l}%`;
 }
 
+/** 深色主题变体：同色相，压暗降饱和（玻璃底色用） */
+function darkVariant(hex: string, l = 16, satScale = 0.6): string {
+    const {h, s} = hexToHsl(hex);
+    return `${h} ${Math.round(s * satScale)}% ${l}%`;
+}
+
 /** 提亮 hex 颜色（l + amount，0-100 夹取）→ hex，用于从自定义主色派生渐变亮端 */
 export function lightenHex(hex: string, amount: number): string {
     const {h, s, l} = hexToHsl(hex);
@@ -88,44 +95,84 @@ export function lightenHex(hex: string, amount: number): string {
     return `#${to255(r)}${to255(g)}${to255(b)}`;
 }
 
-/**
- * 应用配色：覆盖 --brand-from/to、--primary、--ring 与背景光晕的色相。
- * pair = null 时移除内联覆盖，恢复样式表主题默认（经典红）。
- */
-export function applyAccent(pair: AccentPair | null): void {
+// ── 主题感知样式表注入引擎 ─────────────────────────────────────────────────
+
+const PATCH_STYLE_ID = 'adw-appearance-patch';
+/** 各特性自己的规则段（accent / glass / text），重建样式表时按序拼接 */
+const patchSegments: Partial<Record<'accent' | 'glass' | 'text', string>> = {};
+
+function flushPatchStyle(): void {
     if (typeof document === 'undefined') return;
-    const style = document.documentElement.style;
-    if (!pair) {
-        for (const v of ['--brand-from', '--brand-to', '--primary', '--ring',
-            '--bg-glow-1', '--bg-glow-2', '--bg-glow-3']) {
-            style.removeProperty(v);
-        }
+    const css = Object.values(patchSegments).filter(Boolean).join('\n');
+    let el = document.getElementById(PATCH_STYLE_ID) as HTMLStyleElement | null;
+    if (!css) {
+        el?.remove();
         return;
     }
-    const from = triplet(pair.from);
-    const to = triplet(pair.to);
-    style.setProperty('--brand-from', from);
-    style.setProperty('--brand-to', to);
-    style.setProperty('--primary', from);
-    style.setProperty('--ring', from);
-    // 背景光晕跟随品牌色相（深浅主题共用一组折中 alpha：比浅色深一点、比深色淡一点）
-    style.setProperty('--bg-glow-1', `${from} / 0.26`);
-    style.setProperty('--bg-glow-2', `${to} / 0.20`);
-    style.setProperty('--bg-glow-3', `${from} / 0.14`);
+    if (!el) {
+        el = document.createElement('style');
+        el.id = PATCH_STYLE_ID;
+        document.head.appendChild(el);
+    }
+    el.textContent = css;
 }
 
 /**
- * 应用玻璃底色：覆盖 .glass/.glass-sidebar/.glass-card/.glass-panel 的底色 token。
- * hex = null 时移除覆盖，恢复「跟随主题」。
+ * 应用配色（主题感知）：:root 浅色档 + .dark 深色档（主色/渐变提亮一档，
+ * 光晕 alpha 恢复浅深各自的设计值）。pair = null 清除段，恢复样式表主题默认。
+ */
+export function applyAccent(pair: AccentPair | null): void {
+    if (typeof document === 'undefined') return;
+    if (!pair) {
+        delete patchSegments.accent;
+        flushPatchStyle();
+        return;
+    }
+    const fromL = triplet(pair.from);
+    const toL = triplet(pair.to);
+    const fromD = triplet(lightenHex(pair.from, 12));
+    const toD = triplet(lightenHex(pair.to, 8));
+    patchSegments.accent = [
+        `:root{--brand-from:${fromL};--brand-to:${toL};--primary:${fromL};--ring:${fromL};` +
+        `--bg-glow-1:${fromL}/0.20;--bg-glow-2:${toL}/0.15;--bg-glow-3:${fromL}/0.11}`,
+        `.dark{--brand-from:${fromD};--brand-to:${toD};--primary:${fromD};--ring:${fromD};` +
+        `--bg-glow-1:${fromD}/0.32;--bg-glow-2:${toD}/0.26;--bg-glow-3:${fromD}/0.18}`,
+    ].join('\n');
+    flushPatchStyle();
+}
+
+/**
+ * 应用玻璃底色（主题感知）：浅色用所选色，深色自动派生同色相压暗档，
+ * 深色模式玻璃不再被浅色底色糊成一片。hex = null 清除段恢复「跟随主题」。
  */
 export function applyGlassColor(hex: string | null): void {
     if (typeof document === 'undefined') return;
-    const style = document.documentElement.style;
-    const vars = ['--glass-bar-bg', '--glass-card-bg', '--glass-panel-bg'];
     if (!hex) {
-        for (const v of vars) style.removeProperty(v);
+        delete patchSegments.glass;
+        flushPatchStyle();
         return;
     }
-    const t = triplet(hex);
-    for (const v of vars) style.setProperty(v, t);
+    const light = triplet(hex);
+    const dark = darkVariant(hex, 16, 0.6);
+    const vars = ['--glass-bar-bg', '--glass-card-bg', '--glass-panel-bg'];
+    const set = (v: string) => vars.map(name => `${name}:${v}`).join(';');
+    patchSegments.glass = `:root{${set(light)}}.dark{${set(dark)}}`;
+    flushPatchStyle();
+}
+
+/**
+ * 应用字体颜色（主题感知）：浅色用所选色，深色自动提亮一档保证可读。
+ * 覆盖 --foreground token（muted 次级保持主题层次）。hex = null 清除段。
+ */
+export function applyFontColorPatch(hex: string | null): void {
+    if (typeof document === 'undefined') return;
+    if (!hex) {
+        delete patchSegments.text;
+        flushPatchStyle();
+        return;
+    }
+    const light = triplet(hex);
+    const dark = triplet(lightenHex(hex, 35));
+    patchSegments.text = `:root{--foreground:${light}}.dark{--foreground:${dark}}`;
+    flushPatchStyle();
 }
