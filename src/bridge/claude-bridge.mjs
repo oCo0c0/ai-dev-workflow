@@ -382,28 +382,18 @@ async function handleExecute(msg) {
         options.model = model;
     }
 
-    // 通过 additionalArgs 传递高级参数给 CLI
-    const extraArgs = [];
+    // 扩展思考与推理力度：新版 SDK(0.3.278+)的一等选项 thinking/effort。
+    // 旧的 additionalArgs 数组形式已被 SDK 移除，CLI 参数 --thinking/--reasoning-effort 不再可用
     if (extendedThinking) {
-        extraArgs.push('--thinking');
-        // reasoning-effort 仅在与 --thinking 一起时有效，避免单独传入导致 CLI 报错
+        options.thinking = {type: 'enabled'};
+        // 推理力度仅在与 thinking 一起时设置（与旧行为一致）
         if (reasoningEffort) {
-            const effortMap = {
-                low: '--reasoning-effort-low',
-                medium: '--reasoning-effort-medium',
-                high: '--reasoning-effort-high',
-                xhigh: '--reasoning-effort-xhigh',
-                max: '--reasoning-effort-max',
-            };
-            if (effortMap[reasoningEffort]) {
-                extraArgs.push(effortMap[reasoningEffort]);
+            if (['low', 'medium', 'high', 'xhigh', 'max'].includes(reasoningEffort)) {
+                options.effort = reasoningEffort;
             } else {
                 dbg('warning', {message: `Unknown reasoningEffort value: ${reasoningEffort}`});
             }
         }
-    }
-    if (extraArgs.length > 0) {
-        options.additionalArgs = [...(options.additionalArgs || []), ...extraArgs];
     }
     if (CLI_PATH) {
         options.pathToClaudeCodeExecutable = CLI_PATH;
