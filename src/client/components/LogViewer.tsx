@@ -6,7 +6,8 @@
  *     1. 所有消息按时间顺序渲染，不做分区隔离
  *     2. 连续的 output 消息按 15 条一组折叠展示（最新组始终展开）
  *     3. user / error / warning 始终可见，内联渲染
- *     4. tool_use / tool_result 不在此展示 —— 工具执行结果已在各页面的「执行步骤」面板体现
+ *     4. thinking 渲染为 Think 折叠行、tool 渲染为分类工具行（图标/摘要/可展开 IN-OUT，
+ *        对齐 DeepSeek Harness 的消息流设计）；未配对的旧 tool_use / tool_result 行不展示
  *
  *   工具栏：标题 / 实时绿点 / 消息计数 / 复制全部 / 清空
  *   智能自动滚动（stick-to-bottom）：贴底跟随；向上滚暂停并浮出「回到底部」按钮；
@@ -127,6 +128,19 @@ export function LogViewer({
         if (pinnedRef.current) scrollToBottom();
     }, [messages, pinnedRef, scrollToBottom]);
 
+    // 内容高度任意变化（流式追加 / 输出组展开折叠 / Markdown 图片加载）时贴底跟随。
+    // 仅靠 messages 引用变化触发会漏掉「高度变了但数组没变」的场景，导致输出阶段中途停滚。
+    // 依赖 messages.length：空态 ↔ 内容切换时子元素变化需重新 observe。
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver(() => {
+            if (pinnedRef.current) scrollToBottom();
+        });
+        for (const child of Array.from(el.children)) observer.observe(child);
+        return () => observer.disconnect();
+    }, [pinnedRef, scrollToBottom, messages.length]);
+
     useEffect(() => {
         return () => {
             if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
@@ -181,10 +195,10 @@ export function LogViewer({
         if (outputGroupIndices.length === 0) return;
         const last = outputGroupIndices[outputGroupIndices.length - 1];
         setExpandedGroups((prev) => {
-            if (prev.has(last)) return prev;
-            const next = new Set(prev);
-            next.add(last);
-            return next;
+            // 最新组始终展开；新组出现时旧组自动收起 —— 只增不收会让流式输出期间
+            // 全部组保持展开，高度失控 + 全量 Markdown 重渲染，拖垮滚动
+            if (prev.size === 1 && prev.has(last)) return prev;
+            return new Set([last]);
         });
     }, [outputGroupIndices]);
 

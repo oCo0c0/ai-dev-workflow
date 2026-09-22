@@ -81,7 +81,11 @@ export function ModelPicker() {
                 .map(m => ({value: m.id, label: m.name || m.id}))
             : meta?.kind === 'custom'
                 ? customModels.map(m => ({value: m, label: m}))
-                : (tiers ?? []).map(item => ({value: item.value, label: `${item.label} → ${item.model}`}));
+                : (tiers ?? []).map(item => ({
+                    value: item.value,
+                    // 具体模型名（来自模型供应商页）value === model，只显示模型名；档位别名显示「档位 → 实际模型」
+                    label: item.value === item.model ? item.model : `${item.label} → ${item.model}`,
+                }));
 
     // 默认模型置顶（稳定排序，其余保持原顺序）
     const orderedModels: Array<{value: string; label: string}> = defaultModel

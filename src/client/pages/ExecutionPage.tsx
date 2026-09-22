@@ -44,11 +44,12 @@ import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
+import {useParsedLogs} from '../hooks/useParsedLogs';
+import {deliverableFilesFromMessages} from '../utils/agent-log-parse';
+import {DeliverablesCard} from '../components/DeliverablesCard';
 import {ChatInputBox} from '../components/ChatInputBox';
 import {Joyride} from 'react-joyride';
 import {useGuide} from '../guides/useGuide';
-import type {LogMessageData} from '../components/LogMessage';
-
 // === 类型定义 ===
 
 /**
@@ -192,40 +193,11 @@ export default function ExecutionPage() {
         return combined;
     }, [detail?.logs, storeLogs, activeId, storeExecutionId]);
 
-    // 日志消息（displayLogs → LogMessageData[]，供 LogViewer 渲染；折叠/自动滚动由 LogViewer 内部处理）
-    const logMessages = useMemo<LogMessageData[]>(() => {
-        return displayLogs.map((entry) => {
-            // 兼容两种日志格式：字符串和结构化日志对象（ExecutionLogEntry）
-            const logEntry = typeof entry === 'object' && entry !== null ? entry : null;
-            const content = logEntry ? logEntry.content : String(entry);
+    // 日志消息（displayLogs → LogMessageData[]，增量解析：Think 折叠行 / 分类工具行配对渲染）
+    const logMessages = useParsedLogs(displayLogs);
 
-            // 用户消息检测：优先 JSON {type:'user'}，其次 **User:** 前缀（startsWith 避免误判）
-            try {
-                const parsed = JSON.parse(content);
-                if (parsed.type === 'user') {
-                    return {kind: 'user' as const, content: parsed.content || content,
-                        timestamp: logEntry?.timestamp, stepIndex: logEntry?.stepIndex};
-                }
-            } catch { /* not JSON */ }
-            if (content.includes('**User:**')) {
-                return {
-                    kind: 'user' as const,
-                    content,
-                    timestamp: logEntry?.timestamp,
-                    stepIndex: logEntry?.stepIndex,
-                };
-            }
-
-            // 结构化日志：错误/警告单独着色，其余统一输出样式
-            const type = logEntry?.type;
-            return {
-                kind: type === 'error' || type === 'warning' ? type : 'output',
-                content,
-                timestamp: logEntry?.timestamp,
-                stepIndex: logEntry?.stepIndex,
-            };
-        });
-    }, [displayLogs]);
+    // 本次产出：写类工具（Write/Edit/MultiEdit/NotebookEdit）成功变更的文件（执行结束后展示）
+    const deliverables = useMemo(() => deliverableFilesFromMessages(logMessages), [logMessages]);
 
     /**
      * 加载执行历史列表
@@ -927,6 +899,11 @@ export default function ExecutionPage() {
                                 showJumpBar
                             />
                         </div>
+                    )}
+
+                    {/* 本次产出：执行结束后列出写类工具变更的文件 */}
+                    {isDone && deliverables.length > 0 && (
+                        <DeliverablesCard files={deliverables} className="shrink-0"/>
                     )}
 
                     {/* 执行完成摘要卡片：显示执行统计信息和后续操作 */}

@@ -11,6 +11,7 @@
 
 import {Router} from 'express';
 import os from 'os';
+import path from 'path';
 import fs from 'fs';
 import {spawn} from 'child_process';
 import {WorkspaceService} from '../services/workspace-service.js';
@@ -378,6 +379,44 @@ export function createWorkspaceRoutes(workspaceService: WorkspaceService): Route
             res.json({path: selectedPath});
         } catch (err) {
             res.status(500).json({code: 'WORKSPACE_ERROR', message: getErrorMessage(err)});
+        }
+    });
+
+    /**
+     * POST /api/workspace/reveal
+     * @description 在系统文件管理器中显示文件/目录（定位并选中）
+     * @param {string} path.body - 文件或目录的绝对路径（必填）
+     * @returns {{success: true}}
+     */
+    router.post('/reveal', validateBody([{field: 'path', required: true, type: 'string'}]), (req, res) => {
+        const target = String(req.body?.path ?? '').trim();
+        if (!target || !fs.existsSync(target)) {
+            res.status(400).json({code: 'PATH_NOT_FOUND', message: `路径不存在: ${target}`});
+            return;
+        }
+        try {
+            const platform = process.platform;
+            if (platform === 'win32') {
+                const isDir = fs.statSync(target).isDirectory();
+                if (isDir) {
+                    spawn('explorer', [target], {detached: true, stdio: 'ignore'}).unref();
+                } else {
+                    // /select 参数含空格时 explorer 解析怪异：windowsVerbatimArguments + 手工引号
+                    spawn('explorer', [`/select,"${target}"`], {
+                        detached: true,
+                        stdio: 'ignore',
+                        windowsVerbatimArguments: true,
+                    }).unref();
+                }
+            } else if (platform === 'darwin') {
+                spawn('open', ['-R', target], {detached: true, stdio: 'ignore'}).unref();
+            } else {
+                const dir = fs.statSync(target).isDirectory() ? target : path.dirname(target);
+                spawn('xdg-open', [dir], {detached: true, stdio: 'ignore'}).unref();
+            }
+            res.json({success: true});
+        } catch (err) {
+            res.status(500).json({code: 'REVEAL_ERROR', message: getErrorMessage(err)});
         }
     });
 

@@ -38,6 +38,10 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(thresho
     const pinnedRef = useRef(true);
     const [showResume, setShowResume] = useState(false);
     const lastTouchY = useRef(0);
+    /** 程序化滚动的宽限期截止时间：流式输出下 scroll 事件与置底赋值之间存在竞态，
+     *  赋值后内容又增长会让 isNearBottom() 误判为用户上滚而解除跟随（表现为输出阶段滚动停止）。
+     *  宽限期内的 scroll 事件不参与解除判定；用户手势（滚轮/触摸）不受影响。 */
+    const programmaticUntil = useRef(0);
 
     const setPinned = useCallback((pinned: boolean) => {
         pinnedRef.current = pinned;
@@ -53,12 +57,17 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(thresho
     const scrollToBottom = useCallback(() => {
         requestAnimationFrame(() => {
             const el = containerRef.current;
-            if (el) el.scrollTop = el.scrollHeight;
+            if (!el) return;
+            programmaticUntil.current = Date.now() + 150;
+            el.scrollTop = el.scrollHeight;
         });
     }, []);
 
-    // 程序化置底也会触发 scroll 事件，但落点必在底部 → 判定为跟随，无害
-    const onScroll = useCallback(() => setPinned(isNearBottom()), [isNearBottom]);
+    // 程序化滚动宽限期内：既不解除跟随（内容再增长不是用户上滚），也顺带确认贴底方向
+    const onScroll = useCallback(() => {
+        if (Date.now() < programmaticUntil.current) return;
+        setPinned(isNearBottom());
+    }, [isNearBottom]);
 
     // 滚轮方向即用户意图：向下=回底部重新跟随，向上=暂停跟随
     const onWheel = useCallback((e: WheelEvent<T>) => setPinned(e.deltaY > 0), []);

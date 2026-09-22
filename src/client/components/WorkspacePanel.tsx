@@ -564,9 +564,16 @@ export interface WorkspacePanelProps {
     showWorkspaceList?: boolean;
     /** 容器额外类名 */
     className?: string;
+    /** 外部打开文件信号：变化时在面板中预览该文件（如「本次产出」卡片联动）。 */
+    openFileSignal?: {path: string; seq: number} | null;
 }
 
-export default function WorkspacePanel({defaultWorkspacePath, showWorkspaceList = true, className}: WorkspacePanelProps) {
+export default function WorkspacePanel({
+    defaultWorkspacePath,
+    showWorkspaceList = true,
+    className,
+    openFileSignal,
+}: WorkspacePanelProps) {
     const {t} = useTranslation();
 
     // === 面板尺寸状态 ===
@@ -791,9 +798,11 @@ export default function WorkspacePanel({defaultWorkspacePath, showWorkspaceList 
     /**
      * 文件点击处理
      * 加载并展示选中文件的内容，同时清空 Diff 视图
+     * @param workspaceOverride - 外部指定的工作区路径（openFileSignal 联动时工作区 state 尚未更新）
      */
-    const handleFileClick = async (filePath: string, fileName: string) => {
-        if (!selectedWs) return;
+    const handleFileClick = async (filePath: string, fileName: string, workspaceOverride?: string) => {
+        const wsPath = workspaceOverride ?? selectedWs?.path;
+        if (!wsPath) return;
         setSelectedFile(filePath);
         setSelectedFileName(fileName);
         setLoadingFile(true);
@@ -802,7 +811,7 @@ export default function WorkspacePanel({defaultWorkspacePath, showWorkspaceList 
         setGitDiffResult(null);
         try {
             const data = await apiGet<FileContent>(
-                `/workspace/file?path=${encodeURIComponent(filePath)}&workspace=${encodeURIComponent(selectedWs.path)}`
+                `/workspace/file?path=${encodeURIComponent(filePath)}&workspace=${encodeURIComponent(wsPath)}`
             );
             setFileContent(data);
         } catch (err) {
@@ -816,6 +825,28 @@ export default function WorkspacePanel({defaultWorkspacePath, showWorkspaceList 
             setLoadingFile(false);
         }
     };
+
+    // 外部打开文件信号（如「本次产出」卡片点击）：定位工作区并预览该文件。
+    // 文件在当前工作区内直接打开；否则以文件所在目录建 adhoc 工作区（同 defaultWorkspacePath 模式）。
+    useEffect(() => {
+        if (!openFileSignal?.path) return;
+        const p = openFileSignal.path;
+        const dir = p.replace(/[\\/][^\\/]+$/, '') || p;
+        const root = selectedWs?.path.replace(/[\\/]+$/, '');
+        const contained = !!root && (p.startsWith(`${root}/`) || p.startsWith(`${root}\\`) || p === root);
+        const override = contained ? selectedWs!.path : dir;
+        if (!contained) {
+            setSelectedWs({
+                id: `adhoc:${dir}`,
+                path: dir,
+                name: dir.split(/[\\/]/).filter(Boolean).pop() || dir,
+                projectType: 'unknown',
+                addedAt: new Date().toISOString(),
+            });
+        }
+        void handleFileClick(p, p.split(/[\\/]/).pop() || p, override);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openFileSignal?.seq]);
 
     /**
      * Git 变更文件点击处理

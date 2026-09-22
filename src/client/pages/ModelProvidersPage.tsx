@@ -360,7 +360,9 @@ export default function ModelProvidersPage() {
                     .map((m) => m.trim())
                     .filter(Boolean),
                 env: parseEnv(form.env),
-                source: editing ? editing.source : 'manual',
+                // 经页面保存 = 手动维护：source 置为 manual，
+                // 避免重启时 auto-import 把 ~/.claude/settings.json 等外部配置覆盖回用户修改前的值
+                source: 'manual',
             };
             await apiPost<UpsertResponse>('/model-providers', payload);
             cancelForm();

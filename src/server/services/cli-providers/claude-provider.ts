@@ -96,6 +96,40 @@ function loadOwnClaudeEnv(): Record<string, string> {
     return env;
 }
 
+/**
+ * 将自有模型供应商配置（models.json 的 claude 记录）中的模型合并进档位下拉。
+ *
+ * settings.json 档位（haiku/sonnet/opus 别名）保持原样置前；记录里的 models 追加在后，
+ * value=label=model=具体模型名（SDK 的 model 参数可直接解析，运行时经 params.model 下发）。
+ * defaultModel 置顶；与档位实际模型重名或列表内重复的项跳过。
+ *
+ * @returns 新的 tiers 数组（不修改入参）
+ */
+export function mergeOwnModelsIntoTiers(
+    tiers: Array<{value: string; label: string; model: string}>,
+    record: {models?: string[]; defaultModel?: string} | undefined | null,
+): Array<{value: string; label: string; model: string}> {
+    if (!record || (record.models === undefined && !record.defaultModel)) return tiers;
+    const result = [...tiers];
+    const known = new Set(result.map((t) => t.model));
+    const seen = new Set<string>();
+
+    // defaultModel 置顶
+    const models = [...(record.models ?? [])];
+    if (record.defaultModel) {
+        const idx = models.indexOf(record.defaultModel);
+        if (idx > 0) models.splice(idx, 1);
+        if (idx !== 0) models.unshift(record.defaultModel);
+    }
+
+    for (const m of models) {
+        if (!m || seen.has(m) || known.has(m) || result.some((t) => t.value === m)) continue;
+        seen.add(m);
+        result.push({value: m, label: m, model: m});
+    }
+    return result;
+}
+
 /** 待处理请求的内部数据结构 */
 interface PendingRequest {
     onOutput?: (data: string, meta?: Record<string, unknown>) => void;
@@ -189,14 +223,16 @@ export class ClaudeProvider implements CLIProvider {
         return this.modelRecord;
     }
 
-    /**
-     * 读取本地可提供的模型选项：解析 ~/.claude/settings.json env 中的档位映射。
-     * tier 为 SDK 可识别的别名（haiku/sonnet/opus）。
-     */
-    async loadModelOptions(): Promise<CLIProviderModelOptions> {
-        const tiers: Array<{value: string; label: string; model: string}> = [];
-        try {
-            if (!fs.existsSync(SETTINGS_FILE)) return {tiers};
+/**
+ * 读取本地可提供的模型选项：
+ * 1. 解析 ~/.claude/settings.json env 中的档位映射（tier 为 SDK 可识别的别名 haiku/sonnet/opus）
+ * 2. 合并自有模型供应商配置（~/.ai-dev-workbench/models.json 的 claude 记录）中的模型，
+ *    使「模型供应商」页添加的模型出现在下拉中（否则该页配置的模型永远无法选择）
+ */
+async loadModelOptions(): Promise<CLIProviderModelOptions> {
+    const tiers: Array<{value: string; label: string; model: string}> = [];
+    try {
+        if (fs.existsSync(SETTINGS_FILE)) {
             const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
             const settings = JSON.parse(raw) as {env?: Record<string, string>};
             const env = settings.env ?? {};
@@ -209,9 +245,14 @@ export class ClaudeProvider implements CLIProvider {
                 const model = env[envKey];
                 if (model) tiers.push({value, label, model});
             }
-        } catch { /* ignore */ }
-        return {tiers};
-    }
+        }
+    } catch { /* ignore */ }
+    try {
+        const rec = new ModelProviderStore().get('claude');
+        return {tiers: mergeOwnModelsIntoTiers(tiers, rec)};
+    } catch { /* 自有配置读取失败时仅返回档位 */ }
+    return {tiers};
+}
 
     async initialize(): Promise<void> {
         await this.ensureStarted();
@@ -244,9 +285,13 @@ export class ClaudeProvider implements CLIProvider {
                 }
                 const abortHandler = () => {
                     req.aborted = true;
+                    // 通知 bridge 中止正在执行的 SDK 查询（agent.abort → abortSignal）。
+                    // 不发的话旧查询继续占用 bridge，续跑轮的 agent.execute 会与它并发导致消息"发不出去"。
+                    this.sendAbort();
                     this.pendingRequests.delete(jsonRpcId);
                     if (req.sessionId) this.sessionRequests.delete(req.sessionId);
-                    resolve({exitCode: null, stdout: req.stdout, stderr: '', aborted: true});
+                    // 给 bridge 一小段时间结束旧查询，再放行续跑轮（协调器随即发起新 execute）
+                    setTimeout(() => resolve({exitCode: null, stdout: req.stdout, stderr: '', aborted: true}), 150);
                 };
                 req.abortHandler = abortHandler;
                 options.signal.addEventListener('abort', abortHandler, {once: true});
@@ -647,6 +692,23 @@ export class ClaudeProvider implements CLIProvider {
                 sessionId: res?.sessionId || req.sessionId,
             });
         }
+    }
+
+    /**
+     * 通知 bridge 中止当前正在执行的查询（JSON-RPC agent.abort，fire-and-forget）。
+     * bridge 触发 SDK abortSignal 结束旧查询，避免与续跑轮的 agent.execute 并发。
+     * 无活动请求时 bridge 幂等 ack，进程未就绪时静默跳过。
+     */
+    private sendAbort(): void {
+        const proc = this.process;
+        if (!proc || !proc.stdin || !this.ready) return;
+        const jsonRpcId = String(++this.jsonRpcIdCounter);
+        proc.stdin.write(JSON.stringify({
+            jsonrpc: '2.0',
+            id: jsonRpcId,
+            method: 'agent.abort',
+            params: {},
+        }) + '\n');
     }
 
     /**

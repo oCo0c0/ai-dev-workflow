@@ -252,11 +252,22 @@ export class AgentCoordinator {
 
     /**
      * 构造输出处理器（单次与子任务循环共用）。
-     * 仅把对话输出写入执行日志；tool_result 走「执行步骤」面板（stepLog），不刷执行日志；
-     * thinking 走「思考」面板（handleThinking → addThought），也不写执行日志——
-     * 否则思考内容会在日志里再出现一遍，且常与正式回复高度相似，看起来像模型说了两遍。
+     * 对话输出写入执行日志；thinking / tool_use / tool_result 以结构化 JSON 行
+     * 写入同一日志流，前端 LogMessage 按类型渲染为 Think 行 / 工具行
+     * （对齐 DeepSeek Harness 的消息流设计，取代旁路的「思考过程 / 执行步骤」面板）。
+     * thoughts / steps 数据照常落 store（历史详情与统计仍可用）。
+     * 结构化行做长度截断，避免文件全文/长思考刷爆日志。
      */
     private makeOutputHandler(executionId: string): (data: string, meta?: Record<string, unknown>) => void {
+        const appendStructured = (line: Record<string, unknown>) => {
+            const text = JSON.stringify(line);
+            // Store 写成功后再广播，保证前端收到日志时数据已持久化
+            this.store.addLog(executionId, text)
+                .then(() => this.broadcastLog(executionId, text))
+                .catch(err => {
+                    console.error(`[coordinator] addLog failed for ${executionId}:`, err);
+                });
+        };
         return (data: string, meta?: Record<string, unknown>) => {
             if (data && meta?.type !== 'tool_result' && meta?.type !== 'thinking') {
                 // Store 写成功后再广播，保证前端收到日志时数据已持久化
@@ -271,22 +282,41 @@ export class AgentCoordinator {
             if (!meta) return;
 
             switch (meta.type) {
-                case 'thinking':
+                case 'thinking': {
+                    const content = data.length > 2000 ? `${data.slice(0, 2000)}…` : data;
+                    appendStructured({type: 'thinking', content});
                     this.handleThinking(executionId, data).catch(err => {
                         console.error(`[coordinator] handleThinking failed:`, err);
                     });
                     break;
-                case 'tool_use':
+                }
+                case 'tool_use': {
+                    const toolInput = meta.toolInput as Record<string, unknown> | undefined;
+                    appendStructured({
+                        type: 'tool_use',
+                        toolName: (meta.toolName as string) || 'Tool',
+                        toolUseId: meta.toolUseId,
+                        toolInput: toolInput ? JSON.stringify(toolInput).slice(0, 2000) : undefined,
+                    });
                     this.handleToolUse(executionId, meta).catch(err => {
                         console.error(`[coordinator] handleToolUse failed:`, err);
                     });
                     break;
-                case 'tool_result':
-                    // 工具结果内容（data）一并传给 handleToolResult，写入对应步骤的 stepLog 供面板展开查看
+                }
+                case 'tool_result': {
+                    // 工具结果内容（data）截断后进日志流，同时照旧写 stepLog 供历史详情查看
+                    const content = data && data.length > 2000 ? `${data.slice(0, 2000)}…` : (data || '');
+                    appendStructured({
+                        type: 'tool_result',
+                        toolUseId: meta.toolUseId,
+                        isError: !!meta.isError,
+                        content,
+                    });
                     this.handleToolResult(executionId, meta, data).catch(err => {
                         console.error(`[coordinator] handleToolResult failed:`, err);
                     });
                     break;
+                }
             }
         };
     }

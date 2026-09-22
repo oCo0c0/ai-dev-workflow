@@ -31,7 +31,7 @@ import {ExpandableContent} from '../components/ExpandableContent';
 import {ChatInputBox} from '../components/ChatInputBox';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
-import type {LogMessageData} from '../components/LogMessage';
+import {useParsedLogs} from '../hooks/useParsedLogs';
 import {
     Sparkles,
     Pencil,
@@ -180,26 +180,8 @@ export default function PlanPage() {
     // 计算是否可以生成计划：需要已选择需求、已设置工作空间、且当前未在生成中
     const canGenerate = selectedRequirement && currentWorkspace && !generating;
 
-    // 日志消息（planLogs → LogMessageData[]，供 LogViewer 渲染；折叠/自动滚动由 LogViewer 内部处理）
-    const logMessages = useMemo<LogMessageData[]>(() => {
-        return planLogs.map((log) => {
-            // 优先 JSON 解析（新格式，type 字段准确区分消息类型）
-            try {
-                const parsed = JSON.parse(log) as { type?: string; content?: string; toolName?: string };
-                if (parsed?.type === 'user') return {kind: 'user', content: parsed.content || log};
-                if (parsed?.type === 'thinking') return {kind: 'thinking', content: parsed.content || ''};
-                if (parsed?.type === 'tool_use') return {kind: 'tool_use', content: parsed.toolName || 'Tool'};
-                if (parsed?.type === 'tool_result') return {kind: 'tool_result', content: parsed.content || ''};
-                if (parsed?.type === 'error') return {kind: 'error', content: parsed.content || ''};
-                if (parsed?.type === 'warning') return {kind: 'warning', content: parsed.content || ''};
-                return {kind: 'output', content: parsed?.content || log};
-            } catch {
-                // 旧格式兼容：**User:** 前缀检测
-                if (log.startsWith('**User:**')) return {kind: 'user', content: log};
-                return {kind: 'output', content: log};
-            }
-        });
-    }, [planLogs]);
+    // 日志消息（planLogs → LogMessageData[]，增量解析：Think 折叠行 / 分类工具行配对渲染）
+    const logMessages = useParsedLogs(planLogs);
 
     /**
      * 加载计划历史列表

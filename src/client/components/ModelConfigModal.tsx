@@ -272,7 +272,7 @@ function ProviderConfigPanel({
                     >
                         {modelTiers.map(t => (
                             <option key={t.value} value={t.value}>
-                                {t.label} → {t.model}
+                                {t.value === t.model ? t.model : `${t.label} → ${t.model}`}
                             </option>
                         ))}
                     </select>
@@ -298,7 +298,8 @@ function ProviderConfigPanel({
                 )}
                 {modelTiers && modelTiers.length > 0 && (
                     <p className="text-xs text-muted-foreground/70 mt-1.5">
-                        档位别名由 Provider 本地配置解析（如 ~/.claude/settings.json 的 env 映射），选中档位由 SDK 解析实际模型
+                        含「档位别名 → 实际模型」（由 Provider 本地配置解析，如 ~/.claude/settings.json 的 env 映射）
+                        与「模型供应商」页添加的具体模型，选中后直接下发该模型名
                     </p>
                 )}
                 {currentModel && !(modelTiers && modelTiers.length > 0) && !isPi && (

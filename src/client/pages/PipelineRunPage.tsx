@@ -111,6 +111,14 @@ export default function PipelineRunPage() {
 
     // ─── 工作区预览侧边栏 ───
     const [showWsPanel, setShowWsPanel] = useState(false);
+    // 「本次产出」卡片 → 侧边栏打开文件信号（seq 递增保证重复打开同一文件也触发）
+    const [wsOpenSignal, setWsOpenSignal] = useState<{path: string; seq: number} | null>(null);
+    const openSeqRef = useRef(0);
+    const handleOpenFileInWorkspace = useCallback((p: string) => {
+        setShowWsPanel(true);
+        openSeqRef.current += 1;
+        setWsOpenSignal({path: p, seq: openSeqRef.current});
+    }, []);
 
     // ─── 共用输入框（两个 tab 共用，由活跃面板上报状态/提供 send） ───
     const planPanelRef = useRef<PanelHandle>(null);
@@ -424,15 +432,16 @@ export default function PipelineRunPage() {
                             onExecutionChange={(d) => setActiveWorkspacePath(d?.workspacePath)}
                             onGoToPlan={() => setActiveTab('plan')}
                             onInputState={handleInputState}
+                            onOpenFileInWorkspace={handleOpenFileInWorkspace}
                         />
                     )}
                 </div>
 
                 {/* 共用输入框：两个 tab 共用，动作按钮/占位文案由活跃面板上报；
-                    悬浮在面板内容上方不占布局流，样式统一 floating-input-card */}
+                    流内常驻底条（不悬浮、不遮挡面板内容），与面板内容同宽对齐，样式统一 floating-input-card */}
                 {inputState && (
-                    <div className="absolute bottom-4 left-6 right-6 z-30">
-                        <div className="floating-input-card rounded-xl border border-primary/25 shadow-xl">
+                    <div className="shrink-0 px-6 pb-4 pt-2">
+                        <div className="floating-input-card w-full rounded-xl border border-primary/25 shadow-xl">
                             <div className="p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
@@ -492,6 +501,7 @@ export default function PipelineRunPage() {
                         <WorkspacePanel
                             defaultWorkspacePath={activeWorkspacePath}
                             showWorkspaceList={false}
+                            openFileSignal={wsOpenSignal}
                         />
                     </div>
                 </div>

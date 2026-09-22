@@ -226,6 +226,9 @@ const isOverloaded = (msg) => /529|429|overloaded|访问量过大|使用上限|r
 /** 当前执行中的 sessionId（由 SDK system 消息设置），用于通知关联 */
 let currentSessionId = null;
 
+/** 当前活动查询的中止控制器（agent.abort 方法触发其 abort，取消正在执行的 SDK 查询） */
+let activeQueryAbort = null;
+
 /**
  * 执行一次 SDK query（流式发送通知，所有通知携带 sessionId 用于父进程关联）。
  * @param {string} prompt - 提示词
@@ -233,8 +236,7 @@ let currentSessionId = null;
  * @returns {Promise<{status: 'done'|'overloaded'|'error', error?: string}>}
  */
 async function runQueryOnce(prompt, options) {
-    for await (const msg of query({prompt, options})) {
-        if (msg.type === 'system' && msg.session_id) {
+    for await (const msg of query({prompt, options})) {        if (msg.type === 'system' && msg.session_id) {
             currentSessionId = msg.session_id;
             emitNotification('agent.session', {sessionId: msg.session_id});
         }
@@ -357,12 +359,15 @@ async function handleExecute(msg) {
         permissionEnabled,
     });
 
-    // 重置当前执行会话 ID（新的 execute 开始）
-    currentSessionId = null;
+    // 中止控制器：本次查询的取消句柄（父进程经 agent.abort 触发「立即处理」中断）
+    const abortController = new AbortController();
+    activeQueryAbort = abortController;
 
     const options = {
         cwd: cwd || process.cwd(),
         maxTurns,
+        // SDK 中止信号：agent.abort 触发后 query 迭代立即结束，旧查询不再与续跑轮并发
+        abortSignal: abortController.signal,
         // 权限模式由服务端按全局配置下发（default/acceptEdits/bypassPermissions），缺省 acceptEdits
         permissionMode: permissionMode || 'acceptEdits',
         ...(sessionId ? {resume: sessionId} : {}),
@@ -399,36 +404,45 @@ async function handleExecute(msg) {
         options.pathToClaudeCodeExecutable = CLI_PATH;
     }
 
-    // 529/429 限流指数退避重试：1s/2s/4s（封顶 8s），最多 3 次。
-    const maxRetries = 3;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-            const runResult = await runQueryOnce(prompt, options);
-            if (runResult.status === 'done') {
-                emitJsonRpcResponse(msg.id, {
-                    exitCode: 0,
-                    sessionId: currentSessionId || '',
-                });
+    try {
+        // 529/429 限流指数退避重试：1s/2s/4s（封顶 8s），最多 3 次。
+        const maxRetries = 3;
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const runResult = await runQueryOnce(prompt, options);
+                if (runResult.status === 'done') {
+                    emitJsonRpcResponse(msg.id, {
+                        exitCode: 0,
+                        sessionId: currentSessionId || '',
+                    });
+                    return;
+                }
+                const lastError = runResult.error || 'Unknown error';
+                if (runResult.status === 'overloaded' && attempt < maxRetries) {
+                    await waitForRetry(attempt, lastError, maxRetries);
+                    continue;
+                }
+                emitJsonRpcError(msg.id, -32000, lastError, {sessionId: currentSessionId || ''});
+                return;
+            } catch (err) {
+                const lastError = err.message || String(err);
+                // agent.abort 中止：父进程已提前本地返回（立即处理语义），此响应无人等待，仅记日志
+                if (abortController.signal.aborted) {
+                    dbg('aborted', {id: msg.id, message: lastError});
+                    return;
+                }
+                dbg('catch', {attempt, message: lastError});
+                if (isOverloaded(lastError) && attempt < maxRetries) {
+                    await waitForRetry(attempt, lastError, maxRetries);
+                    continue;
+                }
+                const errorCode = isOverloaded(lastError) ? -32001 : -32000;
+                emitJsonRpcError(msg.id, errorCode, lastError, {sessionId: currentSessionId || ''});
                 return;
             }
-            const lastError = runResult.error || 'Unknown error';
-            if (runResult.status === 'overloaded' && attempt < maxRetries) {
-                await waitForRetry(attempt, lastError, maxRetries);
-                continue;
-            }
-            emitJsonRpcError(msg.id, -32000, lastError, {sessionId: currentSessionId || ''});
-            return;
-        } catch (err) {
-            const lastError = err.message || String(err);
-            dbg('catch', {attempt, message: lastError});
-            if (isOverloaded(lastError) && attempt < maxRetries) {
-                await waitForRetry(attempt, lastError, maxRetries);
-                continue;
-            }
-            const errorCode = isOverloaded(lastError) ? -32001 : -32000;
-            emitJsonRpcError(msg.id, errorCode, lastError, {sessionId: currentSessionId || ''});
-            return;
         }
+    } finally {
+        if (activeQueryAbort === abortController) activeQueryAbort = null;
     }
 }
 
@@ -466,6 +480,20 @@ function handleConfirmPermission(msg) {
     emitJsonRpcResponse(msg.id, {acknowledged: true});
 }
 
+/**
+ * 处理 agent.abort — 中止当前正在执行的查询（「立即处理」语义）。
+ * 触发活动查询的 AbortController：SDK 的 abortSignal 使 query 迭代立即结束，
+ * 挂起的 canUseTool 经其 signal 兜底同步拒绝。无活动查询时幂等 ack。
+ */
+function handleAbortQuery(msg) {
+    const pending = activeQueryAbort !== null;
+    if (pending) {
+        activeQueryAbort.abort(new Error('用户中断当前轮'));
+        dbg('abort-requested', {hadActive: pending});
+    }
+    emitJsonRpcResponse(msg.id, {acknowledged: true, hadActive: pending});
+}
+
 // ═══════════════════════════════════════════════════════════════
 // JSON-RPC 消息路由
 // ═══════════════════════════════════════════════════════════════
@@ -482,6 +510,9 @@ function handleMethodCall(msg) {
             break;
         case 'agent.confirmPermission':
             handleConfirmPermission(msg);
+            break;
+        case 'agent.abort':
+            handleAbortQuery(msg);
             break;
         case 'agent.ping':
             emitJsonRpcResponse(msg.id, {status: 'ok'});

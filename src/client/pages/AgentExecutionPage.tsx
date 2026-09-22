@@ -4,7 +4,9 @@
  *
  * 核心功能：
  * - 左侧面板：Agent执行历史列表（按需求隔离，显示需求号+标题）
- * - 右侧面板：执行步骤进度线、思考过程、子任务状态、分组折叠日志、底部输入框
+ * - 右侧面板：执行日志消息流（Think 折叠行 + 分类工具事件行 + 分组折叠日志）+ 底部输入条
+ *   （原「思考过程 / 执行步骤」旁路面板已移除，thinking/tool 事件内联进日志流，
+ *    对齐 DeepSeek Harness 的消息展示设计）
  * - 实时数据：bridge 透传 thinking/tool_use/tool_result → coordinator 解析写入 store
  * - WebSocket 推送：thought/subtask/status/log 事件实时更新
  */
@@ -29,9 +31,6 @@ import {
     Zap,
     Square,
     Sparkles,
-    Brain,
-    Wrench,
-    ListTodo,
     ChevronDown,
     ChevronUp,
     ChevronRight,
@@ -54,11 +53,11 @@ import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
-import {MarkdownContent} from '../components/MarkdownContent';
-import {ExpandableContent} from '../components/ExpandableContent';
 import {ChatInputBox} from '../components/ChatInputBox';
 import WorkspacePanel from '../components/WorkspacePanel';
-import type {LogMessageData} from '../components/LogMessage';
+import {deliverableFilesFromMessages} from '../utils/agent-log-parse';
+import {useParsedLogs} from '../hooks/useParsedLogs';
+import {DeliverablesCard} from '../components/DeliverablesCard';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
 
 /** 已保存需求列表项（轻量，不需要完整 RequirementDetail） */
@@ -117,77 +116,12 @@ function statusIcon(status: string) {
     return <StatusIcon status={status}/>;
 }
 
-/** 统一时间格式化（HH:MM:SS） */
-function formatTime(iso: string): string {
-    return new Date(iso).toLocaleTimeString();
-}
-
-/** 计算步骤耗时（秒），无 startedAt 或 completedAt 返回 null */
-function calcDuration(startedAt?: string, completedAt?: string): number | null {
-    if (!startedAt || !completedAt) return null;
-    const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
-    return Math.round(ms / 1000);
-}
-
-/** 格式化耗时显示 */
-function formatDuration(seconds: number): string {
-    if (seconds < 60) return `${seconds}s`;
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return s > 0 ? `${m}m ${s}s` : `${m}m`;
-}
-
-/** 日志消息类型检测（normal 为 parseLog 内部哨兵，渲染时归为 output） */
-type LogKind = 'thinking' | 'tool_use' | 'tool_result' | 'user' | 'error' | 'warning' | 'output' | 'normal';
-
-function parseLog(log: string): { kind: LogKind; content: string } {
-    try {
-        const parsed = JSON.parse(log);
-        // 新格式 JSON {type: '...', content: '...'}（优先级最高）。
-        // 支持不同供应商/来源产生的结构化日志（user/thinking/tool_use/tool_result/error/warning/output）
-        switch (parsed.type) {
-            case 'user':
-                return {kind: 'user', content: parsed.content || ''};
-            case 'thinking':
-                return {kind: 'thinking', content: parsed.content || ''};
-            case 'tool_use':
-                return {kind: 'tool_use', content: parsed.toolName || 'Tool'};
-            case 'tool_result':
-                return {kind: 'tool_result', content: parsed.content || ''};
-            case 'error':
-                return {kind: 'error', content: parsed.content || ''};
-            case 'warning':
-                return {kind: 'warning', content: parsed.content || ''};
-            case 'output':
-            case 'info':
-            case 'system':
-                return {kind: 'output', content: parsed.content || ''};
-            default:
-                break;
-        }
-        // 其他带 content 字符串字段的 JSON 对象统一归为输出，避免把结构化文本当普通文本整行展示
-        if (typeof parsed.content === 'string') return {kind: 'output', content: parsed.content};
-        return {kind: 'normal', content: log};
-    } catch {
-        // 旧格式兼容：以 **User:** 开头才是用户消息
-        if (log.startsWith('**User:**')) return {kind: 'user', content: log};
-        return {kind: 'normal', content: log};
-    }
-}
-
-/** 将 store 原始日志行转为统一 LogMessageData[]（供 LogViewer 渲染；折叠/自动滚动由 LogViewer 内部处理） */
-function toLogMessages(logs: string[]): LogMessageData[] {
-    return logs.map((log) => {
-        const {kind, content} = parseLog(log);
-        return {kind: kind === 'normal' ? 'output' : kind, content};
-    });
-}
+// 日志行解析与 tool_use/tool_result 配对：见 utils/agent-log-parse.ts（与执行页/计划页共用）
 
 // === 主组件 ===
 
 export default function AgentExecutionPage() {
     const {t} = useTranslation();
-    const theme = useAppStore((s) => s.ui.theme);
 
     const logsByExecution = useAppStore((s) => s.agents.logsByExecution);
     const setAgentExecutionLogs = useAppStore((s) => s.setAgentExecutionLogs);
@@ -228,6 +162,14 @@ export default function AgentExecutionPage() {
 
     // 工作区预览侧边栏（内嵌 WorkspacePanel，跟随当前任务的项目空间）
     const [showWsPanel, setShowWsPanel] = useState(false);
+    // 「本次产出」卡片 → 侧边栏打开文件信号（seq 递增保证重复打开同一文件也触发）
+    const [wsOpenSignal, setWsOpenSignal] = useState<{path: string; seq: number} | null>(null);
+    const openSeqRef = useRef(0);
+    const handleOpenDeliverable = (p: string) => {
+        setShowWsPanel(true);
+        openSeqRef.current += 1;
+        setWsOpenSignal({path: p, seq: openSeqRef.current});
+    };
     // 侧边栏宽度（可拖拽调整）
     const [wsPanelWidth, setWsPanelWidth] = useState(480);
     const dragWsPanel = (e: React.MouseEvent) => {
@@ -250,10 +192,6 @@ export default function AgentExecutionPage() {
         document.addEventListener('mouseup', onUp);
     };
 
-    // UI 折叠
-    const [thoughtsExpanded, setThoughtsExpanded] = useState(false);
-    const [stepsExpanded, setStepsExpanded] = useState(false);
-    const [expandedStepLogs, setExpandedStepLogs] = useState<Set<string>>(new Set());
     // 历史列表分组折叠（key 为 workspacePath，undefined 表示无工作空间组）
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -293,6 +231,7 @@ export default function AgentExecutionPage() {
     const execStatus = detail?.status ?? 'idle';
     const statusMeta = execStatus !== 'idle' ? STATUS_META[execStatus] : null;
     const isRunning = execStatus === 'running';
+    const isDone = execStatus === 'completed' || execStatus === 'failed' || execStatus === 'aborted';
     const canStart = execStatus === 'ready';
     const canAbort = isRunning;
 
@@ -769,21 +708,11 @@ export default function AgentExecutionPage() {
 
     // 日志消息（当前执行分桶 → LogMessageData[]，供 LogViewer 渲染；多 Agent 并行互不混入）
     const currentLogs = activeId ? (logsByExecution[activeId] || []) : [];
-    const logMessages = useMemo<LogMessageData[]>(() => toLogMessages(currentLogs), [currentLogs]);
+    const logMessages = useParsedLogs(currentLogs);
+    // 本次产出：写类工具（Write/Edit/MultiEdit/NotebookEdit）成功变更的文件（执行结束后展示）
+    const deliverables = useMemo(() => deliverableFilesFromMessages(logMessages), [logMessages]);
     // 排队消息（服务端为准）：仅运行中显示，消费后自动清空
     const pendingReplies = isRunning ? (detail?.pendingReplies ?? []) : [];
-
-    // 步骤统计（单次遍历）
-    const stepsStats = useMemo(() => {
-        const steps = detail?.steps || [];
-        const stats = {total: steps.length, completed: 0, failed: 0, running: 0};
-        for (const s of steps) {
-            if (s.status === 'completed') stats.completed++;
-            else if (s.status === 'failed') stats.failed++;
-            else if (s.status === 'running') stats.running++;
-        }
-        return stats;
-    }, [detail?.steps]);
 
     return (
         <div className="flex h-full">
@@ -935,8 +864,8 @@ export default function AgentExecutionPage() {
                     </div>
                 </div>
 
-                {/* 右侧内容区（未选择 / 已选择） */}
-                <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+                {/* 右侧内容区（未选择 / 已选择）：日志区 flex 填满剩余高度（不固定视口高度，避免面板下方留空） */}
+                <div className="flex-1 min-h-0 px-6 pt-4 flex flex-col">
 
                     {/* ====== 未选择执行：空状态提示 ====== */}
                     {!activeId && (
@@ -948,196 +877,15 @@ export default function AgentExecutionPage() {
                         </div>
                     )}
 
-                    {/* ====== 已选择执行：详情面板 ====== */}
+                    {/* ====== 已选择执行：详情面板 ======
+                         实时日志面板（统一 LogViewer：分组折叠 / 工具栏 / Think 与工具事件行 / 贴底自动滚动）。
+                         flex 填满剩余高度使内部滚动生效（stick-to-bottom 挂在内部滚动容器上，
+                         固定视口高度会在内容不足时下方留大片空白，无界增长则内部永不溢出、自动滚动失效） */}
                     {activeId && detail && (
-                        <>
-
-                            {/* --- 执行步骤进度线 --- */}
-                            {stepsStats.total > 0 && (
-                                <Card className="border-primary/15">
-                                    <CardContent className="p-4">
-                                        <button
-                                            onClick={() => setStepsExpanded(!stepsExpanded)}
-                                            className="w-full flex items-center justify-between mb-3"
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <Bot className="h-4 w-4 text-primary"/>
-                                                <span className="text-sm font-semibold">执行步骤</span>
-                                                <span className="text-xs text-muted-foreground font-normal">
-                                                    {stepsStats.completed}/{stepsStats.total} 完成
-                                                </span>
-                                                {stepsStats.failed > 0 && (
-                                                    <span className="text-xs text-destructive font-normal">
-                                                        {stepsStats.failed} 失败
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {stepsExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground"/> :
-                                                <ChevronDown className="h-4 w-4 text-muted-foreground"/>}
-                                        </button>
-
-                                        {stepsExpanded && (
-                                            <div className="space-y-1.5">
-                                                {(detail?.steps || []).map((step) => {
-                                                    const duration = calcDuration(step.startedAt, step.completedAt);
-                                                    const hasLogs = step.logs && step.logs.length > 0;
-                                                    const showLogs = expandedStepLogs.has(step.id);
-                                                    return (
-                                                        <div
-                                                            key={step.id}
-                                                            className={cn(
-                                                                'rounded-lg border transition-all',
-                                                                step.status === 'running' && 'border-blue-500/30 bg-blue-500/5',
-                                                                step.status === 'completed' && 'border-emerald-500/20 bg-emerald-500/5',
-                                                                step.status === 'failed' && 'border-destructive/30 bg-destructive/5',
-                                                            )}
-                                                        >
-                                                            {/* 步骤标题行 */}
-                                                            <div className="flex items-center gap-3 px-3 py-2">
-                                                                <div className="shrink-0">
-                                                                    {step.status === 'running' && <Loader2
-                                                                        className="h-4 w-4 text-blue-500 animate-spin"/>}
-                                                                    {step.status === 'completed' && <CheckCircle2
-                                                                        className="h-4 w-4 text-emerald-500"/>}
-                                                                    {step.status === 'failed' &&
-                                                                        <XCircle className="h-4 w-4 text-destructive"/>}
-                                                                    {step.status === 'pending' && <Clock
-                                                                        className="h-4 w-4 text-muted-foreground/50"/>}
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Wrench
-                                                                            className="h-3 w-3 shrink-0 text-muted-foreground"/>
-                                                                        <span
-                                                                            className="text-xs font-medium truncate">{step.title}</span>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-3 mt-0.5">
-                                                                        {step.startedAt && (
-                                                                            <span
-                                                                                className="text-[10px] text-muted-foreground">
-                                                                                {formatTime(step.startedAt)}
-                                                                            </span>
-                                                                        )}
-                                                                        {step.status === 'running' && (
-                                                                            <span className="relative flex h-1.5 w-1.5">
-                                                                                <span
-                                                                                    className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"/>
-                                                                                <span
-                                                                                    className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"/>
-                                                                            </span>
-                                                                        )}
-                                                                        {(step.status === 'completed' || step.status === 'failed') && step.completedAt && (
-                                                                            <>
-                                                                                <span
-                                                                                    className="text-[10px] text-muted-foreground">→ {formatTime(step.completedAt)}</span>
-                                                                                {duration != null && (
-                                                                                    <span className={cn(
-                                                                                        'text-[10px] font-mono',
-                                                                                        step.status === 'failed' ? 'text-destructive/70' : 'text-emerald-400',
-                                                                                    )}>
-                                                                                        耗时 {formatDuration(duration)}
-                                                                                    </span>
-                                                                                )}
-                                                                            </>
-                                                                        )}
-                                                                        {hasLogs && (
-                                                                            <button
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setExpandedStepLogs(prev => {
-                                                                                        const next = new Set(prev);
-                                                                                        if (next.has(step.id)) next.delete(step.id);
-                                                                                        else next.add(step.id);
-                                                                                        return next;
-                                                                                    });
-                                                                                }}
-                                                                                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors ml-auto"
-                                                                            >
-                                                                                {showLogs ? '收起详情 ▲' : `查看详情 (${step.logs.length}) ▼`}
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 步骤日志展开区（可放大查看完整日志） */}
-                                                            {showLogs && hasLogs && (
-                                                                <ExpandableContent title={step.title || '步骤日志'}>
-                                                                    <div
-                                                                        className="border-t border-border/30 px-3 py-2 space-y-1 max-h-48 overflow-y-auto bg-black/10 rounded-b-lg">
-                                                                        {step.logs.map((logLine, li) => (
-                                                                            <div key={li}
-                                                                                 className="text-[10px] text-muted-foreground font-mono leading-relaxed break-all">
-                                                                                {logLine}
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </ExpandableContent>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        {/* 紧凑进度条（折叠时） */}
-                                        {!stepsExpanded && stepsStats.total > 0 && (
-                                            <div className="h-1.5 bg-muted rounded-full overflow-hidden flex">
-                                                {(detail?.steps || []).map((step) => (
-                                                    <div
-                                                        key={step.id}
-                                                        className={cn(
-                                                            'transition-all duration-500',
-                                                            step.status === 'completed' && 'bg-emerald-500',
-                                                            step.status === 'running' && 'bg-blue-500 animate-pulse',
-                                                            step.status === 'failed' && 'bg-destructive',
-                                                            step.status === 'pending' && 'bg-muted-foreground/20',
-                                                        )}
-                                                        style={{flex: '1'}}
-                                                    />
-                                                ))}
-                                            </div>
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            )}
-
-                            {/* --- 思考过程面板 --- */}
-                            {detail?.thoughts?.length > 0 && (
-                                <Card>
-                                    <CardContent className="p-4">
-                                        <button
-                                            onClick={() => setThoughtsExpanded(!thoughtsExpanded)}
-                                            className="w-full flex items-center justify-between mb-3"
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <Brain className="h-4 w-4 text-red-500"/>
-                                                <span className="text-sm font-semibold">思考过程</span>
-                                                <span className="text-xs text-muted-foreground font-normal">
-                                                    {detail?.thoughts?.length} 条
-                                                </span>
-                                            </div>
-                                            {thoughtsExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground"/> :
-                                                <ChevronDown className="h-4 w-4 text-muted-foreground"/>}
-                                        </button>
-
-                                        {thoughtsExpanded && (
-                                            <ExpandableContent title="思考过程">
-                                                <div className="space-y-2 max-h-72 overflow-y-auto">
-                                                    {(detail?.thoughts || []).map((thought, idx) => (
-                                                        <ThoughtEntry key={idx} thought={thought} theme={theme}/>
-                                                    ))}
-                                                </div>
-                                            </ExpandableContent>
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            )}
-
-                            {/* --- 实时日志面板（统一 LogViewer：分组折叠 / 工具栏 / Markdown / 自动滚动） --- */}
+                        <div className="flex-1 min-h-0 flex flex-col">
                             <LogViewer
                                 key={activeId}
-                                className="min-h-[420px]"
+                                className="h-full"
                                 messages={logMessages}
                                 title="执行日志"
                                 isStreaming={isRunning}
@@ -1145,16 +893,24 @@ export default function AgentExecutionPage() {
                                 onClear={() => activeId && setAgentExecutionLogs(activeId, [])}
                                 showJumpBar
                                 jumpBarPaths={['/agent-execution']}
-                                bottomInset={240}
                             />
-                        </>
+                        </div>
+                    )}
+
+                    {/* 本次产出：执行结束后列出写类工具变更的文件（点击在右侧工作区预览打开） */}
+                    {isDone && deliverables.length > 0 && (
+                        <DeliverablesCard
+                            files={deliverables}
+                            onOpenFile={handleOpenDeliverable}
+                            className="mt-3 shrink-0"
+                        />
                     )}
                 </div>
 
-                {/* --- 底部消息输入（悬浮在日志区上方，不随内容滚动；样式统一 floating-input-card） --- */}
+                {/* --- 底部消息输入：流内常驻底条，与日志面板同宽对齐（不悬浮、不遮挡） --- */}
                 {activeId && detail && (
-                    <div className="absolute bottom-4 left-6 right-6 z-30">
-                        <div className="floating-input-card rounded-xl border border-primary/25 shadow-xl">
+                    <div className="shrink-0 px-6 pb-4 pt-1">
+                        <div className="floating-input-card w-full rounded-xl border border-primary/25 shadow-xl">
                             <div className="p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
@@ -1332,6 +1088,7 @@ export default function AgentExecutionPage() {
                         <WorkspacePanel
                             defaultWorkspacePath={detail?.workspacePath}
                             showWorkspaceList={false}
+                            openFileSignal={wsOpenSignal}
                         />
                     </div>
                 </div>
@@ -1670,60 +1427,6 @@ export default function AgentExecutionPage() {
 }
 
 // === 子组件 ===
-
-/** 思考条目：支持长内容折叠 */
-function ThoughtEntry({thought, theme}: { thought: AgentThought; theme: string }) {
-    const [expanded, setExpanded] = useState(false);
-    const isLong = thought.content.length > 300;
-    const display = isLong && !expanded ? thought.content.slice(0, 300) + '...' : thought.content;
-
-    const iconMap: Record<AgentThought['type'], { icon: typeof Brain; color: string }> = {
-        analysis: {icon: Brain, color: 'text-red-400'},
-        planning: {icon: ListTodo, color: 'text-blue-400'},
-        decision: {icon: Sparkles, color: 'text-amber-400'},
-        tool_selection: {icon: Wrench, color: 'text-emerald-400'},
-        error: {icon: XCircle, color: 'text-red-400'},
-    };
-
-    const labelMap: Record<AgentThought['type'], string> = {
-        analysis: '分析',
-        planning: '规划',
-        decision: '决策',
-        tool_selection: '工具选择',
-        error: '错误',
-    };
-
-    const {icon: Icon, color} = iconMap[thought.type] || iconMap.analysis;
-
-    return (
-        <div className={cn(
-            'rounded-lg p-3 border transition-all',
-            theme !== 'light' ? 'bg-red-500/5 border-red-500/15' : 'bg-red-50/50 border-red-200/50'
-        )}>
-            <div className="flex items-center gap-2 mb-1">
-                <Icon className={cn('h-3 w-3', color)}/>
-                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                    {labelMap[thought.type]}
-                </span>
-                <span className="text-[10px] text-muted-foreground/50">
-                    {formatTime(thought.timestamp)}
-                </span>
-            </div>
-            <div className="log-message">
-                <MarkdownContent content={display}/>
-            </div>
-            {isLong && (
-                <button
-                    onClick={() => setExpanded(!expanded)}
-                    className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                    {expanded ? <ChevronUp className="h-3 w-3"/> : <ChevronRight className="h-3 w-3"/>}
-                    {expanded ? '收起' : '展开'}
-                </button>
-            )}
-        </div>
-    );
-}
 
 // === 文件夹选择器组件 ===
 
