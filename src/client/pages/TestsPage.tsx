@@ -17,6 +17,7 @@ import {useSearchParams} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import {apiGet, apiPost, apiDelete} from '../api';
 import {useAppStore} from '../stores/app-store';
+import {useStickToBottom} from '../hooks/useStickToBottom';
 import {cn, formatRelativeTime} from '../lib/utils';
 import {Button} from '../components/ui/button';
 import {StatusIcon} from '../components/StatusIcon';
@@ -48,6 +49,7 @@ import {
     Globe,
     Wrench,
     Square,
+    ArrowDown,
 } from 'lucide-react';
 
 // ============================================================
@@ -289,7 +291,9 @@ export default function TestsPage() {
     const testPhase = useAppStore((s) => s.tests.phase);
     const testPhaseLabel = useAppStore((s) => s.tests.phaseLabel);
     const testRunning = useAppStore((s) => s.tests.running);
-    const logEndRef = useRef<HTMLDivElement>(null);
+    // AI 测试实时输出容器的贴底跟随（stick-to-bottom：向上滚暂停、向下滚恢复、
+    // 暂停时由容器内「回到底部」按钮兜底——见 hooks/useStickToBottom.ts）
+    const rawStick = useStickToBottom<HTMLDivElement>(80);
     // 记录 AI 模式开始时已有日志数量，只展示此后新增的
     const [aiLogStartIndex, setAiLogStartIndex] = useState(0);
 
@@ -308,7 +312,6 @@ export default function TestsPage() {
     const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
     const [showSkillSelector, setShowSkillSelector] = useState(false);
     const [customPrompt, setCustomPrompt] = useState('');
-    const rawOutputRef = useRef<HTMLDivElement>(null);
 
     const effectiveWorkspace = linkedExecution?.workspacePath || currentWorkspace?.path || '';
     const isAiMode = selectedMode === 'ai_generate' || selectedMode === 'ai_generate_e2e';
@@ -511,17 +514,17 @@ export default function TestsPage() {
         }
     }, [testRunning]);
 
-    // AI 模式 rawOutput 自动滚动
+    // AI 模式 rawOutput 自动滚动（贴底跟随；仅运行中且 AI 生成模式）
     useEffect(() => {
-        if (rawOutputRef.current && detail?.status === 'running' && detail?.mode?.includes('ai_generate')) {
-            rawOutputRef.current.scrollTop = rawOutputRef.current.scrollHeight;
+        if (rawStick.pinnedRef.current && detail?.status === 'running' && detail?.mode?.includes('ai_generate')) {
+            rawStick.scrollToBottom();
         }
-    }, [detail?.rawOutput, detail?.status, detail?.mode]);
+    }, [detail?.rawOutput, detail?.status, detail?.mode, rawStick]);
 
-    // 实时日志（WebSocket）自动滚动
+    // 实时日志（WebSocket）自动滚动（同容器，同一贴底状态）
     useEffect(() => {
-        logEndRef.current?.scrollIntoView({behavior: 'smooth'});
-    }, [storeLogs]);
+        if (rawStick.pinnedRef.current) rawStick.scrollToBottom();
+    }, [storeLogs, rawStick]);
 
     // === 操作方法 ===
 
@@ -1270,7 +1273,14 @@ export default function TestsPage() {
                                         Live
                                     </span>
                                 </div>
-                                <div ref={rawOutputRef} className="max-h-96 overflow-y-auto p-4 font-mono text-xs">
+                                <div
+                                    ref={rawStick.containerRef}
+                                    className="relative max-h-96 overflow-y-auto p-4 font-mono text-xs"
+                                    onScroll={rawStick.handlers.onScroll}
+                                    onWheel={rawStick.handlers.onWheel}
+                                    onTouchStart={rawStick.handlers.onTouchStart}
+                                    onTouchMove={rawStick.handlers.onTouchMove}
+                                >
                                     {!hasContent ? (
                                         <div className="text-gray-500 text-center py-6">
                                             <Loader2 className="h-4 w-4 animate-spin inline-block mr-2"/>
@@ -1302,7 +1312,16 @@ export default function TestsPage() {
                                         <pre
                                             className="text-gray-300 whitespace-pre-wrap leading-relaxed">{rawText}</pre>
                                     )}
-                                    <div ref={logEndRef}/>
+                                    {rawStick.showResume && (
+                                        <button
+                                            type="button"
+                                            onClick={rawStick.pin}
+                                            className="sticky bottom-0 ml-auto flex items-center gap-1 rounded-full border border-border/60 bg-popover/90 px-2.5 py-1 text-[11px] font-medium shadow-apple backdrop-blur-sm transition-colors hover:bg-popover"
+                                        >
+                                            <ArrowDown className="h-3 w-3"/>
+                                            回到底部
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         );

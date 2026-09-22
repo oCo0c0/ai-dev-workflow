@@ -9,15 +9,17 @@
  *     4. tool_use / tool_result 不在此展示 —— 工具执行结果已在各页面的「执行步骤」面板体现
  *
  *   工具栏：标题 / 实时绿点 / 消息计数 / 复制全部 / 清空
- *   智能自动滚动：用户向上滚动时暂停，滚回底部自动恢复
+ *   智能自动滚动（stick-to-bottom）：贴底跟随；向上滚暂停并浮出「回到底部」按钮；
+ *   向下滚立即重新跟随（流式输出下内容增长快于手动滚动，靠“滚回底部”恢复必失败）
  *   快速跳转栏（showJumpBar）：每条用户消息一个锚点节点，点击定位、滚动联动高亮
  */
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Copy, Check, Trash2, Terminal, ChevronDown, ChevronUp} from 'lucide-react';
+import {Copy, Check, Trash2, Terminal, ChevronDown, ChevronUp, ArrowDown} from 'lucide-react';
 import {cn} from '../lib/utils';
 import {LogMessage, type LogMessageData} from './LogMessage';
 import {MessageJumpBar, type JumpAnchor} from './MessageJumpBar';
+import {useStickToBottom} from '../hooks/useStickToBottom';
 
 const OUTPUT_PER_GROUP = 15;
 
@@ -54,32 +56,11 @@ export function LogViewer({
                               jumpBarPaths,
                               bottomInset = 0,
                           }: LogViewerProps) {
-    const containerRef = useRef<HTMLDivElement>(null);
     const [copiedAll, setCopiedAll] = useState(false);
 
-    // ── 智能自动滚动 ──
-    const [autoScroll, setAutoScroll] = useState(true);
-
-    const isNearBottom = useCallback(() => {
-        const el = containerRef.current;
-        if (!el) return true;
-        return el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    }, []);
-
-    /** 滚动到底部：单次 rAF，等当前帧渲染完成后直接置底。
-     *  刻意不做 MutationObserver/ResizeObserver/延时兜底——多重滚动联动
-     *  会在流式日志下互相触发，造成滚动卡顿甚至卡死 */
-    const scrollToBottom = useCallback(() => {
-        requestAnimationFrame(() => {
-            const el = containerRef.current;
-            if (el) el.scrollTop = el.scrollHeight;
-        });
-    }, []);
-
-    /** 用户主动向上滚动：立即暂停自动滚动（恢复按钮在工具栏） */
-    const cancelAutoScrollOnUserScrollUp = useCallback(() => {
-        setAutoScroll(false);
-    }, []);
+    // ── 智能自动滚动（stick-to-bottom）：贴底跟随；向上滚暂停并浮出「回到底部」；
+    // 向下滚立即重新跟随（实现与语义见 hooks/useStickToBottom.ts）──
+    const {containerRef, showResume, pinnedRef, handlers, scrollToBottom, pin} = useStickToBottom<HTMLDivElement>(80);
 
     // ── 快速跳转栏：用户消息锚点 ──
     const userAnchors = useMemo<JumpAnchor[]>(() => {
@@ -117,9 +98,9 @@ export function LogViewer({
     }, []);
 
     const handleScroll = useCallback(() => {
-        setAutoScroll(isNearBottom());
+        handlers.onScroll();
         if (showJumpBar) updateActiveAnchor();
-    }, [isNearBottom, updateActiveAnchor, showJumpBar]);
+    }, [handlers, showJumpBar, updateActiveAnchor]);
 
     // 消息更新时重算高亮（无滚动的静态场景，如历史加载）
     useEffect(() => {
@@ -141,10 +122,10 @@ export function LogViewer({
         }, 1600);
     }, []);
 
-    // 新消息到达且自动滚动开启时置底（唯一的滚动触发点）
+    // 新消息到达且处于跟随状态时置底（唯一的滚动触发点）
     useEffect(() => {
-        if (autoScroll) scrollToBottom();
-    }, [messages, autoScroll, scrollToBottom]);
+        if (pinnedRef.current) scrollToBottom();
+    }, [messages, pinnedRef, scrollToBottom]);
 
     useEffect(() => {
         return () => {
@@ -230,7 +211,7 @@ export function LogViewer({
     const hasContent = messages.length > 0;
 
     return (
-        <div className={cn('flex flex-col overflow-hidden rounded-lg border border-border/60 glass-card', className)}>
+        <div className={cn('relative flex flex-col overflow-hidden rounded-lg border border-border/60 glass-card', className)}>
             {/* ═══ 工具栏 ═══ */}
             <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2 shrink-0">
                 <Terminal
@@ -247,18 +228,6 @@ export function LogViewer({
                     </span>
                 )}
                 <span className="text-[10px] text-muted-foreground">{messages.length} 条</span>
-                {!autoScroll && (
-                    <button
-                        onClick={() => {
-                            setAutoScroll(true);
-                            scrollToBottom();
-                        }}
-                        className="text-[10px] text-amber-500 hover:text-amber-400 font-mono"
-                        title="已暂停自动滚动，点击恢复"
-                    >
-                        ⬇ 暂停
-                    </button>
-                )}
                 <div className="ml-auto flex items-center gap-1">
                     <button onClick={handleCopyAll}
                             className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
@@ -283,10 +252,9 @@ export function LogViewer({
                 )}
                 style={bottomInset > 0 ? {paddingBottom: bottomInset} : undefined}
                 onScroll={handleScroll}
-                onWheel={(e) => {
-                    if (e.deltaY < 0) cancelAutoScrollOnUserScrollUp();
-                }}
-                onTouchMove={cancelAutoScrollOnUserScrollUp}
+                onWheel={handlers.onWheel}
+                onTouchStart={handlers.onTouchStart}
+                onTouchMove={handlers.onTouchMove}
             >
                 {!hasContent ? (
                     <div className="text-muted-foreground text-center py-8 text-xs">{emptyText}</div>
@@ -351,6 +319,17 @@ export function LogViewer({
                     </div>
                 )}
             </div>
+
+            {/* ═══ 回到底部悬浮按钮：脱离底部（翻阅历史）时出现，点击重新跟随 ═══ */}
+            {showResume && (
+                <button
+                    onClick={pin}
+                    className="absolute bottom-3 right-6 z-10 flex items-center gap-1.5 rounded-full border border-border/60 bg-popover/90 px-3 py-1.5 text-xs font-medium shadow-apple-lg backdrop-blur-sm transition-colors hover:bg-popover"
+                >
+                    <ArrowDown className="h-3.5 w-3.5"/>
+                    回到底部
+                </button>
+            )}
 
             {/* ═══ 快速跳转栏：视口右侧悬浮竖条 ═══
                 组件内部 Portal 到 document.body 并以 fixed 定位（视口右侧垂直居中），
