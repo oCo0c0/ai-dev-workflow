@@ -283,6 +283,53 @@ export function createAgentExecutionRoutes(
     });
 
     /**
+     * PUT /api/agent-execution/:id/replies/:index
+     * 编辑排队中的消息（运行中排队、尚未消费；越界 500 带原因，前端刷新列表自愈）
+     */
+    router.put('/:id/replies/:index', async (req, res) => {
+        try {
+            const {id} = req.params;
+            const index = Number(req.params.index);
+            const {message} = req.body || {};
+
+            if (!Number.isInteger(index) || index < 0) {
+                return res.status(400).json({code: 'VALIDATION_ERROR', message: 'index is required'});
+            }
+            if (!message || typeof message !== 'string') {
+                return res.status(400).json({code: 'VALIDATION_ERROR', message: 'message is required'});
+            }
+            if (message.length > 10000) {
+                return res.status(400).json({
+                    code: 'VALIDATION_ERROR',
+                    message: 'message is too long (max 10000 characters)'
+                });
+            }
+
+            await store.updatePendingReply(id, index, message);
+            res.json({success: true});
+        } catch (error) {
+            res.status(500).json({code: 'INTERNAL_ERROR', message: (error as Error).message});
+        }
+    });
+
+    /**
+     * DELETE /api/agent-execution/:id/replies/:index
+     * 删除排队中的消息（不想让执行的内容直接移出队列）
+     */
+    router.delete('/:id/replies/:index', async (req, res) => {
+        try {
+            const index = Number(req.params.index);
+            if (!Number.isInteger(index) || index < 0) {
+                return res.status(400).json({code: 'VALIDATION_ERROR', message: 'index is required'});
+            }
+            await store.deletePendingReply(req.params.id, index);
+            res.json({success: true});
+        } catch (error) {
+            res.status(500).json({code: 'INTERNAL_ERROR', message: (error as Error).message});
+        }
+    });
+
+    /**
      * POST /api/agent-execution/:id/process-now
      * 立即处理排队消息：中止当前轮，自动带新消息续跑
      */

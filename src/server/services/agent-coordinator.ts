@@ -135,7 +135,13 @@ export class AgentCoordinator {
                     continue;
                 }
                 if (outcome === 'completed' && this.queuedReplyFlags.has(executionId)) {
-                    // 排队消息自动续跑：runOnce 会从日志提取 user 回复续接会话
+                    // 排队消息自动续跑：runOnce 会从日志提取 user 回复续接会话。
+                    // 以真实队列为准（而非仅标志位）：排队消息可能已被用户编辑/删除，
+    // 删空后不再空转一轮
+                    const execution = await this.store.get(executionId).catch(() => undefined);
+                    if (!execution?.pendingReplies?.length) {
+                        break;
+                    }
                     await this.store.updateStatus(executionId, 'running');
                     this.broadcastStatus(executionId, 'running');
                     await this.store.addLog(executionId, '📨 存在排队消息，继续处理').catch(() => undefined);

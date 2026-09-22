@@ -364,6 +364,44 @@ export class AgentExecutionStore {
     }
 
     /**
+     * 编辑排队回复（按下标）。越界抛错 —— 消费/并发删除会让索引失效，
+     * 前端收到错误后刷新列表即可自愈。
+     */
+    async updatePendingReply(executionId: string, index: number, message: string): Promise<void> {
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            const pending = execution.pendingReplies ?? [];
+            if (index < 0 || index >= pending.length) {
+                throw new Error('排队消息不存在（可能已被消费或删除）');
+            }
+            pending[index] = message;
+            execution.pendingReplies = [...pending];
+            await this.saveInternal(execution);
+        });
+    }
+
+    /**
+     * 删除排队回复（按下标，不想让执行的消息直接移出队列）。越界抛错同上。
+     */
+    async deletePendingReply(executionId: string, index: number): Promise<void> {
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+            const pending = execution.pendingReplies ?? [];
+            if (index < 0 || index >= pending.length) {
+                throw new Error('排队消息不存在（可能已被消费或删除）');
+            }
+            execution.pendingReplies = pending.filter((_, i) => i !== index);
+            await this.saveInternal(execution);
+        });
+    }
+
+    /**
      * 更新子任务状态
      */
     async updateSubTask(executionId: string, subTaskId: string, updates: Partial<SubTask>): Promise<void> {

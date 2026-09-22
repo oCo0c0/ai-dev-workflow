@@ -11,7 +11,7 @@
 
 import {useEffect, useRef, useState, useCallback, useMemo} from 'react';
 import {useTranslation} from 'react-i18next';
-import {apiGet, apiPost, apiDelete, pickFolder} from '../api';
+import {apiGet, apiPost, apiPut, apiDelete, pickFolder} from '../api';
 import {notifyTaskResult} from '../utils/notification';
 import {useAppStore} from '../stores/app-store';
 import {cn, formatRelativeTime} from '../lib/utils';
@@ -25,6 +25,7 @@ import {
     CheckCircle2,
     XCircle,
     AlertCircle,
+    Pencil,
     Zap,
     Square,
     Sparkles,
@@ -278,6 +279,10 @@ export default function AgentExecutionPage() {
     // 运行中的排队消息（服务端 pendingReplies 为准：发送即排队，消费（自动续跑/
     // 立即处理）时才落日志上屏；轮询 detail 自动同步增减）
     const [processingNow, setProcessingNow] = useState(false);
+    // 排队消息编辑态：正在编辑的下标 + 草稿（一次编辑一条；删除后索引位移，编辑态随之关闭）
+    const [editingReplyIndex, setEditingReplyIndex] = useState<number | null>(null);
+    const [editingReplyText, setEditingReplyText] = useState('');
+    const [replyMutating, setReplyMutating] = useState(false);
 
     // DOM 引用
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -543,6 +548,36 @@ export default function AgentExecutionPage() {
             console.error('立即处理失败:', err);
         } finally {
             setProcessingNow(false);
+        }
+    };
+
+    /** 编辑排队消息（按下标 PUT；成功/失败都刷新 detail 同步列表 —— 索引可能已被消费位移） */
+    const handleEditQueuedReply = async (index: number, message: string) => {
+        if (!activeId || replyMutating || !message.trim()) return;
+        setReplyMutating(true);
+        try {
+            await apiPut(`/agent-execution/${activeId}/replies/${index}`, {message: message.trim()});
+            setEditingReplyIndex(null);
+        } catch (err) {
+            console.error('[AgentExec] 编辑排队消息失败:', err);
+        } finally {
+            await loadDetail(activeId);
+            setReplyMutating(false);
+        }
+    };
+
+    /** 删除排队消息（不想让执行的内容直接移出队列；删除后索引位移，关闭编辑态） */
+    const handleDeleteQueuedReply = async (index: number) => {
+        if (!activeId || replyMutating) return;
+        setReplyMutating(true);
+        try {
+            await apiDelete(`/agent-execution/${activeId}/replies/${index}`);
+            setEditingReplyIndex(null);
+        } catch (err) {
+            console.error('[AgentExec] 删除排队消息失败:', err);
+        } finally {
+            await loadDetail(activeId);
+            setReplyMutating(false);
         }
     };
 
@@ -1131,7 +1166,8 @@ export default function AgentExecutionPage() {
                                         onSuggestNewSession={handleNewSession}
                                     />
                                 </div>
-                                    {/* 排队消息条：运行中发送的消息在服务端排队（不上屏），消费时才进对话流 */}
+                                    {/* 排队消息列表：运行中发送的消息在服务端排队（不上屏），消费时才进对话流。
+                                        每条支持编辑/删除（服务端按下标操作，轮询与操作后刷新自动同步） */}
                                     {pendingReplies.length > 0 && (
                                         <div className="mb-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
                                             <div className="flex items-center justify-between gap-2">
@@ -1153,6 +1189,76 @@ export default function AgentExecutionPage() {
                                                     立即处理
                                                 </Button>
                                             </div>
+                                            <ul className="mt-2 space-y-1">
+                                                {pendingReplies.map((text, index) => (
+                                                    editingReplyIndex === index ? (
+                                                        <li key={index} className="rounded border border-amber-500/40 bg-background/60 p-2">
+                                                            <textarea
+                                                                value={editingReplyText}
+                                                                onChange={(e) => setEditingReplyText(e.target.value)}
+                                                                rows={3}
+                                                                autoFocus
+                                                                aria-label={t('common.edit')}
+                                                                className="w-full resize-none rounded border border-border/60 bg-transparent p-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                                                            />
+                                                            <div className="mt-1.5 flex justify-end gap-1.5">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-6 px-2 text-[11px]"
+                                                                    onClick={() => setEditingReplyIndex(null)}
+                                                                >
+                                                                    {t('common.cancel')}
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    className="h-6 px-2 text-[11px]"
+                                                                    disabled={replyMutating || !editingReplyText.trim()}
+                                                                    onClick={() => void handleEditQueuedReply(index, editingReplyText)}
+                                                                >
+                                                                    {replyMutating ? <Loader2 className="h-3 w-3 animate-spin"/> : <Check className="h-3 w-3 mr-1"/>}
+                                                                    {t('common.save')}
+                                                                </Button>
+                                                            </div>
+                                                        </li>
+                                                    ) : (
+                                                        <li
+                                                            key={index}
+                                                            className="group flex items-start gap-2 rounded px-1.5 py-1 transition-colors hover:bg-amber-500/10"
+                                                        >
+                                                            <span className="mt-0.5 shrink-0 rounded bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                                                                {index + 1}
+                                                            </span>
+                                                            <span className="min-w-0 flex-1 break-all text-xs text-foreground/85" title={text}>
+                                                                {text}
+                                                            </span>
+                                                            <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                                                                <button
+                                                                    type="button"
+                                                                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                                                    title={t('common.edit')}
+                                                                    disabled={replyMutating}
+                                                                    onClick={() => {
+                                                                        setEditingReplyIndex(index);
+                                                                        setEditingReplyText(text);
+                                                                    }}
+                                                                >
+                                                                    <Pencil className="h-3 w-3"/>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                                                    title={t('common.delete')}
+                                                                    disabled={replyMutating}
+                                                                    onClick={() => void handleDeleteQueuedReply(index)}
+                                                                >
+                                                                    <Trash2 className="h-3 w-3"/>
+                                                                </button>
+                                                            </div>
+                                                        </li>
+                                                    )
+                                                ))}
+                                            </ul>
                                         </div>
                                     )}
                                     {/* 统一输入框：就绪=发送即开始执行（允许空文案）；运行中=发送即排队；其余=发送即回复 */}
