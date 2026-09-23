@@ -56,6 +56,7 @@ import {ChatInputBox} from '../components/ChatInputBox';
 import WorkspacePanel from '../components/WorkspacePanel';
 import {FloatingSidePanel} from '../components/FloatingSidePanel';
 import {deliverableFilesFromMessages} from '../utils/agent-log-parse';
+import {groupExecutionsByWorkspace} from '../utils/agent-workspace-groups';
 import {useParsedLogs} from '../hooks/useParsedLogs';
 import {DeliverablesCard} from '../components/DeliverablesCard';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
@@ -175,6 +176,8 @@ export default function AgentExecutionPage() {
 
     // 历史列表分组折叠（key 为 workspacePath，undefined 表示无工作空间组）
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    // 添加工作空间失败提示（成功由左侧新分组自证，无需提示）
+    const [wsNotice, setWsNotice] = useState<string | null>(null);
 
     // 工具权限确认队列（agent 执行中 canUseTool 触发）。
     // 队列化：并行工具会连续产生多个权限请求，单弹窗 state 会互相覆盖导致
@@ -278,9 +281,14 @@ export default function AgentExecutionPage() {
         if (!picked) return;
         try {
             await apiPost('/workspace/saved', {path: picked});
-            loadWorkspaceHistory();
+            setWsNotice(null);
+            // 保存成功后刷新：新工作空间会立刻以空分组出现在左侧列表（可见即成功）
+            await loadWorkspaceHistory();
         } catch (err) {
             console.error('[AgentExec] 添加工作空间失败:', err);
+            // 失败时给出可见反馈（此前只在 console，界面上看起来像"点了没反应"）
+            setWsNotice(err instanceof Error ? err.message : '添加工作空间失败');
+            setTimeout(() => setWsNotice(null), 5000);
         }
     };
 
@@ -327,28 +335,12 @@ export default function AgentExecutionPage() {
         return [...map.values()];
     }, [workspaceHistory, savedWorkspaces]);
 
-    // 历史列表按工作空间（项目）分组：组名优先用已保存工作区的名称，否则取目录名
-    const groupedHistory = useMemo(() => {
-        const groups = new Map<string, { label: string; path?: string; items: AgentExecutionSummary[] }>();
-        const labelFor = (path: string) => {
-            const saved = savedWorkspaces.find((ws) => ws.path === path);
-            return saved?.name || path.split(/[\\/]/).filter(Boolean).pop() || path;
-        };
-        for (const exec of history) {
-            const key = exec.workspacePath || '__none__';
-            if (!groups.has(key)) {
-                groups.set(key, {
-                    label: exec.workspacePath ? labelFor(exec.workspacePath) : '未指定工作空间',
-                    path: exec.workspacePath,
-                    items: [],
-                });
-            }
-            groups.get(key)!.items.push(exec);
-        }
-        // 组间按最近一条执行时间倒序
-        return [...groups.values()].sort((a, b) =>
-            new Date(b.items[0].createdAt).getTime() - new Date(a.items[0].createdAt).getTime());
-    }, [history, savedWorkspaces]);
+    // 历史列表按工作空间（项目）分组：见 utils/agent-workspace-groups.ts
+    // （已保存但无执行记录的工作空间也会成空组列出，保证「添加工作空间」立即可见）
+    const groupedHistory = useMemo(
+        () => groupExecutionsByWorkspace(history, savedWorkspaces),
+        [history, savedWorkspaces],
+    );
 
     const toggleGroup = (key: string) => {
         setCollapsedGroups((prev) => {
@@ -715,8 +707,15 @@ export default function AgentExecutionPage() {
                     </div>
                 </div>
 
+                {wsNotice && (
+                    <div
+                        className="px-3 py-1.5 text-[11px] text-destructive bg-destructive/10 border-b border-destructive/20 break-all">
+                        {wsNotice}
+                    </div>
+                )}
+
                 <div className="flex-1 overflow-y-auto">
-                    {history.length === 0 && !loadingHistory && (
+                    {groupedHistory.length === 0 && !loadingHistory && (
                         <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
                             <Terminal className="h-7 w-7 text-muted-foreground/30"/>
                             <p className="text-xs text-muted-foreground">暂无执行记录</p>
@@ -754,6 +753,12 @@ export default function AgentExecutionPage() {
                                         </button>
                                     )}
                                 </div>
+
+                                {!collapsed && group.items.length === 0 && (
+                                    <div className="px-3 py-2 text-[11px] text-muted-foreground/70">
+                                        暂无执行记录 —— 悬停分组头点「+」可在此项目空间新建执行
+                                    </div>
+                                )}
 
                                 {!collapsed && group.items.map((exec) => (
                                     <div
