@@ -24,6 +24,7 @@ import type {MemoryService} from './memory/memory-service.js';
 import type {AttachmentStore, StoredAttachment} from './attachment-store.js';
 import {formatAttachmentsBlock} from './attachment-store.js';
 import {isStepWorthyTool} from '../platform/tool-catalog.js';
+import {buildSkillInjections} from './skill-injection.js';
 
 export interface CoordinatorConfig {
     cliRunner: CLIRunnerService;
@@ -192,6 +193,16 @@ export class AgentCoordinator {
                 return null;
             })
             .filter((r): r is string => r !== null && r.length > 0);
+
+        // 技能手势注入（对齐 DSH 的 agent/pre-step 注入）：用户消息里的 `/skill-name` 由服务端
+        // 展开为 <skill_content> 追加到本轮上下文；原文保留 —— 前端只写字面 /name，
+        // 因此菜单选中、手打与其它客户端走同一条路。命中未知技能不注入也不报错。
+        try {
+            const skillBlock = await buildSkillInjections(userReplies);
+            if (skillBlock) userReplies.push(skillBlock);
+        } catch (err) {
+            console.error(`[coordinator] skill injection failed: ${err instanceof Error ? err.message : err}`);
+        }
 
         // 一次性取走该执行绑定的聊天附件（取出即删），组 prompt 时注入——每轮循环
         // （排队续跑/中断续跑）都会走到这里，保证排队消息的附件在其被消费的那轮注入

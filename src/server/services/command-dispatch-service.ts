@@ -4,15 +4,14 @@
  *
  * 返回约定（调用方据此决定是否还要把消息发给模型）：
  * - `handled: true`：命令已由服务端处理完毕，**不要再发**给模型（/help /skills /memory /clear /compact）
- * - `handled: false` + `promptInjection`：命令是「提示词模板」（技能、用户自定义命令），
- *   调用方应把 `promptInjection` 作为消息内容发给模型，替代原始 `/name args` 文本
- * - `handled: false` 且无 `promptInjection`：不是命令，按普通消息处理
+ * - `handled: false`：按普通消息照原样发送。包含两种情况：
+ *   ① 未匹配到任何命令/技能（对齐 DSH：不写日志、当普通散文处理）；
+ *   ② 命中**技能或用户自定义命令** —— 前端只保留字面 `/name args`，正文由服务端在发送前
+ *      按手势注入（见 skill-injection.ts），确定性因此留在服务端
  */
 
 import {
     CommandRegistryService,
-    renderCommandTemplate,
-    type CommandEntry,
     type ExternalSkill,
 } from './command-registry-service.js';
 import type {MemoryService} from './memory/memory-service.js';
@@ -78,26 +77,18 @@ export class CommandDispatchService {
 
         const entry = this.registry.find(parsed.name, ctx.skills ?? []);
         if (!entry) {
-            const msg = `未找到命令或技能「/${parsed.name}」。输入 /help 查看可用命令与技能。`;
-            await ctx.appendLog?.(`⚠️ ${msg}`);
-            return {handled: true, error: msg};
+            // 未匹配 → 当普通消息放行（对齐 DSH：`execute` 返回 undefined 且不写任何日志）
+            return {handled: false};
         }
 
         if (entry.source === 'builtin') {
             return this.runBuiltin(entry.name, parsed.args, ctx);
         }
 
-        // 技能 / 用户自定义命令：渲染模板后作为消息内容发给模型
-        const content = this.registry.readContent(entry);
-        if (!content) {
-            const msg = `「/${entry.name}」内容不可读`;
-            await ctx.appendLog?.(`⚠️ ${msg}`);
-            return {handled: true, error: msg};
-        }
-        const rendered = renderCommandTemplate(content, parsed.args);
-        const label = entry.kind === 'skill' ? '技能' : '命令';
-        await ctx.appendLog?.(`▶ 调用${label} /${entry.name}${parsed.args ? ` ${parsed.args}` : ''}`);
-        return {handled: false, promptInjection: rendered};
+        // 技能 / 用户自定义命令：由服务端在发送前按手势注入正文（见 skill-injection.ts），
+        // 前端只保留字面 `/name args` 原文，因此这里同样「放行」——
+        // 确定性留在服务端，与菜单选中/手打/其它客户端走同一条路。
+        return {handled: false};
     }
 
     /** 内置命令实现 */

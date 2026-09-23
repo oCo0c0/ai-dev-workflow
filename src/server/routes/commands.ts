@@ -11,61 +11,18 @@
  */
 
 import {Router} from 'express';
-import fs from 'fs';
-import path from 'path';
 import {AgentExecutionStore} from '../services/agent-execution-store.js';
-import {CommandRegistryService, type ExternalSkill} from '../services/command-registry-service.js';
+import {CommandRegistryService} from '../services/command-registry-service.js';
 import {CommandDispatchService, type CommandDispatchContext} from '../services/command-dispatch-service.js';
 import {MemoryNotesStore} from '../services/memory/memory-notes-store.js';
 import type {MemoryService} from '../services/memory/memory-service.js';
-import {getAllProviders} from '../services/cli-providers/index.js';
 import type {CoordinatorConfig} from '../services/agent-coordinator.js';
 import {broadcast} from '../websocket.js';
-import {extractDescription} from '../utils/markdown-utils.js';
 import {getErrorMessage} from '../utils/error-utils.js';
-
-/** 仓库内置技能目录（项目 skills/ → 编译后 dist/skills/） */
-const BUILTIN_SKILLS_DIR = path.resolve(__dirname, '..', '..', '..', 'skills');
+import {collectExternalSkills} from '../services/skill-injection.js';
 
 /** 摘要材料上限（字符，取最近部分） */
 const MAX_TRANSCRIPT_CHARS = 40_000;
-
-/**
- * 收集外部技能：仓库内置 skills/ + 各 CLI provider 扫描结果（按 name 去重）。
- */
-async function collectExternalSkills(): Promise<ExternalSkill[]> {
-    const out: ExternalSkill[] = [];
-
-    if (fs.existsSync(BUILTIN_SKILLS_DIR)) {
-        try {
-            for (const entry of fs.readdirSync(BUILTIN_SKILLS_DIR, {withFileTypes: true})) {
-                if (!entry.isDirectory()) continue;
-                const md = path.join(BUILTIN_SKILLS_DIR, entry.name, 'SKILL.md');
-                if (!fs.existsSync(md)) continue;
-                const content = fs.readFileSync(md, 'utf-8');
-                out.push({name: entry.name, description: extractDescription(content), filePath: md, source: 'builtin'});
-            }
-        } catch { /* 内置技能目录不可读时忽略 */ }
-    }
-
-    const seen = new Set(out.map(s => s.name));
-    for (const provider of getAllProviders()) {
-        try {
-            for (const skill of await provider.loadSkills()) {
-                if (seen.has(skill.name)) continue;
-                seen.add(skill.name);
-                out.push({
-                    name: skill.name,
-                    description: skill.description,
-                    filePath: skill.filePath,
-                    source: skill.source ?? provider.id,
-                });
-            }
-        } catch { /* 单个 provider 失败不影响其它 */ }
-    }
-
-    return out;
-}
 
 /**
  * 执行日志 → 纯文本会话（/compact 的摘要材料）。
