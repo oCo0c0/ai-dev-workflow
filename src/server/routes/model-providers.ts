@@ -15,6 +15,7 @@
 
 import {Router} from 'express';
 import {ModelProviderStore} from '../services/model-provider-store.js';
+import {piProviderIdOf, resolvePiEndpoint} from '../services/cli-providers/pi-provider-endpoints.js';
 import type {ModelProviderInput} from '../services/model-provider-types.js';
 import {getErrorMessage} from '../utils/error-utils.js';
 
@@ -93,40 +94,73 @@ export function createModelProviderRoutes(store: ModelProviderStore): Router {
     router.post('/models/fetch', async (req, res) => {
         const body = (req.body ?? {}) as {apiKey?: unknown; baseUrl?: unknown; id?: unknown; kind?: unknown};
         const kind = typeof body.kind === 'string' ? body.kind : '';
+        const recordId = typeof body.id === 'string' ? body.id : '';
         let apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
-        const baseUrlRaw = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
-        // 编辑已有记录时未重填 key：退回已存凭据
-        if (!apiKey && typeof body.id === 'string' && body.id) {
+        let baseUrlRaw = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
+        // 编辑已有记录时未重填 key：退回已存凭据（顺带取记录的 Base URL）
+        let stored;
+        if (recordId) {
             try {
-                apiKey = store.get(body.id)?.apiKey ?? '';
-            } catch { /* 记录不存在时按无 key 处理 */ }
+                stored = store.get(recordId);
+            } catch { /* 记录不存在时按无凭据处理 */ }
         }
+        if (!apiKey) apiKey = stored?.apiKey ?? '';
+        if (!baseUrlRaw) baseUrlRaw = stored?.baseUrl ?? '';
         if (!apiKey) {
             res.status(400).json({code: 'API_KEY_REQUIRED', message: '请先填写 API Key（或选择已配置 Key 的记录）'});
             return;
         }
-        const base = (baseUrlRaw
-            || (kind === 'claude' ? 'https://api.anthropic.com' : 'https://api.deepseek.com')
-        ).replace(/\/+$/, '');
-        // Anthropic 风格：/v1/models + x-api-key；OpenAI 兼容风格：/models + Bearer
-        const modelsPath = kind === 'claude' ? '/v1/models' : '/models';
+
+        // pi 记录：端点由供应商决定（记录里的 Base URL 优先），用于验证 key 是否有效。
+        // 注：pi 自己解析调用端点，这里的端点只服务「测试连接」这一只读探测。
+        let base: string;
+        let modelsPath: string;
+        let authHeader: (key: string) => Record<string, string>;
+        if (kind === 'pi') {
+            const providerId = piProviderIdOf(recordId);
+            const endpoint = resolvePiEndpoint(providerId, baseUrlRaw);
+            if (!endpoint) {
+                res.status(400).json({
+                    code: 'PI_ENDPOINT_UNKNOWN',
+                    message: `未内置供应商「${providerId || '未知'}」的探测端点：请在该记录的 Base URL 中填写端点地址后重试`,
+                });
+                return;
+            }
+            base = endpoint.baseUrl;
+            modelsPath = endpoint.modelsPath;
+            authHeader = endpoint.auth === 'x-api-key'
+                ? (key) => ({'x-api-key': key, 'anthropic-version': '2023-06-01'})
+                : (key) => ({Authorization: `Bearer ${key}`});
+        } else {
+            base = (baseUrlRaw
+                || (kind === 'claude' ? 'https://api.anthropic.com' : 'https://api.deepseek.com')
+            ).replace(/\/+$/, '');
+            // Anthropic 风格：/v1/models + x-api-key；OpenAI 兼容风格：/models + Bearer
+            modelsPath = kind === 'claude' ? '/v1/models' : '/models';
+            authHeader = (key) => ({Authorization: `Bearer ${key}`, 'x-api-key': key});
+        }
+
         try {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 15_000);
             const resp = await fetch(`${base}${modelsPath}`, {
-                headers: {Authorization: `Bearer ${apiKey}`, 'x-api-key': apiKey},
+                headers: authHeader(apiKey),
                 signal: controller.signal,
             });
             clearTimeout(timer);
             if (!resp.ok) {
-                const detail = resp.status === 401 ? 'API Key 无效或已过期' : `端点返回 HTTP ${resp.status}`;
+                const detail = resp.status === 401
+                    ? 'API Key 无效或已过期'
+                    : resp.status === 403
+                        ? 'API Key 无权限（403）'
+                        : `端点返回 HTTP ${resp.status}`;
                 res.status(resp.status === 401 ? 401 : 502).json({code: 'MODELS_FETCH_FAILED', message: detail});
                 return;
             }
             const data = (await resp.json()) as {data?: Array<{id?: unknown}>, models?: Array<{id?: unknown}>};
             const list = Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : []);
             const models = list.map((m) => (typeof m?.id === 'string' ? m.id : '')).filter(Boolean);
-            res.json({models: [...new Set(models)].sort()});
+            res.json({models: [...new Set(models)].sort(), endpoint: `${base}${modelsPath}`});
         } catch (err) {
             res.status(502).json({code: 'MODELS_FETCH_FAILED', message: `无法访问 ${base}${modelsPath}：${getErrorMessage(err)}`});
         }
