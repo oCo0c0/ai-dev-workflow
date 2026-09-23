@@ -327,11 +327,11 @@ function DiffView({diff, additions, deletions, filePath}: {
                 <span className="text-xs text-red-500 shrink-0">-{deletions}</span>
             </div>
 
-            {/* 差异内容：逐行着色显示 */}
-            <div className="flex-1 overflow-auto bg-[#1e1e1e]">
+            {/* 差异内容：逐行着色显示（配色跟随代码主题 --code-*） */}
+            <div className="flex-1 overflow-auto bg-[hsl(var(--code-bg))]">
         <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre overflow-x-auto min-h-full">
           {lines.map((line, i) => {
-              let lineClass = 'text-gray-200';
+              let lineClass = 'text-[hsl(var(--code-fg))]';
               let bgClass = '';
 
               // 根据行首字符判断行的类型并应用对应颜色
@@ -345,12 +345,12 @@ function DiffView({diff, additions, deletions, filePath}: {
                   bgClass = 'bg-yellow-500/5';
               } else if (line.startsWith('+')) {
                   // Added line - 绿色
-                  lineClass = 'text-emerald-300';
-                  bgClass = 'bg-emerald-500/10';
+                  lineClass = 'text-[hsl(var(--code-add-fg))]';
+                  bgClass = 'bg-[hsl(var(--code-add-bg))]';
               } else if (line.startsWith('-')) {
                   // Deleted line - 红色
-                  lineClass = 'text-red-300';
-                  bgClass = 'bg-red-500/10';
+                  lineClass = 'text-[hsl(var(--code-del-fg))]';
+                  bgClass = 'bg-[hsl(var(--code-del-bg))]';
               }
 
               return (
@@ -1275,15 +1275,15 @@ export default function WorkspacePanel({
                             )}
                         </div>
 
-                        {/* 文件内容区域：深色主题代码预览 */}
-                        <div className="flex-1 overflow-auto bg-[#1e1e1e]">
+                        {/* 文件内容区域：代码预览（配色跟随代码主题 --code-*） */}
+                        <div className="flex-1 overflow-auto bg-[hsl(var(--code-bg))]">
                             {loadingFile ? (
                                 <div className="flex justify-center py-12">
-                                    <Loader2 className="h-5 w-5 animate-spin text-gray-400"/>
+                                    <Loader2 className="h-5 w-5 animate-spin text-[hsl(var(--code-muted))]"/>
                                 </div>
                             ) : fileContent ? (
                                 <pre
-                                    className="p-4 text-xs font-mono text-gray-200 leading-relaxed whitespace-pre overflow-x-auto min-h-full">
+                                    className="p-4 text-xs font-mono text-[hsl(var(--code-fg))] leading-relaxed whitespace-pre overflow-x-auto min-h-full">
                   {fileContent.content}
                 </pre>
                             ) : null}

@@ -36,6 +36,38 @@ export const GLASS_COLOR_PRESETS: Array<{id: string; hex: string}> = [
     {id: 'graphite', hex: '#2a2a2e'},
 ];
 
+/**
+ * 代码块配色预设。
+ * - auto：跟随主题（由 index.css 的 --code-* 默认值给出，浅/深各一档），不注入补丁段
+ * - 其余为固定配色（代码区域自带底色，明暗主题下都保持所选观感，如 VS Code 的做法）
+ */
+export interface CodeThemePreset {
+    id: string;
+    label: string;
+    /** 代码区底色（hex；auto 为 null） */
+    bg: string | null;
+    /** 正文前景色（hex） */
+    fg: string;
+    /** 行号/注释等次要文字（hex） */
+    muted: string;
+    /** 边框色（hex） */
+    border: string;
+}
+
+export const CODE_THEME_PRESETS: CodeThemePreset[] = [
+    {id: 'auto', label: '跟随主题', bg: null, fg: '', muted: '', border: ''},
+    {id: 'github-dark', label: 'GitHub 深色', bg: '#0d1117', fg: '#c9d1d9', muted: '#8b949e', border: '#30363d'},
+    {id: 'one-dark', label: 'One Dark', bg: '#282c34', fg: '#abb2bf', muted: '#7f848e', border: '#3e4451'},
+    {id: 'nord', label: 'Nord', bg: '#2e3440', fg: '#d8dee9', muted: '#7b88a1', border: '#434c5e'},
+    {id: 'github-light', label: 'GitHub 浅色', bg: '#f6f8fa', fg: '#24292f', muted: '#6e7781', border: '#d0d7de'},
+    {id: 'high-contrast', label: '高对比', bg: '#000000', fg: '#f5f5f5', muted: '#a3a3a3', border: '#404040'},
+];
+
+/** 代码配色 id → 预设（未知 id 归为跟随主题） */
+export function codeThemePreset(id: string | null | undefined): CodeThemePreset {
+    return CODE_THEME_PRESETS.find(p => p.id === id) ?? CODE_THEME_PRESETS[0];
+}
+
 /** hex (#rgb/#rrggbb) → HSL（h: 0-360, s/l: 0-100） */
 export function hexToHsl(hex: string): {h: number; s: number; l: number} {
     let cleaned = hex.replace(/^#/, '').trim();
@@ -98,8 +130,8 @@ export function lightenHex(hex: string, amount: number): string {
 // ── 主题感知样式表注入引擎 ─────────────────────────────────────────────────
 
 const PATCH_STYLE_ID = 'adw-appearance-patch';
-/** 各特性自己的规则段（accent / glass / text），重建样式表时按序拼接 */
-const patchSegments: Partial<Record<'accent' | 'glass' | 'text', string>> = {};
+/** 各特性自己的规则段（accent / glass / text / code），重建样式表时按序拼接 */
+const patchSegments: Partial<Record<'accent' | 'glass' | 'text' | 'code', string>> = {};
 
 function flushPatchStyle(): void {
     if (typeof document === 'undefined') return;
@@ -182,5 +214,41 @@ export function applyFontColorPatch(hex: string | null): void {
         `:root{--foreground:${light} !important;--muted-foreground:${lightMuted} !important}`,
         `.dark{--foreground:${dark} !important;--muted-foreground:${darkMuted} !important}`,
     ].join('\n');
+    flushPatchStyle();
+}
+
+/**
+ * 应用代码块配色（代码区/差异视图/终端输出的底色与文字）。
+ *
+ * - 'auto' / null：清除补丁段，回落到 index.css 里 --code-* 的主题默认值（跟随主题）；
+ * - 其余预设为固定配色（hex → HSL 三元组），浅深主题下都用所选观感。
+ *
+ * 相关变量：--code-bg（底色）/ --code-fg（正文）/ --code-muted（行号·注释）/
+ * --code-border（分隔线）；终端卡与差异行另有 --code-add-xxx 与 --code-del-xxx 由预设派生。
+ */
+export function applyCodeTheme(id: string | null): void {
+    if (typeof document === 'undefined') return;
+    const preset = CODE_THEME_PRESETS.find(p => p.id === id);
+    if (!preset || preset.bg === null) {
+        delete patchSegments.code;
+        flushPatchStyle();
+        return;
+    }
+    const bg = triplet(preset.bg);
+    const fg = triplet(preset.fg);
+    const muted = triplet(preset.muted);
+    const border = triplet(preset.border);
+    // 差异行底色/文字：以底色为基准轻微着色，保证在任何预设下都可读
+    const {h: addH, s: addS} = hexToHsl('#10b981');
+    const {h: delH, s: delS} = hexToHsl('#ef4444');
+    const addBg = `${addH} ${Math.round(addS * 0.35)}% ${Math.max(14, hexToHsl(preset.bg).l + 6)}%`;
+    const delBg = `${delH} ${Math.round(delS * 0.35)}% ${Math.max(14, hexToHsl(preset.bg).l + 6)}%`;
+    const addFg = `${addH} ${Math.round(addS * 0.7)}% ${Math.min(88, hexToHsl(preset.fg).l + 8)}%`;
+    const delFg = `${delH} ${Math.round(delS * 0.7)}% ${Math.min(88, hexToHsl(preset.fg).l + 8)}%`;
+    const vars = `--code-bg:${bg} !important;--code-fg:${fg} !important;--code-muted:${muted} !important;` +
+        `--code-border:${border} !important;--code-add-bg:${addBg} !important;--code-add-fg:${addFg} !important;` +
+        `--code-del-bg:${delBg} !important;--code-del-fg:${delFg} !important`;
+    // 固定配色：浅深主题同值（所选代码主题不随界面明暗变化）
+    patchSegments.code = `:root{${vars}}\n.dark{${vars}}`;
     flushPatchStyle();
 }

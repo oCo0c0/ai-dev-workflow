@@ -11,6 +11,7 @@ import {ImagePlus, Trash2} from 'lucide-react';
 import {cn} from '../../lib/utils';
 import {
     ACCENT_PRESETS,
+    CODE_THEME_PRESETS,
     GLASS_COLOR_PRESETS,
     lightenHex,
 } from '../../lib/appearance';
@@ -64,6 +65,8 @@ export function AppearanceTab() {
     const setAccent = useAppStore(s => s.setAccent);
     const glassColor = useAppStore(s => s.ui.glassColor);
     const setGlassColor = useAppStore(s => s.setGlassColor);
+    const codeTheme = useAppStore(s => s.ui.codeTheme);
+    const setCodeTheme = useAppStore(s => s.setCodeTheme);
     const opacity = useAppStore(s => s.ui.opacity);
     const setOpacity = useAppStore(s => s.setOpacity);
     const bgImage = useAppStore(s => s.ui.bgImage);
@@ -171,6 +174,35 @@ export function AppearanceTab() {
                         </button>
                     )}
                 </div>
+            </section>
+
+            <section>
+                <SectionTitle title={t('settings.qs.codeTheme')} desc={t('settings.qs.codeThemeDesc')}/>
+                <div className="flex flex-wrap items-center gap-2">
+                    {CODE_THEME_PRESETS.map(p => {
+                        const active = codeTheme === p.id;
+                        // auto（跟随主题）用主题 token 呈现，其余用预设自身的底色/前景色
+                        return (
+                            <button
+                                key={p.id}
+                                type="button"
+                                title={t(`settings.qs.code_${p.id}`)}
+                                onClick={() => setCodeTheme(p.id)}
+                                className={cn(
+                                    'flex h-9 w-16 items-center justify-center rounded-md border border-border/60 text-[11px] font-mono shadow-sm transition-transform hover:scale-105',
+                                    !p.bg && 'bg-muted/60 text-muted-foreground',
+                                    active && 'ring-2 ring-ring ring-offset-2 ring-offset-background',
+                                )}
+                                style={p.bg ? {background: p.bg, color: p.fg} : undefined}
+                            >
+                                {'</>'}
+                            </button>
+                        );
+                    })}
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                    {t(`settings.qs.code_${codeTheme}`)}
+                </p>
             </section>
 
             <section>

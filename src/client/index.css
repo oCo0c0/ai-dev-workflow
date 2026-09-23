@@ -47,6 +47,15 @@
         --app-opacity-input: 0.8;
         /* 自定义背景照片衰减（body.has-bg 时置 <1，让照片从菜单栏/顶栏透出） */
         --app-opacity-has-bg: 1;
+        /* 代码块配色默认值（「跟随主题」档；其它档由 lib/appearance.ts applyCodeTheme 覆盖） */
+        --code-bg: 240 6% 96%;
+        --code-fg: 240 6% 16%;
+        --code-muted: 240 5% 46%;
+        --code-border: 240 6% 88%;
+        --code-add-bg: 152 40% 92%;
+        --code-add-fg: 158 64% 28%;
+        --code-del-bg: 0 45% 95%;
+        --code-del-fg: 0 62% 42%;
     }
 
     /* === 深色主题（中性灰黑，非纯黑、不偏紫；品牌红渐变）=== */
@@ -87,6 +96,15 @@
         --glass-card-alpha: 0.80;
         --glass-panel-bg: 203 30% 18%;
         --glass-panel-alpha: 0.92;
+        /* 代码块配色默认值（「跟随主题」档：深色下用更深的代码底，与卡片区分） */
+        --code-bg: 203 35% 13%;
+        --code-fg: 205 25% 88%;
+        --code-muted: 205 15% 60%;
+        --code-border: 203 22% 24%;
+        --code-add-bg: 158 45% 16%;
+        --code-add-fg: 152 55% 65%;
+        --code-del-bg: 0 45% 18%;
+        --code-del-fg: 0 70% 72%;
     }
 }
 

@@ -45,7 +45,6 @@ import {
     Bot,
     Plus,
     FolderPlus,
-    PanelRightClose,
     PanelRightOpen,
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
@@ -55,6 +54,7 @@ import ContextIndicator from '../components/ContextIndicator';
 import {LogViewer} from '../components/LogViewer';
 import {ChatInputBox} from '../components/ChatInputBox';
 import WorkspacePanel from '../components/WorkspacePanel';
+import {FloatingSidePanel} from '../components/FloatingSidePanel';
 import {deliverableFilesFromMessages} from '../utils/agent-log-parse';
 import {useParsedLogs} from '../hooks/useParsedLogs';
 import {DeliverablesCard} from '../components/DeliverablesCard';
@@ -170,27 +170,8 @@ export default function AgentExecutionPage() {
         openSeqRef.current += 1;
         setWsOpenSignal({path: p, seq: openSeqRef.current});
     };
-    // 侧边栏宽度（可拖拽调整）
-    const [wsPanelWidth, setWsPanelWidth] = useState(480);
-    const dragWsPanel = (e: React.MouseEvent) => {
-        e.preventDefault();
-        const startX = e.clientX;
-        const startW = wsPanelWidth;
-        const onMove = (ev: MouseEvent) => {
-            // 中间执行详情区随侧边栏变宽自动压缩（flex-1），仅保留左侧历史列表宽度
-            setWsPanelWidth(Math.min(window.innerWidth - 300, Math.max(320, startW - (ev.clientX - startX))));
-        };
-        const onUp = () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-        };
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-    };
+    // 悬浮工作区面板宽度（可拖拽调整；FloatingSidePanel 负责拖拽与夹取）
+    const [wsPanelWidth, setWsPanelWidth] = useState(720);
 
     // 历史列表分组折叠（key 为 workspacePath，undefined 表示无工作空间组）
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -1065,34 +1046,20 @@ export default function AgentExecutionPage() {
                 )}
             </div>
 
-            {/* ====== 右侧：工作区预览侧边栏（跟随当前任务的项目空间，宽度可拖拽） ====== */}
-            {showWsPanel && (
-                <div className="relative shrink-0 border-l border-border flex flex-col" style={{width: wsPanelWidth}}>
-                    <div
-                        className="absolute inset-y-0 -left-1 w-2 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-20"
-                        onMouseDown={dragWsPanel}
-                    />
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
-                        <span className="label-strong text-xs uppercase tracking-wide">
-                            工作区预览
-                        </span>
-                        <button
-                            onClick={() => setShowWsPanel(false)}
-                            className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-                            title="收起工作区"
-                        >
-                            <PanelRightClose className="h-4 w-4"/>
-                        </button>
-                    </div>
-                    <div className="flex-1 min-h-0">
-                        <WorkspacePanel
-                            defaultWorkspacePath={detail?.workspacePath}
-                            showWorkspaceList={false}
-                            openFileSignal={wsOpenSignal}
-                        />
-                    </div>
-                </div>
-            )}
+            {/* ====== 右侧悬浮工作区预览（Portal 到 body，覆盖在内容之上，不挤压主页面）====== */}
+            <FloatingSidePanel
+                open={showWsPanel}
+                title="工作区预览"
+                width={wsPanelWidth}
+                onWidthChange={setWsPanelWidth}
+                onClose={() => setShowWsPanel(false)}
+            >
+                <WorkspacePanel
+                    defaultWorkspacePath={detail?.workspacePath}
+                    showWorkspaceList={false}
+                    openFileSignal={wsOpenSignal}
+                />
+            </FloatingSidePanel>
 
             {/* ====== 新建执行弹窗 ====== */}
             <dialog

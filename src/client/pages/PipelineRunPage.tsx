@@ -23,7 +23,6 @@ import {
     FolderOpen,
     FileCode,
     Play,
-    PanelRightClose,
     PanelRightOpen,
 } from 'lucide-react';
 import {Button} from '../components/ui/button';
@@ -33,6 +32,7 @@ import ContextIndicator from '../components/ContextIndicator';
 import PlanPanel from '../components/PlanPanel';
 import ExecutionPanel from '../components/ExecutionPanel';
 import WorkspacePanel from '../components/WorkspacePanel';
+import {FloatingSidePanel} from '../components/FloatingSidePanel';
 import type {PanelHandle, PanelInputState} from '../components/PanelInput';
 import {MessageSquare} from 'lucide-react';
 
@@ -131,26 +131,8 @@ export default function PipelineRunPage() {
         await target?.send(text, attachmentIds);
         setReplyText('');
     };
-    const [wsPanelWidth, setWsPanelWidth] = useState(480);
+    const [wsPanelWidth, setWsPanelWidth] = useState(720);
     const [activeWorkspacePath, setActiveWorkspacePath] = useState<string | undefined>(undefined);
-    const dragWsPanel = (e: React.MouseEvent) => {
-        e.preventDefault();
-        const startX = e.clientX;
-        const startW = wsPanelWidth;
-        const onMove = (ev: MouseEvent) => {
-            setWsPanelWidth(Math.min(window.innerWidth - 300, Math.max(320, startW - (ev.clientX - startX))));
-        };
-        const onUp = () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-        };
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-    };
 
     const loadSavedWorkspaces = useCallback(async () => {
         try {
@@ -478,34 +460,20 @@ export default function PipelineRunPage() {
                 )}
             </div>
 
-            {/* ====== 右侧：工作区预览侧边栏（宽度可拖拽） ====== */}
-            {showWsPanel && (
-                <div className="relative shrink-0 border-l border-border flex flex-col" style={{width: wsPanelWidth}}>
-                    <div
-                        className="absolute inset-y-0 -left-1 w-2 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-20"
-                        onMouseDown={dragWsPanel}
-                    />
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
-                        <span className="label-strong text-xs uppercase tracking-wide">
-                            工作区预览
-                        </span>
-                        <button
-                            onClick={() => setShowWsPanel(false)}
-                            className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-                            title="收起工作区"
-                        >
-                            <PanelRightClose className="h-4 w-4"/>
-                        </button>
-                    </div>
-                    <div className="flex-1 min-h-0">
-                        <WorkspacePanel
-                            defaultWorkspacePath={activeWorkspacePath}
-                            showWorkspaceList={false}
-                            openFileSignal={wsOpenSignal}
-                        />
-                    </div>
-                </div>
-            )}
+            {/* ====== 右侧悬浮工作区预览（Portal 到 body，覆盖在内容之上，不挤压主页面）====== */}
+            <FloatingSidePanel
+                open={showWsPanel}
+                title="工作区预览"
+                width={wsPanelWidth}
+                onWidthChange={setWsPanelWidth}
+                onClose={() => setShowWsPanel(false)}
+            >
+                <WorkspacePanel
+                    defaultWorkspacePath={activeWorkspacePath}
+                    showWorkspaceList={false}
+                    openFileSignal={wsOpenSignal}
+                />
+            </FloatingSidePanel>
         </div>
     );
 }

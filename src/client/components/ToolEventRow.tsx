@@ -267,20 +267,20 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
             {/* ── 展开态：变体专属卡片 ── */}
             {expanded && expandable && (
                 <div className="mx-1 mt-1 rounded-lg border border-border/50 overflow-hidden">
-                    {/* 终端卡：$ 命令 + 输出（深色 mono） */}
+                    {/* 终端卡：$ 命令 + 输出（配色跟随代码主题 --code-*） */}
                     {meta.variant === 'bash' && (
-                        <div className="bg-zinc-900/90 max-h-[260px] overflow-y-auto">
+                        <div className="bg-[hsl(var(--code-bg))] max-h-[260px] overflow-y-auto">
                             {bashCommand && (
                                 <div className="flex items-start gap-1.5 px-3 pt-2 font-mono text-[10px] leading-relaxed">
                                     <span className="text-emerald-400 shrink-0 select-none">$</span>
-                                    <span className="text-zinc-100 break-all">{bashCommand}</span>
+                                    <span className="text-[hsl(var(--code-fg))] break-all">{bashCommand}</span>
                                 </div>
                             )}
                             {tool.result && (
                                 <pre
                                     className={cn(
                                         'px-3 pb-2 pt-1 text-[10px] font-mono whitespace-pre-wrap break-all leading-relaxed',
-                                        isError ? 'text-red-300' : 'text-zinc-300',
+                                        isError ? 'text-[hsl(var(--code-del-fg))]' : 'text-[hsl(var(--code-fg))]/85',
                                         !bashCommand && 'pt-2',
                                     )}
                                 >
@@ -291,10 +291,10 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
                         </div>
                     )}
 
-                    {/* Diff 卡：- 红 / + 绿（write / edit / multiedit） */}
+                    {/* Diff 卡：- 红 / + 绿（write / edit / multiedit；配色跟随代码主题） */}
                     {meta.variant === 'edit' && diffLines.length > 0 && (
-                        <div className="max-h-[260px] overflow-y-auto bg-background/60">
-                            <div className="px-3 py-1.5 border-b border-border/40 font-mono text-[10px] text-muted-foreground truncate">
+                        <div className="max-h-[260px] overflow-y-auto bg-[hsl(var(--code-bg))]">
+                            <div className="px-3 py-1.5 border-b border-[hsl(var(--code-border))] font-mono text-[10px] text-[hsl(var(--code-muted))] truncate">
                                 {pickString(args ?? {}, ['path', 'file_path']) ?? tool.name}
                             </div>
                             <pre className="py-1 font-mono text-[10px] leading-[1.5]">
@@ -303,9 +303,9 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
                                         key={i}
                                         className={cn(
                                             'px-3 whitespace-pre-wrap break-all',
-                                            l.sign === '+' && 'bg-emerald-500/10 text-emerald-400',
-                                            l.sign === '-' && 'bg-red-500/10 text-red-400',
-                                            l.sign === ' ' && 'text-foreground/70',
+                                            l.sign === '+' && 'bg-[hsl(var(--code-add-bg))] text-[hsl(var(--code-add-fg))]',
+                                            l.sign === '-' && 'bg-[hsl(var(--code-del-bg))] text-[hsl(var(--code-del-fg))]',
+                                            l.sign === ' ' && 'text-[hsl(var(--code-fg))]/80',
                                         )}
                                     >
                                         <span className="select-none opacity-60">{l.sign} </span>
@@ -324,14 +324,14 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
 
                     {/* 读取卡：行号 + 文件内容窗口 */}
                     {meta.variant === 'read' && readLines.length > 0 && (
-                        <div className="max-h-[260px] overflow-y-auto bg-background/60">
-                            <div className="px-3 py-1.5 border-b border-border/40 font-mono text-[10px] text-muted-foreground truncate">
+                        <div className="max-h-[260px] overflow-y-auto bg-[hsl(var(--code-bg))]">
+                            <div className="px-3 py-1.5 border-b border-[hsl(var(--code-border))] font-mono text-[10px] text-muted-foreground truncate">
                                 {pickString(args ?? {}, ['path', 'file_path']) ?? tool.name}
                                 <span className="ml-2 opacity-60">共 {readLines.length} 行</span>
                             </div>
                             <pre className="py-1 font-mono text-[10px] leading-[1.5]">
                                 {readLines.slice(0, 500).map((l) => (
-                                    <div key={l.no} className="px-3 flex gap-3 whitespace-pre-wrap break-all text-foreground/75">
+                                    <div key={l.no} className="px-3 flex gap-3 whitespace-pre-wrap break-all text-[hsl(var(--code-fg))]/85">
                                         <span className="shrink-0 select-none text-right w-8 text-muted-foreground/40">{l.no}</span>
                                         <span className="flex-1 min-w-0">{l.text}</span>
                                     </div>
@@ -348,14 +348,14 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
 
                     {/* 搜索卡：模式 + 命中行 */}
                     {meta.variant === 'search' && (
-                        <div className="max-h-[260px] overflow-y-auto bg-background/60">
+                        <div className="max-h-[260px] overflow-y-auto bg-[hsl(var(--code-bg))]">
                             {searchPattern && (
-                                <div className="px-3 py-1.5 border-b border-border/40 font-mono text-[10px] text-muted-foreground truncate">
+                                <div className="px-3 py-1.5 border-b border-[hsl(var(--code-border))] font-mono text-[10px] text-muted-foreground truncate">
                                     /{searchPattern}/
                                 </div>
                             )}
                             {tool.result && (
-                                <pre className="px-3 py-1.5 text-[10px] font-mono whitespace-pre-wrap break-all text-foreground/75 leading-relaxed">
+                                <pre className="px-3 py-1.5 text-[10px] font-mono whitespace-pre-wrap break-all text-[hsl(var(--code-fg))]/85 leading-relaxed">
                                     {tool.result}
                                 </pre>
                             )}
@@ -365,14 +365,14 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
 
                     {/* 网页卡：URL + 抓取结果 */}
                     {meta.variant === 'web' && (
-                        <div className="max-h-[260px] overflow-y-auto bg-background/60">
+                        <div className="max-h-[260px] overflow-y-auto bg-[hsl(var(--code-bg))]">
                             {webUrl && (
-                                <div className="px-3 py-1.5 border-b border-border/40 font-mono text-[10px] text-primary/80 truncate">
+                                <div className="px-3 py-1.5 border-b border-[hsl(var(--code-border))] font-mono text-[10px] text-[hsl(var(--code-muted))] truncate">
                                     {webUrl}
                                 </div>
                             )}
                             {tool.result && (
-                                <pre className="px-3 py-1.5 text-[10px] font-mono whitespace-pre-wrap break-all text-foreground/75 leading-relaxed">
+                                <pre className="px-3 py-1.5 text-[10px] font-mono whitespace-pre-wrap break-all text-[hsl(var(--code-fg))]/85 leading-relaxed">
                                     {tool.result}
                                 </pre>
                             )}
@@ -394,22 +394,22 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
 function InOutCard({tool}: { tool: ToolEventInfo }) {
     const isError = tool.state === 'error';
     return (
-        <div className="max-h-[260px] overflow-y-auto bg-background/60">
+        <div className="max-h-[260px] overflow-y-auto bg-[hsl(var(--code-bg))]">
             {tool.input && (
-                <div className="px-3 py-2 border-b border-border/40">
-                    <span className="text-[9px] font-bold tracking-widest text-muted-foreground/60">IN</span>
-                    <pre className="mt-1 text-[10px] font-mono whitespace-pre-wrap break-all text-foreground/80 leading-relaxed">
+                <div className="px-3 py-2 border-b border-[hsl(var(--code-border))]">
+                    <span className="text-[9px] font-bold tracking-widest text-[hsl(var(--code-muted))]">IN</span>
+                    <pre className="mt-1 text-[10px] font-mono whitespace-pre-wrap break-all text-[hsl(var(--code-fg))]/85 leading-relaxed">
                         {tool.input}
                     </pre>
                 </div>
             )}
             {tool.result && (
                 <div className="px-3 py-2">
-                    <span className="text-[9px] font-bold tracking-widest text-muted-foreground/60">OUT</span>
+                    <span className="text-[9px] font-bold tracking-widest text-[hsl(var(--code-muted))]">OUT</span>
                     <pre
                         className={cn(
                             'mt-1 text-[10px] font-mono whitespace-pre-wrap break-all leading-relaxed',
-                            isError ? 'text-destructive/90' : 'text-foreground/80',
+                            isError ? 'text-[hsl(var(--code-del-fg))]' : 'text-[hsl(var(--code-fg))]/85',
                         )}
                     >
                         {tool.result}
@@ -423,7 +423,7 @@ function InOutCard({tool}: { tool: ToolEventInfo }) {
 /** 参数 JSON 兜底块（无结果可展示时） */
 function JsonInBlock({input}: { input: string }) {
     return (
-        <pre className="px-3 py-2 text-[10px] font-mono whitespace-pre-wrap break-all text-zinc-300 leading-relaxed">
+        <pre className="px-3 py-2 text-[10px] font-mono whitespace-pre-wrap break-all text-[hsl(var(--code-fg))]/85 leading-relaxed">
             {input}
         </pre>
     );

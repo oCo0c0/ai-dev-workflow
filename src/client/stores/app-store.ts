@@ -17,7 +17,7 @@
 import {create} from 'zustand';
 import type {AgentExecutionSummary} from '../types/agent-types';
 import {apiPut} from '../api';
-import {applyAccent, applyFontColorPatch, applyGlassColor, type AccentPair} from '../lib/appearance';
+import {applyAccent, applyCodeTheme, applyFontColorPatch, applyGlassColor, CODE_THEME_PRESETS, type AccentPair} from '../lib/appearance';
 
 // === 数据模型接口定义 ===
 
@@ -421,6 +421,8 @@ interface AppState {
         accent: AccentPair | null;
         /** 玻璃面板底色（null = 跟随主题；持久化 localStorage） */
         glassColor: string | null;
+        /** 代码块配色预设 id（'auto' = 跟随主题；持久化 localStorage + 服务端同步） */
+        codeTheme: string;
         /** 字体颜色/字重/光标设置（持久化 localStorage） */
         fontColor: FontColorSettings;
         /** 吉祥物（Bongo Cat）设置 */
@@ -572,6 +574,8 @@ interface AppState {
     setAccent: (pair: AccentPair | null) => void;
     /** 设置玻璃面板底色（null = 跟随主题；持久化 localStorage 并立即生效到 CSS 变量） */
     setGlassColor: (hex: string | null) => void;
+    /** 设置代码配色预设（'auto' = 跟随主题；持久化 localStorage 并立即生效到 CSS 变量） */
+    setCodeTheme: (id: string) => void;
     /** 设置吉祥物偏好（部分更新，持久化 localStorage；桌面端同步开关宠物悬浮窗） */
     setMascot: (patch: Partial<MascotSettings>) => void;
     /** 打开/关闭悬浮快捷设置面板 */
@@ -886,6 +890,9 @@ const ACCENT_KEY = 'ai-workbench-accent';
 /** 玻璃底色 localStorage key（hex 字符串） */
 const GLASS_COLOR_KEY = 'ai-workbench-glass-color';
 
+/** 代码配色 localStorage key（预设 id 字符串，'auto' = 跟随主题） */
+const CODE_THEME_KEY = 'ai-workbench-code-theme';
+
 /** 吉祥物偏好 localStorage key */
 const MASCOT_KEY = 'ai-workbench-mascot';
 
@@ -932,6 +939,12 @@ function loadAccent(): AccentPair | null {
 function loadGlassColor(): string | null {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem(GLASS_COLOR_KEY);
+}
+
+/** 读取代码配色预设 id（缺省 'auto' = 跟随主题） */
+function loadCodeTheme(): string {
+    if (typeof window === 'undefined') return 'auto';
+    return localStorage.getItem(CODE_THEME_KEY) || 'auto';
 }
 
 function loadMascotSettings(): MascotSettings {
@@ -1030,6 +1043,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const initialFont = loadFontSettings();
     const initialAccent = loadAccent();
     const initialGlassColor = loadGlassColor();
+    const initialCodeTheme = loadCodeTheme();
     const initialFontColor = loadFontColorSettings();
     // Store 初始化时立即应用主题、背景与字体，避免页面闪烁
     applyTheme(initialTheme);
@@ -1039,6 +1053,7 @@ export const useAppStore = create<AppState>((set, get) => {
     // 配色与玻璃底色（null = 跟随主题，apply 内部做 removeProperty 幂等处理）
     applyAccent(initialAccent);
     applyGlassColor(initialGlassColor);
+    applyCodeTheme(initialCodeTheme);
     applyFontColorSettings(initialFontColor);
 
     return {
@@ -1068,6 +1083,7 @@ export const useAppStore = create<AppState>((set, get) => {
             opacity: loadOpacitySettings(),
             accent: initialAccent,
             glassColor: initialGlassColor,
+            codeTheme: initialCodeTheme,
             fontColor: initialFontColor,
             mascot: loadMascotSettings(),
             quickSettings: {open: false, tab: loadQuickSettingsTab()},
@@ -1224,6 +1240,11 @@ export const useAppStore = create<AppState>((set, get) => {
             if (hex) localStorage.setItem(GLASS_COLOR_KEY, hex);
             else localStorage.removeItem(GLASS_COLOR_KEY);
             set((state) => ({ui: {...state.ui, glassColor: hex}}));
+        },
+        setCodeTheme: (id) => {
+            applyCodeTheme(id);
+            localStorage.setItem(CODE_THEME_KEY, id);
+            set((state) => ({ui: {...state.ui, codeTheme: id}}));
         },
         setMascot: (patch) => {
             const mascot = {...get().ui.mascot, ...patch};
@@ -1486,6 +1507,7 @@ function collectPreferences(ui: UiSlice): Record<string, unknown> {
         opacity: ui.opacity,
         accent: ui.accent,
         glassColor: ui.glassColor,
+        codeTheme: ui.codeTheme,
         fontColor: ui.fontColor,
         mascot: ui.mascot,
         bgImage: ui.bgImage,
@@ -1538,6 +1560,10 @@ function applyPreferencePatch(patch: Record<string, unknown>): void {
             next.glassColor = gc;
             applyGlassColor(gc);
         }
+    }
+    if (typeof patch.codeTheme === 'string' && CODE_THEME_PRESETS.some(p => p.id === patch.codeTheme)) {
+        next.codeTheme = patch.codeTheme;
+        applyCodeTheme(patch.codeTheme);
     }
     if (patch.fontColor && typeof patch.fontColor === 'object') {
         const fc = {...ui.fontColor, ...(patch.fontColor as Partial<FontColorSettings>)};

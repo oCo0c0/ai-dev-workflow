@@ -246,7 +246,7 @@ function logTypeColor(type: string) {
         case 'info':
             return 'text-blue-400';
         default:
-            return 'text-gray-300';
+            return 'text-[hsl(var(--code-fg))]';
     }
 }
 
@@ -1236,9 +1236,9 @@ export default function TestsPage() {
                         ];
                         const currentPhaseKey = testPhase || detail?.currentPhase || '';
                         return (
-                            <div className="mb-4 rounded-lg border border-border bg-gray-950 overflow-hidden">
+                            <div className="mb-4 rounded-lg border border-border bg-[hsl(var(--code-bg))] overflow-hidden">
                                 <div
-                                    className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-gray-900/50">
+                                    className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-[hsl(var(--code-border))]/30">
                                     <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse"/>
                                     <span className="text-xs text-muted-foreground font-mono">
                                         {phaseLabel || (detail.mode === 'manual_ai_generate_e2e'
@@ -1259,7 +1259,7 @@ export default function TestsPage() {
                                                             'text-[10px] px-1.5 py-0.5 rounded',
                                                             isDone ? 'bg-emerald-900/40 text-emerald-400' :
                                                                 isCurrent ? 'bg-primary/20 text-primary animate-pulse' :
-                                                                    'bg-gray-800 text-gray-600'
+                                                                    'bg-[hsl(var(--code-muted))]/25 text-[hsl(var(--code-muted))]'
                                                         )}>
                                                             {p.label}
                                                         </span>
@@ -1282,7 +1282,7 @@ export default function TestsPage() {
                                     onTouchMove={rawStick.handlers.onTouchMove}
                                 >
                                     {!hasContent ? (
-                                        <div className="text-gray-500 text-center py-6">
+                                        <div className="text-[hsl(var(--code-muted))] text-center py-6">
                                             <Loader2 className="h-4 w-4 animate-spin inline-block mr-2"/>
                                             {t('tests.waitingAiOutput')}
                                         </div>
@@ -1310,7 +1310,7 @@ export default function TestsPage() {
                                     ) : (
                                         // Fallback: rawOutput from polling
                                         <pre
-                                            className="text-gray-300 whitespace-pre-wrap leading-relaxed">{rawText}</pre>
+                                            className="text-[hsl(var(--code-fg))] whitespace-pre-wrap leading-relaxed">{rawText}</pre>
                                     )}
                                     {rawStick.showResume && (
                                         <button
@@ -1339,15 +1339,15 @@ export default function TestsPage() {
                                     <div className="h-full bg-primary rounded-full animate-pulse w-2/3"/>
                                 </div>
                                 {detail.rawOutput && (
-                                    <div className="rounded-md bg-gray-950 border border-border overflow-hidden">
+                                    <div className="rounded-md bg-[hsl(var(--code-bg))] border border-border overflow-hidden">
                                         <div
-                                            className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-gray-900/50">
+                                            className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-[hsl(var(--code-border))]/30">
                                             <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>
                                             <span
                                                 className="text-xs text-muted-foreground font-mono">{t('tests.outputLabel')}</span>
                                         </div>
                                         <pre
-                                            className="max-h-64 overflow-y-auto p-3 text-xs text-gray-300 font-mono whitespace-pre-wrap leading-relaxed">
+                                            className="max-h-64 overflow-y-auto p-3 text-xs text-[hsl(var(--code-fg))] font-mono whitespace-pre-wrap leading-relaxed">
                                             {detail.rawOutput.slice(-3000)}
                                         </pre>
                                     </div>
@@ -1433,7 +1433,7 @@ export default function TestsPage() {
                         <Card className="mb-4">
                             <CardContent className="p-0 overflow-hidden">
                                 <div
-                                    className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-gray-900/50">
+                                    className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-[hsl(var(--code-border))]/30">
                                     <div className="flex items-center gap-2">
                                         <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>
                                         <span
@@ -1454,7 +1454,7 @@ export default function TestsPage() {
                                     )}
                                 </div>
                                 <div
-                                    className="bg-gray-950 max-h-[500px] overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
+                                    className="bg-[hsl(var(--code-bg))] max-h-[500px] overflow-y-auto p-4 font-mono text-xs text-[hsl(var(--code-fg))] leading-relaxed whitespace-pre-wrap">
                                     {detail.rawOutput}
                                 </div>
                             </CardContent>

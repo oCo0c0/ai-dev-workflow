@@ -24,19 +24,19 @@ function ConflictContentView({content, filePath}: { content: string; filePath: s
     const lines = content.split('\n');
     return (
         <div className="h-full overflow-auto">
-            <div className="bg-[#1e1e1e] text-[#d4d4d4] text-xs font-mono min-h-full">
-                <div className="px-3 py-1.5 bg-[#2d2d2d] text-[#569cd6] border-b border-[#3c3c3c] sticky top-0">
+            <div className="bg-[hsl(var(--code-bg))] text-[hsl(var(--code-fg))] text-xs font-mono min-h-full">
+                <div className="px-3 py-1.5 bg-[hsl(var(--code-bg))] text-[hsl(var(--code-muted))] border-b border-[hsl(var(--code-border))] sticky top-0">
                     {filePath}
                 </div>
                 <pre className="p-0">
                     {lines.map((line, i) => {
-                        let cls = 'text-[#d4d4d4]';
+                        let cls = 'text-[hsl(var(--code-fg))]';
                         if (line.startsWith('<<<<<<<')) cls = 'bg-red-500/20 text-red-400';
                         else if (line.startsWith('>>>>>>>')) cls = 'bg-red-500/20 text-red-400';
                         else if (line.startsWith('=======')) cls = 'bg-amber-500/20 text-amber-400';
                         return (
                             <div key={i} className={`${cls} px-3 leading-5`}>
-                                <span className="text-[#858585] inline-block w-8 text-right mr-3 select-none">{i + 1}</span>
+                                <span className="text-[hsl(var(--code-muted))] inline-block w-8 text-right mr-3 select-none">{i + 1}</span>
                                 {line}
                             </div>
                         );
