@@ -37,6 +37,11 @@ export interface CommandEntry {
     source: CommandSource;
     /** 技能/命令的文件路径（需要读取正文注入时使用） */
     filePath?: string;
+    /**
+     * 是否允许用户显式调用（front-matter `user-invocable: false` → 不进菜单、不可 `/name` 调用）。
+     * 缺省 true；为 false 的技能保留给模型自主加载（对齐 DSH 的 invocation 策略）。
+     */
+    userInvocable?: boolean;
 }
 
 /** 清单分组（前端按组渲染：命令组 + 技能组） */
@@ -105,6 +110,22 @@ function extractArgsHint(content: string): string | undefined {
     if (!hit) return undefined;
     const value = hit[1].trim().replace(/^["']|["']$/g, '');
     return value || undefined;
+}
+
+/** 从 front-matter 读取布尔值（`user-invocable: false` / `disable-model-invocation: true`） */
+function frontmatterBoolean(content: string, key: string): boolean | undefined {
+    const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!fm) return undefined;
+    const hit = fm[1].match(new RegExp(`^${key}:\\s*(true|false)\\s*$`, 'mi'));
+    return hit ? hit[1].toLowerCase() === 'true' : undefined;
+}
+
+/**
+ * 解析技能的调用策略（对齐 DSH skill-filesystem 的归一化规则）：
+ * `user-invocable` 缺省 true，显式 false 时该技能不进菜单、不可被用户 `/name` 调用。
+ */
+function extractUserInvocable(content: string): boolean {
+    return frontmatterBoolean(content, 'user-invocable') !== false;
 }
 
 /**
@@ -177,6 +198,7 @@ export class CommandRegistryService {
                         kind: 'skill',
                         source: 'app-skill',
                         filePath: md,
+                        userInvocable: extractUserInvocable(content),
                     });
                 } else if (entry.isFile() && entry.name.endsWith('.md')) {
                     const filePath = path.join(this.skillsDir, entry.name);
@@ -188,6 +210,7 @@ export class CommandRegistryService {
                         kind: 'skill',
                         source: 'app-skill',
                         filePath,
+                        userInvocable: extractUserInvocable(content),
                     });
                 }
             } catch { /* 跳过不可读项 */ }
@@ -207,6 +230,9 @@ export class CommandRegistryService {
 
         const push = (entry: CommandEntry): void => {
             if (!entry.name || seen.has(entry.name)) return;
+            // 显式声明 user-invocable: false 的技能不面向用户：不进菜单、不可 /name 调用
+            // （保留给模型自主加载的通道，对齐 DSH 的 invocation 策略）
+            if (entry.userInvocable === false) return;
             seen.add(entry.name);
             (entry.kind === 'skill' ? skills : commands).push(entry);
         };
