@@ -134,9 +134,54 @@ export class ModelProviderStore {
     /**
      * 列出所有供应商记录（apiKey 解密为明文）。
      * 仅用于内部逻辑，不要直接暴露给 API。
+     *
+     * **按 id 去重**：外部导入曾把同 id 的记录追加在手动记录之后，形成重复条目
+     * （页面上出现两条同名供应商；取用时"后写入者胜"，会静默用回外部导入的旧 key）。
+     * 去重优先级：manual / builtin（用户显式配置）> external（导入快照）。
      */
     list(): ModelProviderRecord[] {
-        return this.loadFile().providers.map((r) => this.decryptRecord(r));
+        const providers = this.loadFile().providers.map((r) => this.decryptRecord(r));
+        const byId = new Map<string, ModelProviderRecord>();
+        for (const rec of providers) {
+            const prev = byId.get(rec.id);
+            if (!prev) {
+                byId.set(rec.id, rec);
+                continue;
+            }
+            // 已有记录：用户显式配置优先；同级时以文件中靠后者（较新）为准
+            const prevIsUser = prev.source !== 'external';
+            const recIsUser = rec.source !== 'external';
+            if (recIsUser || !prevIsUser) byId.set(rec.id, rec);
+        }
+        return Array.from(byId.values());
+    }
+
+    /**
+     * 清理文件中的重复 id 记录（自愈已存在的脏数据）。
+     * @returns 被移除的记录 id 列表
+     */
+    pruneDuplicates(): string[] {
+        const data = this.loadFile();
+        const kept = new Map<string, ModelProviderRecord & {apiKey?: string}>();
+        const removed: string[] = [];
+        for (const raw of data.providers) {
+            const prev = kept.get(raw.id);
+            if (!prev) {
+                kept.set(raw.id, raw);
+                continue;
+            }
+            const prevIsUser = prev.source !== 'external';
+            const rawIsUser = raw.source !== 'external';
+            if (rawIsUser || !prevIsUser) {
+                kept.set(raw.id, raw);
+            }
+            removed.push(raw.id);
+        }
+        if (removed.length > 0) {
+            data.providers = Array.from(kept.values());
+            this.saveFile(data);
+        }
+        return removed;
     }
 
     /** 列出脱敏后的安全视图（用于 API 响应） */
@@ -240,10 +285,15 @@ export class ModelProviderStore {
             incoming,
         );
 
+        // 防重复：外部导入不得追加与用户显式配置（manual/builtin）同 id 的记录
+        // —— 曾因此出现两条同 id 记录，取用时后写入者胜，静默用回导入的旧 key。
+        const takenIds = new Set(others.map((r) => r.id));
+        const mergedDeduped = merged.filter((r) => !takenIds.has(r.id));
+
         // 加密落盘
         const nextFile: ModelProvidersFile = {
             version: 1,
-            providers: [...others, ...merged.map((r) => this.encryptRecord(r))],
+            providers: [...others, ...mergedDeduped.map((r) => this.encryptRecord(r))],
         };
         this.saveFile(nextFile);
 
@@ -252,7 +302,7 @@ export class ModelProviderStore {
             .map((s) => s.source);
 
         return {
-            imported: merged.filter((r) => r.source === 'external').map((r) => r.id),
+            imported: mergedDeduped.filter((r) => r.source === 'external').map((r) => r.id),
             skipped,
             total: nextFile.providers.length,
         };

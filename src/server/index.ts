@@ -213,18 +213,18 @@ export async function createServer(port: number): Promise<http.Server> {
     const taskStoreService = new TaskStoreService();
     const taskScheduler = new TaskScheduler(config.scheduler?.maxConcurrent ?? 3);
 
-    // 自有模型供应商配置体系：实例化存储并启动时自动导入外部 CLI 配置（幂等）
+    // 自有模型供应商配置体系：实例化存储 + 清理历史重复记录。
+    // 不再在启动时导入外部 CLI 配置（已按需求移除该能力）：外部导入既让页面出现
+    // 「外部导入 / 内部配置」两套来源，也造成过同 id 重复记录劫持用户配置的问题；
+    // CLI 侧配置现在只由各引擎的隔离层在首次使用时播种一次。
     const modelProviderStore = new ModelProviderStore();
     try {
-        const importSummary = modelProviderStore.importExternal();
-        if (importSummary.imported.length > 0) {
-            console.log(`[model-providers] auto-imported from external CLI configs: ${importSummary.imported.join(', ')}`);
-        }
-        if (importSummary.skipped.length > 0) {
-            console.log(`[model-providers] skipped external sources: ${importSummary.skipped.join(', ')}`);
+        const removed = modelProviderStore.pruneDuplicates();
+        if (removed.length > 0) {
+            console.log(`[model-providers] pruned ${removed.length} duplicate record(s): ${[...new Set(removed)].join(', ')}`);
         }
     } catch (err) {
-        console.warn(`[model-providers] auto-import failed: ${err instanceof Error ? err.message : err}`);
+        console.warn(`[model-providers] prune duplicates failed: ${err instanceof Error ? err.message : err}`);
     }
 
     // 注入流水线依赖，让 TaskScheduler 内部编排完整 plan→execution→test

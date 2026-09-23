@@ -10,7 +10,8 @@
  * - 连通性测试（复用 POST /model-providers/models/fetch，只探测不写任何配置）
  * - 默认模型标记（复用 defaultModel 字段，ModelPicker 下拉置顶展示）
  *
- * 布局：顶部操作栏（主操作实心/次操作 ghost）+ 外部源检测区 + 左侧供应商卡片列表 + 右侧分节卡片表单。
+ * 布局：顶部操作栏（主操作实心/次操作 ghost）+ 左侧供应商卡片列表 + 右侧分节卡片表单。
+ * 注：外部 CLI 配置的检测/导入已移除（CLI 侧配置由各引擎隔离层在首次使用时播种一次）。
  */
 
 import {useState, useEffect, useCallback} from 'react';
@@ -98,13 +99,10 @@ export default function ModelProvidersPage() {
     // pi 引擎的原生检测结果（启动时 detect 拉取）：供应商/凭证由 pi 体系自管
     const piMeta = useAppStore((s) => s.piMeta);
 
-    // 列表与外部源状态
+    // 列表状态（外部配置导入已移除：CLI 侧配置由各引擎隔离层首次使用时播种）
     const [providers, setProviders] = useState<SafeModelProviderRecord[]>([]);
     const [configFile, setConfigFile] = useState<string>('');
-    const [sources, setSources] = useState<ExternalSourceStatus[]>([]);
     const [loading, setLoading] = useState(false);
-    const [detecting, setDetecting] = useState(false);
-    const [importing, setImporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
 
@@ -140,48 +138,10 @@ export default function ModelProvidersPage() {
         }
     }, []);
 
-    /** 检测外部 CLI 配置源 */
-    const detectSources = useCallback(async () => {
-        setDetecting(true);
-        setError(null);
-        try {
-            const data = await apiGet<DetectResponse>('/model-providers/detect');
-            setSources(data.sources);
-            setNotice(
-                t('modelProviders.detectResult', {
-                    count: data.sources.filter((s) => s.available).length,
-                }),
-            );
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to detect sources');
-        } finally {
-            setDetecting(false);
-        }
-    }, [t]);
-
-    /** 一键导入外部配置 */
-    const handleImport = async () => {
-        setImporting(true);
-        setError(null);
-        try {
-            const data = await apiPost<ImportResponse>('/model-providers/import', {});
-            setProviders(data.providers);
-            setNotice(
-                t('modelProviders.importSuccess', {total: data.summary.total}),
-            );
-            await detectSources();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to import');
-        } finally {
-            setImporting(false);
-        }
-    };
-
-    // 首次加载：拉列表 + 检测外部源
+    // 首次加载：拉取供应商列表（不再检测/导入外部 CLI 配置）
     useEffect(() => {
         fetchProviders();
-        detectSources();
-    }, [fetchProviders, detectSources]);
+    }, [fetchProviders]);
 
     /** 进入新增模式 */
     const startCreate = () => {
@@ -386,11 +346,6 @@ export default function ModelProvidersPage() {
         }
     };
 
-    /** 外部源可用状态圆点 */
-    const statusDot = (available: boolean) => (
-        <span className={cn('h-2.5 w-2.5 rounded-full', available ? 'bg-emerald-500' : 'bg-muted-foreground/30')}/>
-    );
-
     return (
         <div className="p-6 h-full flex flex-col">
             {/* 错误横幅 */}
@@ -422,69 +377,10 @@ export default function ModelProvidersPage() {
                         title={t('common.refresh')}>
                     {loading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={detectSources} disabled={detecting}>
-                    {detecting ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <Server className="h-4 w-4 mr-1"/>}
-                    {t('modelProviders.detect')}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleImport} disabled={importing}>
-                    {importing ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> :
-                        <Download className="h-4 w-4 mr-1"/>}
-                    {t('modelProviders.import')}
-                </Button>
                 <Button size="sm" onClick={startCreate}>
                     <Plus className="h-4 w-4 mr-1"/>
                     {t('modelProviders.add')}
                 </Button>
-            </div>
-
-            {/* 外部源检测区 */}
-            <div className="mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                    <Globe className="h-3.5 w-3.5 text-muted-foreground"/>
-                    <span className="text-xs font-medium text-muted-foreground">
-                        {t('modelProviders.externalSources')}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground/70">
-                        {t('modelProviders.externalHint')}
-                    </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {sources.length === 0 && (
-                        <div
-                            className="sm:col-span-3 rounded-lg border border-border/50 px-3 py-2 text-xs text-muted-foreground">
-                            {t('modelProviders.noSourceYet')}
-                        </div>
-                    )}
-                    {sources.map((source) => (
-                        <div
-                            key={source.source}
-                            className={cn(
-                                'rounded-lg border px-3 py-2',
-                                source.available ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border/60 bg-muted/20',
-                            )}
-                        >
-                            <div className="flex items-center gap-2">
-                                {statusDot(source.available)}
-                                <span className="text-sm font-medium">{source.label}</span>
-                                <Badge variant={source.available ? 'success' : 'secondary'}
-                                       className="ml-auto text-[10px]">
-                                    {source.available ? t('modelProviders.available') : t('modelProviders.unavailable')}
-                                </Badge>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground mt-1 truncate font-mono"
-                               title={source.paths.join(', ')}>
-                                {source.available
-                                    ? source.paths.join(', ') || '-'
-                                    : (source.error || t('modelProviders.unavailable'))}
-                            </p>
-                            {source.available && source.providerCount != null && (
-                                <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                                    {t('modelProviders.providerCount', {count: source.providerCount})}
-                                </p>
-                            )}
-                        </div>
-                    ))}
-                </div>
             </div>
 
             {/* Pi 原生供应商区（只读）：pi 引擎的供应商/凭证由 pi 体系自管，

@@ -83,24 +83,9 @@ export function createModelProviderRoutes(store: ModelProviderStore): Router {
         }
     });
 
-    // GET /detect - 检测外部 CLI 配置源
-    router.get('/detect', (_req, res) => {
-        try {
-            res.json({sources: store.detectExternal()});
-        } catch (err) {
-            res.status(500).json({code: 'MODEL_PROVIDER_DETECT_ERROR', message: getErrorMessage(err)});
-        }
-    });
-
-    // POST /import - 自动导入外部 CLI 配置
-    router.post('/import', (_req, res) => {
-        try {
-            const summary = store.importExternal();
-            res.json({success: true, summary, providers: store.listSafe()});
-        } catch (err) {
-            res.status(500).json({code: 'MODEL_PROVIDER_IMPORT_ERROR', message: getErrorMessage(err)});
-        }
-    });
+    // 注：原 GET /detect 与 POST /import（外部 CLI 配置检测/导入）已移除。
+    // 外部导入会让页面同时存在「外部导入 / 内部配置」两种来源，并曾造成同 id 重复记录
+    // 劫持用户配置（取用时后写入者胜）。CLI 侧配置现由各引擎隔离层在首次使用时播种一次。
 
     // POST /models/fetch - 用表单当前凭据向端点拉取可用模型清单
     // （用“正在填写、尚未保存”的 key 询问端点，只返回候选清单，
