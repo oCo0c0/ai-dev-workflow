@@ -69,6 +69,98 @@ export interface IsolationInfo {
     seededFrom?: string;
     /** 播种复制到的条目 */
     seededEntries: string[];
+    /** 本次迁移的历史会话文件数（被应用记录引用到的） */
+    seededSessions: number;
+}
+
+/** 应用自有执行记录目录（agent-executions/<execId>.json） */
+const EXECUTIONS_DIR = path.join(APP_DATA_DIR, 'agent-executions');
+
+/** 引擎侧会话在 CLI 目录下的相对位置 */
+const CLI_SESSION_DIRS: Record<EngineId, string> = {
+    claude: 'projects',
+    codex: 'sessions',
+};
+
+/**
+ * 收集应用执行记录里引用过的引擎 sessionId（去重）。
+ *
+ * 目的：隔离后旧记录里的 sessionId 会指向 CLI 目录，续聊时找不到会话文件；
+ * 首次播种时把这些**被引用到的**会话一并迁进隔离目录，历史执行即可继续。
+ */
+function collectReferencedSessionIds(): Set<string> {
+    const ids = new Set<string>();
+    if (!fs.existsSync(EXECUTIONS_DIR)) return ids;
+    try {
+        for (const entry of fs.readdirSync(EXECUTIONS_DIR)) {
+            if (!entry.endsWith('.json')) continue;
+            try {
+                const rec = JSON.parse(fs.readFileSync(path.join(EXECUTIONS_DIR, entry), 'utf-8')) as {sessionId?: unknown};
+                if (typeof rec.sessionId === 'string' && rec.sessionId.trim()) ids.add(rec.sessionId.trim());
+            } catch { /* 单条记录损坏不影响其它 */ }
+        }
+    } catch { /* 读取失败视为无引用 */ }
+    return ids;
+}
+
+/** 递归收集目录下的所有文件（相对路径） */
+function listFilesRecursive(root: string, base = root): string[] {
+    const out: string[] = [];
+    let entries: fs.Dirent[];
+    try {
+        entries = fs.readdirSync(root, {withFileTypes: true});
+    } catch {
+        return out;
+    }
+    for (const entry of entries) {
+        const abs = path.join(root, entry.name);
+        if (entry.isDirectory()) out.push(...listFilesRecursive(abs, base));
+        else out.push(path.relative(base, abs));
+    }
+    return out;
+}
+
+/**
+ * 迁移被应用记录引用到的引擎会话文件（CLI 目录只读）。
+ *
+ * - claude：`~/.claude/projects/<编码cwd>/<sessionId>.jsonl`（含同名的 `tool-results/` 子目录）
+ * - codex：`~/.codex/sessions/<y>/<m>/<d>/rollout-…-<sessionId>.jsonl`
+ *
+ * @returns 本次复制的会话文件数
+ */
+function seedReferencedSessions(engine: EngineId, home: string): number {
+    const sessionSub = CLI_SESSION_DIRS[engine];
+    const cliSessionRoot = path.join(CLI_HOMES[engine], sessionSub);
+    if (!fs.existsSync(cliSessionRoot)) return 0;
+
+    const wanted = collectReferencedSessionIds();
+    if (wanted.size === 0) return 0;
+
+    let copied = 0;
+    for (const rel of listFilesRecursive(cliSessionRoot)) {
+        // 命中判定：sessionId 作为「文件名主体」或「目录名」出现（避免前缀误伤）。
+        //   会话本体：<...>/<id>.jsonl           → 命中 `<id>.`
+        //   附属文件：<...>/<id>/tool-results/*  → 命中 `<id>/`
+        // 统一用 '/' 匹配（Windows 下 path.relative 返回反斜杠）。
+        // 一个会话可能对应多个文件（jsonl + tool-results），因此必须全部复制。
+        const relPosix = rel.split(path.sep).join('/');
+        let hit = false;
+        for (const id of wanted) {
+            if (relPosix.includes(`${id}.`) || relPosix.includes(`${id}/`)) {
+                hit = true;
+                break;
+            }
+        }
+        if (!hit) continue;
+        const src = path.join(cliSessionRoot, rel);
+        const dest = path.join(home, sessionSub, rel);
+        try {
+            fs.mkdirSync(path.dirname(dest), {recursive: true});
+            fs.copyFileSync(src, dest);
+            copied += 1;
+        } catch { /* 单个文件失败不影响其它 */ }
+    }
+    return copied;
 }
 
 /** 进程内已确保过的引擎（避免重复播种检查） */
@@ -88,13 +180,15 @@ export function ensureIsolatedHome(engine: EngineId, opts: {force?: boolean} = {
     const cliHome = CLI_HOMES[engine];
     const seededEntries: string[] = [];
     let seeded = false;
+    let seededSessions = 0;
 
     if (!opts.force && ensured.has(engine) && fs.existsSync(home)) {
-        return {engine, home, seeded: false, seededEntries};
+        return {engine, home, seeded: false, seededEntries, seededSessions};
     }
 
     try {
-        if (!fs.existsSync(home)) {
+        const freshHome = !fs.existsSync(home);
+        if (freshHome) {
             // 首次：建目录 + 从 CLI 播种（只读复制，绝不修改 CLI 目录）
             fs.mkdirSync(home, {recursive: true});
             for (const entry of SEED_ENTRIES[engine]) {
@@ -108,6 +202,14 @@ export function ensureIsolatedHome(engine: EngineId, opts: {force?: boolean} = {
                 } catch { /* 单个条目复制失败不影响其它 */ }
             }
         }
+
+        // 会话文件：按「应用记录里引用到的」精确迁移（体量可控）。
+        // 触发条件：隔离目录里还没有对应会话目录 —— 既覆盖首次播种，
+        // 也覆盖「早先版本创建的隔离目录（无会话）」，且不会重复搬运。
+        const sessionSub = CLI_SESSION_DIRS[engine];
+        if (!fs.existsSync(path.join(home, sessionSub))) {
+            seededSessions = seedReferencedSessions(engine, home);
+        }
     } catch (err) {
         throw new Error(`初始化 ${engine} 隔离目录失败：${home}（${err instanceof Error ? err.message : String(err)}）`);
     }
@@ -119,6 +221,7 @@ export function ensureIsolatedHome(engine: EngineId, opts: {force?: boolean} = {
         seeded,
         ...(seeded ? {seededFrom: cliHome} : {}),
         seededEntries,
+        seededSessions,
     };
 }
 
