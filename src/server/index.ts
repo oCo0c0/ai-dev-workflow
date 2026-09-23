@@ -51,6 +51,7 @@ import {createPlanRoutes} from './routes/plan.js';
 import {createExecutionRoutes} from './routes/execution.js';
 import {createTestRoutes} from './routes/tests.js';
 import {createSkillsRoutes} from './routes/skills.js';
+import {createCommandRoutes} from './routes/commands.js';
 import {createMCPServersRoutes} from './routes/mcp-servers.js';
 import {createPipelineRoutes} from './routes/pipelines.js';
 import {createSystemRoutes} from './routes/system.js';
@@ -275,6 +276,8 @@ export async function createServer(port: number): Promise<http.Server> {
     app.use('/api/execution', createExecutionRoutes(cliRunnerService, pipelineService, testExecutorService, memoryService, sandboxService, workspaceService, attachmentStore));
     app.use('/api/tests', createTestRoutes(testExecutorService, cliRunnerService, skillsService, memoryService, sandboxService, workspaceService));
     app.use('/api/skills', createSkillsRoutes(skillsService));
+    // 斜杠命令与技能：清单 + `/name args` 分发（/compact 复用 cliRunner 做摘要）
+    app.use('/api/commands', createCommandRoutes({cliRunner: cliRunnerService, memoryService}, memoryService));
     app.use('/api/mcp-servers', createMCPServersRoutes(mcpRegistryService));
     app.use('/api/pipelines', createPipelineRoutes(pipelineService));
     app.use('/api/system', createSystemRoutes(cliRunnerService, mcpRegistryService, sandboxService));

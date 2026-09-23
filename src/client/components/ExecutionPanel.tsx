@@ -31,6 +31,7 @@ import {Card, CardContent} from '../components/ui/card';
 import {StatusIcon} from '../components/StatusIcon';
 import {LogViewer} from '../components/LogViewer';
 import {useParsedLogs} from '../hooks/useParsedLogs';
+import {dispatchChatCommand} from '../utils/command-dispatch';
 import {deliverableFilesFromMessages} from '../utils/agent-log-parse';
 import {DeliverablesCard} from '../components/DeliverablesCard';
 import type {PanelHandle, PanelInputState} from './PanelInput';
@@ -170,9 +171,22 @@ const ExecutionPanel = forwardRef<PanelHandle, ExecutionPanelProps>(function Exe
     const sawRunningRef = useRef(false);
     const [pollKey, setPollKey] = useState(0); // 递增以重启轮询
 
-    // 对外暴露 send()：共用输入框发送时调用
+    // 对外暴露 send()：共用输入框发送时调用（斜杠命令先交服务端分发，命令不下发给模型）
     useImperativeHandle(ref, () => ({
-        send: (text: string, attachmentIds: string[]) => handleReplyWithAttachments(text, attachmentIds),
+        send: async (text: string, attachmentIds: string[]) => {
+            const outcome = await dispatchChatCommand(text, {
+                executionId: activeId ?? undefined,
+                workspacePath: detail?.workspacePath,
+            });
+            if (outcome) {
+                if (outcome.handled) {
+                    if (activeId) await loadDetail(activeId);
+                    return;
+                }
+                text = outcome.sendText ?? text;
+            }
+            return handleReplyWithAttachments(text, attachmentIds);
+        },
     }));
 
     // 根据详情数据和 store 状态派生当前的执行状态

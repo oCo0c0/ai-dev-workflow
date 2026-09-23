@@ -11,7 +11,7 @@
  */
 
 import * as React from 'react';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {useTranslation} from 'react-i18next';
 import {Loader2, Maximize2, Paperclip, Send, Sparkles, X} from 'lucide-react';
@@ -23,6 +23,9 @@ import {VoiceButton} from './input/VoiceButton';
 import {ModelPicker} from './input/ModelPicker';
 import {PermissionPicker} from './input/PermissionPicker';
 import {BranchPicker} from './input/BranchPicker';
+import {SlashMenu, flattenEntries} from './input/SlashMenu';
+import {useCommandCatalog} from '../hooks/useCommandCatalog';
+import {applySlashPick, detectSlashTrigger, filterCandidates} from '../lib/input-trigger';
 
 /** 待发送附件（上传成功后经 AttachmentButton.onUploaded 回传，发送时随 onSend 交给页面） */
 export interface PendingAttachment {
@@ -88,6 +91,52 @@ export const ChatInputBox = React.forwardRef<HTMLTextAreaElement, ChatInputBoxPr
     const [optimizeError, setOptimizeError] = useState<string | null>(null);
     const modalRef = useRef<HTMLTextAreaElement>(null);
 
+    // ── 斜杠命令 / 技能菜单（对齐 DSH 的输入触发）──
+    const innerRef = useRef<HTMLTextAreaElement | null>(null);
+    const {groups: catalogGroups} = useCommandCatalog();
+    const [slash, setSlash] = useState<{query: string; start: number; end: number} | null>(null);
+    const [slashActive, setSlashActive] = useState(0);
+    const [slashDismissed, setSlashDismissed] = useState(false);
+
+    const menuGroups = useMemo(() => {
+        if (!slash || slashDismissed) return [];
+        return catalogGroups
+            .map(g => ({source: g.source, items: filterCandidates(g.items, slash.query)}))
+            .filter(g => g.items.length > 0);
+    }, [catalogGroups, slash, slashDismissed]);
+    const menuEntries = useMemo(() => flattenEntries(menuGroups), [menuGroups]);
+    const menuOpen = menuEntries.length > 0;
+
+    /** 依据光标位置重算触发词 */
+    const syncSlashTrigger = (el: HTMLTextAreaElement | null) => {
+        if (!el) return;
+        const hit = detectSlashTrigger(el.value, el.selectionStart ?? 0);
+        setSlash(hit);
+        setSlashActive(0);
+        setSlashDismissed(false);
+    };
+
+    /** 选中候选项：把触发区间替换为 `/name `（与手打结果一致，确定性在服务端） */
+    const pickSlashCandidate = (name: string) => {
+        if (!slash) return;
+        const el = innerRef.current;
+        const next = applySlashPick(value, slash, name);
+        onChange(next.draft);
+        setSlash(null);
+        setSlashDismissed(true);
+        requestAnimationFrame(() => {
+            el?.focus();
+            el?.setSelectionRange(next.caret, next.caret);
+        });
+    };
+
+    /** 合并外部 ref 与内部 ref（触发检测需要读取 textarea） */
+    const setTextareaRef = (node: HTMLTextAreaElement | null) => {
+        innerRef.current = node;
+        if (typeof ref === 'function') ref(node);
+        else if (ref) (ref as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
+    };
+
     const canSend = !disabled && !sending && !sendDisabled
         && (value.trim().length > 0 || attachments.length > 0 || !!allowEmptySend);
 
@@ -109,6 +158,28 @@ export const ChatInputBox = React.forwardRef<HTMLTextAreaElement, ChatInputBoxPr
     }, [expanded]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // 菜单打开时优先接管导航键（IME 合成期间一律放行）
+        if (menuOpen && !e.nativeEvent.isComposing) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const delta = e.key === 'ArrowDown' ? 1 : -1;
+                setSlashActive(prev => (prev + delta + menuEntries.length) % menuEntries.length);
+                return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                const pick = menuEntries[slashActive];
+                if (pick) pickSlashCandidate(pick.name);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                setSlashDismissed(true);
+                setSlash(null);
+                return;
+            }
+        }
+
         if (e.key !== 'Enter') return;
         // 中文输入法 composition 期间 Enter 是选词，不发送
         if (e.nativeEvent.isComposing) return;
@@ -191,17 +262,36 @@ export const ChatInputBox = React.forwardRef<HTMLTextAreaElement, ChatInputBoxPr
                 </div>
             )}
 
-            {/* 输入卡片 */}
+            {/* 输入卡片（容器 relative：斜杠菜单锚定在其上方） */}
+            <div className="relative">
+            {/* 斜杠命令 / 技能菜单 */}
+            {menuOpen && (
+                <SlashMenu
+                    groups={menuGroups}
+                    activeIndex={slashActive}
+                    onActiveIndexChange={setSlashActive}
+                    onPick={(entry) => pickSlashCandidate(entry.name)}
+                    query={slash?.query ?? ''}
+                />
+            )}
             <div className={cn(
                 'rounded-xl border border-border bg-background/80 shadow-sm transition-all',
                 'focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15',
                 disabled && 'opacity-60',
             )}>
                 <textarea
-                    ref={ref}
+                    ref={setTextareaRef}
                     value={value}
-                    onChange={(e) => onChange(e.target.value)}
+                    onChange={(e) => {
+                        onChange(e.target.value);
+                        syncSlashTrigger(e.target);
+                    }}
                     onKeyDown={handleKeyDown}
+                    onKeyUp={(e) => {
+                        // 光标移动（左右键/Home/End）后重算触发词
+                        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) syncSlashTrigger(e.currentTarget);
+                    }}
+                    onClick={(e) => syncSlashTrigger(e.currentTarget)}
                     disabled={disabled}
                     placeholder={placeholder}
                     rows={compact ? 1 : rows}
@@ -272,6 +362,7 @@ export const ChatInputBox = React.forwardRef<HTMLTextAreaElement, ChatInputBoxPr
                         </button>
                     </div>
                 </div>
+            </div>
             </div>
 
             {/* 优化结果面板：展示优化后的文本，用户决定是否采纳（移植自 ExpandableTextarea） */}

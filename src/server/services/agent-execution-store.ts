@@ -325,6 +325,21 @@ export class AgentExecutionStore {
     }
 
     /**
+     * 清空执行日志（`/clear` 命令：界面与服务端同时清空，避免刷新后旧日志回灌）
+     */
+    async clearLogs(executionId: string): Promise<void> {
+        return this.enqueue(executionId, async () => {
+            const execution = await this.get(executionId);
+            if (!execution) {
+                throw new Error(`Execution not found: ${executionId}`);
+            }
+
+            execution.logs = [];
+            await this.saveInternal(execution);
+        });
+    }
+
+    /**
      * 运行中的用户回复入队：写入 pendingReplies，不落对话日志。
      * 消费时由 drainPendingReplies 统一写入，保证上屏时机=执行时机。
      */

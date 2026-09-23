@@ -57,6 +57,7 @@ import WorkspacePanel from '../components/WorkspacePanel';
 import {FloatingSidePanel} from '../components/FloatingSidePanel';
 import {deliverableFilesFromMessages} from '../utils/agent-log-parse';
 import {groupExecutionsByWorkspace} from '../utils/agent-workspace-groups';
+import {dispatchChatCommand} from '../utils/command-dispatch';
 import {useParsedLogs} from '../hooks/useParsedLogs';
 import {DeliverablesCard} from '../components/DeliverablesCard';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
@@ -1009,6 +1010,24 @@ export default function AgentExecutionPage() {
                                         onChange={setReplyText}
                                         onSend={async (text, atts) => {
                                             const attachmentIds = atts.map(a => a.attachmentId);
+                                            // 斜杠命令 / 技能：先交服务端分发（命令不下发给模型）
+                                            const outcome = await dispatchChatCommand(text, {
+                                                executionId: activeId ?? undefined,
+                                                workspacePath: detail?.workspacePath,
+                                            });
+                                            if (outcome) {
+                                                setReplyText('');
+                                                if (outcome.name === 'clear') {
+                                                    if (activeId) setAgentExecutionLogs(activeId, []);
+                                                }
+                                                if (outcome.handled) {
+                                                    // 结果已由服务端写入日志流；刷新一次详情同步状态
+                                                    if (activeId) await loadDetail(activeId);
+                                                    return;
+                                                }
+                                                // 技能/自定义命令：用展开后的模板替代原文发给模型
+                                                text = outcome.sendText ?? text;
+                                            }
                                             if (canStart) {
                                                 await handleStart(text, attachmentIds);
                                             } else {
