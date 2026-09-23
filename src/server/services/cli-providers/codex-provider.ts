@@ -14,6 +14,7 @@ import os from 'os';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {extractDescription, inferServerType} from '../../utils/markdown-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
+import {isolatedPath, isolationEnv} from '../cli-isolation.js';
 import type {
     CLIProvider,
     CLIProviderStatus,
@@ -26,36 +27,45 @@ import type {
     McpServerInfo,
 } from './types.js';
 
-/** Codex 配置目录 */
-const CODEX_DIR = path.join(os.homedir(), '.codex');
-/** Codex 配置文件路径（TOML 格式） */
+/** Codex 配置目录 —— 应用自管隔离目录（首次由 CLI 播种 config.toml / auth.json） */
+const CODEX_DIR = isolatedPath('codex');
+/** Codex 配置文件路径（TOML 格式，隔离目录内） */
 const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
 
 /**
- * 免 CLI 依赖：从自有模型供应商配置（models.json）读取 codex 的 API Key / Base URL，
- * 在环境变量未设置时注入到 process.env，供 @openai/codex-sdk 使用。
+ * 构造 Codex 子进程的隔离环境。
  *
- * 仅回填空缺（process.env 已设置时不动），避免覆盖外部配置。
+ * SDK 在传入 `env` 时**不再继承 process.env**，因此这里必须带全：
+ *   1. process.env 基线（PATH、系统变量等）
+ *   2. 隔离 config.toml（`CODEX_HOME` 下，首次从 CLI 播种）—— 由 codex 自己读取
+ *   3. **应用模型供应商配置（codex 记录）优先级最高**：OPENAI_API_KEY / OPENAI_BASE_URL / 记录 env
+ *   4. `CODEX_HOME` → 应用自有目录（与用户安装的 CLI 完全隔离）
+ *
+ * 不再改写本进程的 `process.env`（此前 `applyOwnCodexEnv` 会污染服务进程全局环境，
+ * 且只填空缺 → 外部 env 反而优先于应用配置）。
  */
-function applyOwnCodexEnv(): void {
+export function buildIsolatedCodexEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined) env[key] = value;
+    }
+
     try {
-        const store = new ModelProviderStore();
-        const rec = store.get('codex');
-        if (!rec || !rec.enabled) return;
-        if (rec.apiKey && process.env.OPENAI_API_KEY === undefined) {
-            process.env.OPENAI_API_KEY = rec.apiKey;
-        }
-        if (rec.baseUrl && process.env.OPENAI_BASE_URL === undefined) {
-            process.env.OPENAI_BASE_URL = rec.baseUrl;
-        }
-        if (rec.env && typeof rec.env === 'object') {
-            for (const [key, value] of Object.entries(rec.env)) {
-                if (value && process.env[key] === undefined) process.env[key] = value;
+        const rec = new ModelProviderStore().get('codex');
+        if (rec && rec.enabled !== false) {
+            if (rec.apiKey) {
+                env.OPENAI_API_KEY = rec.apiKey;
+                env.CODEX_API_KEY = rec.apiKey;
             }
+            if (rec.baseUrl) env.OPENAI_BASE_URL = rec.baseUrl;
+            if (rec.env && typeof rec.env === 'object') Object.assign(env, rec.env);
         }
     } catch {
-        // 读取失败静默降级
+        // 读取失败：使用基线环境（隔离 config.toml 仍然生效）
     }
+
+    Object.assign(env, isolationEnv('codex'));
+    return env;
 }
 
 /** 解析结果：顶层 table + 数组表 */
@@ -471,8 +481,6 @@ export class CodexProvider implements CLIProvider {
 
     /** 动态导入并创建 Codex 客户端 */
     private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {
-        // 免 CLI 依赖：优先从自有配置注入 OPENAI_API_KEY / OPENAI_BASE_URL
-        applyOwnCodexEnv();
         // 桌面瘦身包不随附平台二进制（BYO-CLI）：SDK 自有平台包全部不可解析时，
         // 回退系统 npm 全局安装的 codex 真实二进制
         let executablePath: string | null = null;
@@ -497,7 +505,14 @@ export class CodexProvider implements CLIProvider {
         // 使用 Function 构造器绕过 bundler/tsc 的静态分析，确保运行时动态 import
         const dynamicImport = new Function('modulePath', 'return import(modulePath)') as (m: string) => Promise<typeof import('@openai/codex-sdk')>;
         const {Codex} = await dynamicImport('@openai/codex-sdk');
-        return new Codex(executablePath ? {codexPathOverride: executablePath} : undefined);
+        // 隔离：显式注入完整环境（SDK 传 env 时不再继承 process.env），
+        //   CODEX_HOME → 应用自有目录（config.toml 首次由 CLI 播种，之后应用自管）
+        //   应用模型供应商配置（codex 记录）优先级最高 —— 改完立刻生效
+        const env = buildIsolatedCodexEnv();
+        return new Codex({
+            ...(executablePath ? {codexPathOverride: executablePath} : {}),
+            env,
+        });
     }
 
     /** 确保客户端已初始化 */

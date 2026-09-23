@@ -1,17 +1,18 @@
 /**
  * @file Claude 技能管理服务
- * @description 提供对 Claude Code 技能（Skills / Slash Commands）的扫描、读取、创建、更新和删除能力。
- *   技能以 Markdown 文件的形式存储在用户主目录下的两个位置：
- *   - ~/.claude/commands/ - 全局自定义命令（扁平结构，每个 .md 文件为一个技能）
- *   - ~/.claude/skills/ - 技能目录（每个子目录为一个技能，子目录内需有 SKILL.md）
- *   该服务会同时扫描两个目录，合并返回所有可用的技能列表。
+ * @description 提供对技能（Skills / Slash Commands）的扫描、读取、创建、更新和删除能力。
+ *   技能以 Markdown 文件的形式存储在两个位置（**均在应用自管的隔离目录内**，
+ *   首次使用时由 cli-isolation 从用户的 ~/.claude 播种一份，之后应用自管）：
+ *   - <隔离目录>/commands/ - 全局自定义命令（扁平结构，每个 .md 文件为一个技能）
+ *   - <隔离目录>/skills/ - 技能目录（每个子目录为一个技能，子目录内需有 SKILL.md）
+ *   注意：不再读写用户的 ~/.claude —— 内置技能同步曾直接写入 CLI 目录，与用户环境混用。
  */
 
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import {extractDescription} from '../utils/markdown-utils.js';
 import {findSkillMdFile as _findSkillMdFile} from '../utils/skill-utils.js';
+import {isolatedPath} from './cli-isolation.js';
 
 /**
  * 技能基本信息接口
@@ -39,12 +40,7 @@ export interface SkillDetail extends Skill {
     content: string;
 }
 
-/** Claude 配置根目录 */
-const CLAUDE_DIR = path.join(os.homedir(), '.claude');
-/** 全局命令目录，存放扁平结构的 .md 命令文件 */
-const COMMANDS_DIR = path.join(CLAUDE_DIR, 'commands');
-/** 技能目录，支持子目录结构 */
-const SKILLS_DIR = path.join(CLAUDE_DIR, 'skills');
+
 
 /**
  * 技能管理服务类
@@ -62,12 +58,12 @@ export class SkillsService {
 
     /**
      * 构造函数
-     * @param commandsDir - 可选的自定义命令目录路径，默认为 ~/.claude/commands
-     * @param skillsDir - 可选的自定义技能目录路径，默认为 ~/.claude/skills
+     * @param commandsDir - 可选的自定义命令目录，默认隔离目录下的 commands/
+     * @param skillsDir - 可选的自定义技能目录，默认隔离目录下的 skills/
      */
     constructor(commandsDir?: string, skillsDir?: string) {
-        this.commandsDir = commandsDir ?? COMMANDS_DIR;
-        this.skillsDir = skillsDir ?? SKILLS_DIR;
+        this.commandsDir = commandsDir ?? isolatedPath('claude', 'commands');
+        this.skillsDir = skillsDir ?? isolatedPath('claude', 'skills');
     }
 
     /**

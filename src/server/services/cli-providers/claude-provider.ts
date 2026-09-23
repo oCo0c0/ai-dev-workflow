@@ -20,6 +20,7 @@ import {getErrorMessage} from '../../utils/error-utils.js';
 import {extractDescription} from '../../utils/markdown-utils.js';
 import {findSkillMdFile} from '../../utils/skill-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
+import {isolatedPath, isolationEnv} from '../cli-isolation.js';
 import {resolveClaudePermission} from '../permission-mapping.js';
 import type {
     CLIProvider,
@@ -37,31 +38,46 @@ import type {
 /** 桥接脚本路径（编译后相对 dist/server/services/） */
 const BRIDGE_SCRIPT = path.resolve(__dirname, '../../../bridge/claude-bridge.mjs');
 
-/** Claude 配置根目录 */
-const CLAUDE_DIR = path.join(os.homedir(), '.claude');
+/**
+ * Claude 配置根目录 —— **应用自管隔离目录**（不再直接读写 `~/.claude`）。
+ *
+ * 首次使用时 cli-isolation 会把 CLI 的 settings.json / commands / skills / agents
+ * 复制进隔离目录（只读播种，保证本地已有配置第一次就能用上）；此后应用自管，
+ * 对 CLI 目录既不读也不写，避免「改了应用配置不生效 / 两边互相污染」。
+ */
+function claudeHome(): string {
+    return isolatedPath('claude');
+}
 /** 全局命令目录（slash commands，支持子目录） */
-const COMMANDS_DIR = path.join(CLAUDE_DIR, 'commands');
+function commandsDir(): string {
+    return isolatedPath('claude', 'commands');
+}
 /** 个人技能目录 */
-const SKILLS_DIR = path.join(CLAUDE_DIR, 'skills');
+function skillsDir(): string {
+    return isolatedPath('claude', 'skills');
+}
 /** 已安装插件清单（权威插件 installPath 来源） */
-const INSTALLED_PLUGINS_FILE = path.join(CLAUDE_DIR, 'plugins', 'installed_plugins.json');
-/** Claude 设置文件 */
-const SETTINGS_FILE = path.join(CLAUDE_DIR, 'settings.json');
+function installedPluginsFile(): string {
+    return isolatedPath('claude', 'plugins', 'installed_plugins.json');
+}
+/** Claude 设置文件（隔离目录内的那份，首次由 CLI 播种） */
+function settingsFile(): string {
+    return isolatedPath('claude', 'settings.json');
+}
 
 /**
- * 读取 ~/.claude/settings.json 的 env 块（CLI 注入环境变量的来源）
+ * 读取隔离 settings.json 的 env 块（首次由 CLI 播种而来）
  *
- * adw 进程本身不读 settings.json，导致其 process.env 缺失 ANTHROPIC_BASE_URL /
- * ANTHROPIC_API_KEY / ANTHROPIC_DEFAULT_*_MODEL。bridge 子进程继承 adw 的空 env，
- * SDK 只能改走 claude.exe 间接读取 settings.json 的路径，该路径下模型解析与 CLI
- * 直读 env 不一致，会触发中转 API 限流（529）。注入此 env 块使 bridge 与 CLI 对齐。
+ * bridge 子进程需要与 CLI 一致的 env（ANTHROPIC_BASE_URL / API_KEY / 档位模型），
+ * 否则 SDK 走 claude.exe 间接读配置的路径，模型解析不一致会触发中转 API 限流（529）。
  *
  * @returns settings.json 中 env 对象，读取失败返回空对象
  */
 function loadClaudeSettingsEnv(): Record<string, string> {
     try {
-        if (!fs.existsSync(SETTINGS_FILE)) return {};
-        const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as { env?: Record<string, string> };
+        const file = settingsFile();
+        if (!fs.existsSync(file)) return {};
+        const settings = JSON.parse(fs.readFileSync(file, 'utf-8')) as { env?: Record<string, string> };
         return (settings.env && typeof settings.env === 'object') ? settings.env : {};
     } catch {
         return {};
@@ -232,8 +248,8 @@ export class ClaudeProvider implements CLIProvider {
 async loadModelOptions(): Promise<CLIProviderModelOptions> {
     const tiers: Array<{value: string; label: string; model: string}> = [];
     try {
-        if (fs.existsSync(SETTINGS_FILE)) {
-            const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+        if (fs.existsSync(settingsFile())) {
+            const raw = fs.readFileSync(settingsFile(), 'utf-8');
             const settings = JSON.parse(raw) as {env?: Record<string, string>};
             const env = settings.env ?? {};
             const tierDefs: Array<[string, string, string]> = [
@@ -335,24 +351,24 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
         const map = new Map<string, SkillInfo>();
 
         // 1. 个人技能 ~/.claude/skills/<name>/SKILL.md（含根 .md）
-        scanSkillsDir(SKILLS_DIR, '', 'personal', map);
+        scanSkillsDir(skillsDir(), '', 'personal', map);
 
         // 2. 命令 ~/.claude/commands/**/*.md（子目录 → dir:name）
-        scanCommandsDir(COMMANDS_DIR, '', map);
+        scanCommandsDir(commandsDir(), '', map);
 
         // 3. 插件技能（权威：installed_plugins.json 的 installPath）
-        scanPluginSkills(INSTALLED_PLUGINS_FILE, map);
+        scanPluginSkills(installedPluginsFile(), map);
 
         return Array.from(map.values());
     }
 
     async loadMcpServers(): Promise<McpServerInfo[]> {
-        if (!fs.existsSync(SETTINGS_FILE)) {
+        if (!fs.existsSync(settingsFile())) {
             return [];
         }
 
         try {
-            const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+            const raw = fs.readFileSync(settingsFile(), 'utf-8');
             const settings = JSON.parse(raw);
             const servers: McpServerInfo[] = [];
 
@@ -406,22 +422,25 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
             // 清除 NODE_OPTIONS 中的 inspector 参数，避免子进程启动 debugger
             const settingsEnv = loadClaudeSettingsEnv();
             const ownEnv = loadOwnClaudeEnv();
-            // 优先级：process.env > ~/.claude/settings.json > 自有配置（兜底）。
-            // 自有配置仅在 process.env 与 settings.json 均未提供时才注入，避免覆盖已有外部配置。
-            const fallbackEnv: Record<string, string> = {};
-            for (const [key, value] of Object.entries(ownEnv)) {
-                if (process.env[key] === undefined && settingsEnv[key] === undefined) {
-                    fallbackEnv[key] = value;
-                }
-            }
-            // 自定义供应商记录（Anthropic 兼容端点）以最高优先级覆盖，使 bridge 指向第三方端点
+            // 优先级（低 → 高）：process.env 基线 < 隔离 settings.json（首次从 CLI 播种）
+            //                    < 应用模型供应商配置（claude 记录）< 自定义端点记录 < 隔离环境
+            //
+            // 「应用里配过就以应用为准」：此前 own 仅作兜底（settings.json 优先），
+            // 于是应用里改了 key/baseUrl 却不生效 —— 与 pi 的凭据错配是同一类问题。
+            // 隔离环境（CLAUDE_CONFIG_DIR）置于最末，保证子进程只读应用自有配置目录。
             const recordEnv: Record<string, string> = {};
             if (this.modelRecord) {
                 if (this.modelRecord.baseUrl) recordEnv.ANTHROPIC_BASE_URL = this.modelRecord.baseUrl;
                 if (this.modelRecord.apiKey) recordEnv.ANTHROPIC_API_KEY = this.modelRecord.apiKey;
                 if (this.modelRecord.defaultModel) recordEnv.ANTHROPIC_MODEL = this.modelRecord.defaultModel;
             }
-            const env = {...process.env, ...fallbackEnv, ...settingsEnv, ...recordEnv};
+            const env = {
+                ...process.env,
+                ...settingsEnv,
+                ...ownEnv,
+                ...recordEnv,
+                ...isolationEnv('claude'),
+            };
             if (env.NODE_OPTIONS) {
                 env.NODE_OPTIONS = env.NODE_OPTIONS
                     .split(/\s+/)
