@@ -27,7 +27,7 @@
 import path from 'path';
 import os from 'os';
 import {createHash} from 'crypto';
-import {existsSync} from 'fs';
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'fs';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
 import {resolvePiPermissionMode} from '../permission-mapping.js';
@@ -51,6 +51,96 @@ import type {
 
 /** pi 会话存储根目录（adw 自有目录，不污染 ~/.pi/agent） */
 export const PI_SESSIONS_ROOT = path.join(os.homedir(), '.ai-dev-workbench', 'pi-sessions');
+
+/**
+ * pi 凭据目录（adw 自有，与 CLI 的 ~/.pi/agent 完全隔离）。
+ *
+ * 动机：pi 解析凭据的链路是 runtime.getAuth → credentials.read(auth.json)，
+ * **CLI 的 ~/.pi/agent/auth.json 优先级高于环境变量** —— 于是「应用里改了 key 却不生效」
+ * （旧快照注入的 env 被 CLI 凭据覆盖）会反复出现，且我们无法判断用户改了哪一边。
+ * 现在改为：pi 子进程只读本目录，凭据来源唯一 = 应用的模型供应商配置。
+ */
+export const PI_AGENT_DIR = path.join(os.homedir(), '.ai-dev-workbench', 'pi-agent');
+
+/** pi 读取 agent 目录的环境变量名（pi 的 getAgentDir() 优先读它，未设才回落 ~/.pi/agent） */
+const PI_AGENT_DIR_ENV = 'PI_CODING_AGENT_DIR';
+
+/** CLI 侧凭据文件（仅在「应用未配置任何 pi:* 记录」时一次性镜像，之后不再读） */
+const CLI_AUTH_FILE = path.join(os.homedir(), '.pi', 'agent', 'auth.json');
+
+/** 读取 CLI 侧 auth.json（容错：缺失/损坏返回空对象） */
+function readCliAuth(): Record<string, unknown> {
+    try {
+        if (!existsSync(CLI_AUTH_FILE)) return {};
+        const parsed = JSON.parse(readFileSync(CLI_AUTH_FILE, 'utf-8'));
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    } catch {
+        return {};
+    }
+}
+
+/**
+ * 同步隔离目录里的 auth.json —— pi 子进程的唯一凭据来源。
+ *
+ * - 应用有启用的 `pi:*` 记录 → **以应用配置为准**写入（模型供应商页改完立刻生效，不再有旧快照）
+ * - 应用没有任何记录 → 镜像 CLI 的 auth.json（保留「没在应用里配过就跟随 CLI」的行为）
+ *
+ * @returns 本次凭据来源，便于日志定位
+ */
+export function syncIsolatedPiAuth(): {source: 'app' | 'cli' | 'empty'; file: string} {
+    const file = path.join(PI_AGENT_DIR, 'auth.json');
+    // 目录创建失败要带着路径抛出：否则后续写入只会报无指向性的 ENOENT
+    if (!existsSync(PI_AGENT_DIR)) {
+        try {
+            mkdirSync(PI_AGENT_DIR, {recursive: true});
+        } catch (err) {
+            throw new Error(`创建 pi 凭据目录失败：${PI_AGENT_DIR}（${err instanceof Error ? err.message : String(err)}）`);
+        }
+    }
+
+    let records: Array<{id: string; apiKey?: string; env?: Record<string, string>}> = [];
+    try {
+        records = new ModelProviderStore()
+            .list()
+            .filter((r) => r.kind === 'pi' && r.enabled && r.apiKey);
+    } catch { /* 读取失败按「无记录」处理，镜像 CLI */ }
+
+    if (records.length > 0) {
+        const auth: Record<string, unknown> = {};
+        for (const rec of records) {
+            const providerId = rec.id.startsWith('pi:') ? rec.id.slice(3) : rec.id;
+            auth[providerId] = {
+                type: 'api_key',
+                key: rec.apiKey,
+                ...(rec.env && Object.keys(rec.env).length > 0 ? {env: rec.env} : {}),
+            };
+        }
+        writeFileSync(file, JSON.stringify(auth, null, 2), 'utf-8');
+        return {source: 'app', file};
+    }
+
+    const cliAuth = readCliAuth();
+    writeFileSync(file, JSON.stringify(cliAuth, null, 2), 'utf-8');
+    return {source: Object.keys(cliAuth).length > 0 ? 'cli' : 'empty', file};
+}
+
+/**
+ * pi 子进程的隔离环境：agent 目录指向 adw 自有目录。
+ * @param sync - 是否先同步 auth.json（探测类调用可跳过，避免副作用）
+ */
+function piIsolationEnv(sync = true): Record<string, string> {
+    if (sync) {
+        try {
+            const {source} = syncIsolatedPiAuth();
+            if (source !== 'app') {
+                console.log(`[pi-provider] 凭据来源=${source}（应用未配置 pi:* 记录，使用${source === 'cli' ? ' CLI 镜像' : '空凭据'}）`);
+            }
+        } catch (err) {
+            console.warn(`[pi-provider] 凭据同步失败：${err instanceof Error ? err.message : err}`);
+        }
+    }
+    return {[PI_AGENT_DIR_ENV]: PI_AGENT_DIR};
+}
 
 /**
  * 计算 cwd 对应的 pi 会话目录
@@ -253,7 +343,7 @@ export class PiProvider implements CLIProvider {
         let proc: PiRpcProcess | null = null;
         try {
             proc = await this.startRpc(
-                {cwd: process.cwd(), sessionDir: DETECT_SESSION_DIR},
+                {cwd: process.cwd(), sessionDir: DETECT_SESSION_DIR, env: piIsolationEnv(true)},
                 {},
                 undefined,
                 30_000,
@@ -623,8 +713,11 @@ export class PiProvider implements CLIProvider {
     // === 私有方法 ===
 
     /**
-     * 解析启动用模型：调用方显式传入 > 自有配置首个可用
-     * @returns provider/model id（均可能为 undefined → pi 自动检测）
+     * 解析启动用模型：调用方显式传入 > pi 原生已配置的 provider > 自有配置首个可用
+     *
+     * 关键约束：**pi 原生 auth.json 里的凭据优先于我们注入的环境变量**
+     * （pi 的解析链是 runtime.getAuth → credentials.read(auth.json)）。
+     * 因此自动选择时也以原生已配置的 provider 为准，避免"我们的快照选了 A、pi 实际用 B"的错配。
      */
     private resolveSpawnModel(options?: CLIProviderOptions): { provider?: string; model?: string } {
         const provider = options?.modelProvider;
@@ -645,15 +738,18 @@ export class PiProvider implements CLIProvider {
         } catch {
             // 忽略：走 pi 自动检测
         }
+        // 应用未配置任何 pi:* 记录：不指定 provider，由 pi 用镜像来的凭据自行决定
         return {model};
     }
 
     /**
-     * 构造子进程环境变量：全部启用的 pi:* 供应商 key（支持运行中换提供商）+
-     * 平台网关回连地址（扩展拉取工具目录/回传调用）
+     * 构造子进程环境变量：
+     * - **隔离**：`PI_CODING_AGENT_DIR` 指向 adw 自有凭据目录（pi 只读这里，不碰 CLI 的 ~/.pi/agent）
+     * - 同时把应用的 pi:* 凭据按 provider 注入同名环境变量（与 auth.json 同源，便于 env 型 provider 解析）
+     * - 平台网关回连地址（扩展拉取工具目录/回传调用）
      */
     private buildSpawnEnv(provider: string | undefined, explicitApiKey?: string): Record<string, string> {
-        const env: Record<string, string> = {};
+        const env: Record<string, string> = piIsolationEnv(true);
 
         try {
             const store = new ModelProviderStore();
@@ -664,7 +760,7 @@ export class PiProvider implements CLIProvider {
                 if (envName) env[envName] = rec.apiKey;
             }
         } catch {
-            // 读取失败：依赖 pi 自身凭证（auth.json / 外部环境变量）
+            // 读取失败：仅依赖隔离 auth.json
         }
 
         // 调用方显式传入的 key 优先（对应本次选定的 provider）
