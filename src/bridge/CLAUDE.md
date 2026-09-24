@@ -33,6 +33,11 @@ Claude Agent SDK 桥接进程，作为独立子进程运行。封装 `@anthropic
 | `done` | 请求完成（exitCode: 0） |
 | `error` | 错误信息 |
 
+**通知归属**：查询期的所有通知（session/output/thinking/tool_use/tool_result/permission_required）都带
+`params.requestId` = 发起该查询的 `agent.execute` 的 JSON-RPC id；`params.sessionId` 为**该次查询**的会话 id
+（每次查询局部状态，不再跨查询共享）。父进程按 requestId 精确路由事件，sessionId 仅作兜底；
+`agent.abort` 支持 `params.requestId` 按请求粒度中止（缺省中止全部活动查询）。
+
 ### 529 限流处理
 
 指数退避重试（1s/2s/4s，封顶 8s），最多 3 次。每次重试会重新启动 Claude CLI 子进程。
@@ -61,4 +66,5 @@ src/bridge/
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-09-24 | 修复 | 通知作用域化（工具行永久转圈的根因之一）：① 查询期通知统一经 `emitQueryNotification` 附加 `params.requestId`（发起查询的 JSON-RPC id），父进程据此精确路由；② `sessionId` 由模块级全局变量改为**每次查询局部状态**（并发/续接查询不再串线），`waitForRetry` 与查询响应回传该查询的 sessionId；③ 活动查询改为 `activeQueries` 表（requestId → AbortController），`agent.abort` 支持按 requestId 精确中止，`canUseTool` 同样带 requestId。真实 SDK 实测：并行 3 个 Bash → 3 tool_use/3 tool_result 全配对、每条通知带 requestId；被中断的在飞工具 6s 内 0 结果（证实「中断必须由服务端收敛」） |
 | 2026-07-21 | 创建 | 初始化模块文档 |
