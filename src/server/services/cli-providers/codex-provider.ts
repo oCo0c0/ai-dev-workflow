@@ -33,6 +33,52 @@ const CODEX_DIR = isolatedPath('codex');
 const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
 
 /**
+ * Codex 事件里的 item（判别值为 **snake_case**，见 @openai/codex-sdk 的 ThreadItem 联合）。
+ * 此前按 camelCase（agentMessage/commandExecution/toolCall）判定 → 一条都匹配不上，
+ * codex 执行时消息流里既没有助手文本也没有工具行。
+ */
+interface CodexItem {
+    id?: string;
+    type?: string;
+    /** agent_message / reasoning 的文本 */
+    text?: string;
+    /** command_execution */
+    command?: string;
+    aggregated_output?: string;
+    exit_code?: number;
+    status?: string;
+    /** file_change */
+    changes?: Array<{path?: string; kind?: string}>;
+    /** mcp_tool_call */
+    server?: string;
+    tool?: string;
+    arguments?: unknown;
+    result?: {content?: unknown; structured_content?: unknown};
+    /** web_search */
+    query?: string;
+    /** todo_list */
+    items?: Array<{text?: string; completed?: boolean}>;
+    /** error */
+    message?: string;
+}
+
+/** 把 MCP 结果内容块拍平成文本 */
+function flattenCodexContent(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return content == null ? '' : JSON.stringify(content);
+    const parts: string[] = [];
+    for (const block of content) {
+        if (typeof block === 'string') parts.push(block);
+        else if (block && typeof block === 'object') {
+            const b = block as Record<string, unknown>;
+            if (typeof b.text === 'string') parts.push(b.text);
+            else parts.push(JSON.stringify(b));
+        }
+    }
+    return parts.join('\n');
+}
+
+/**
  * 构造 Codex 子进程的隔离环境。
  *
  * SDK 在传入 `env` 时**不再继承 process.env**，因此这里必须带全：
@@ -310,6 +356,9 @@ export class CodexProvider implements CLIProvider {
             let sessionId = input.sessionId || `codex-${Date.now()}`;
 
             let stdout = '';
+            let lastErrorMessage = '';
+            /** 已发过 tool_use 的 item id（item.started/updated/completed 可能重复投递同一 id） */
+            const startedItems = new Set<string>();
 
             // 使用 runStreamed 获取流式输出
             const {events} = await thread.runStreamed(input.prompt, {
@@ -322,46 +371,35 @@ export class CodexProvider implements CLIProvider {
                     break;
                 }
 
+                // Codex 的事件契约（@openai/codex-sdk）：
+                //   thread.started / turn.started / turn.completed / turn.failed
+                //   item.started / item.updated / item.completed（item.type 为 **snake_case**）
+                // item 类型：agent_message / reasoning / command_execution / file_change /
+                //            mcp_tool_call / web_search / todo_list / error / local_image
+                // 归一化到 adw 的 thinking / tool_use / tool_result（与 claude、pi 同构），
+                // 工具名使用与前端分类表一致的小写规范名。
                 switch (event.type) {
+                    case 'item.started':
+                    case 'item.updated':
+                        this.emitCodexItemStarted(event.item as CodexItem, options, startedItems);
+                        break;
+
                     case 'item.completed': {
-                        const item = event.item as Record<string, unknown>;
-                        // 提取 agent 消息文本
-                        if (item.type === 'agentMessage' && typeof item.text === 'string') {
-                            stdout += item.text;
-                            options?.onOutput?.(item.text);
-                        }
-                        // 提取命令执行输出
-                        if (item.type === 'commandExecution' && typeof item.output === 'string') {
-                            stdout += item.output;
-                            options?.onOutput?.(item.output);
-                        }
-                        // 提取思考/推理过程（Codex SDK reasoning item）
-                        if (item.type === 'reasoning' && typeof item.text === 'string') {
-                            options?.onOutput?.(item.text, {type: 'thinking'});
-                        }
-                        // tool 调用开始 + 完成
-                        if (item.type === 'toolCall' || item.type === 'tool_use') {
-                            const toolUseId = (item.id as string) || (item.callId as string) || '';
-                            // 先广播 tool_use（running）
-                            const funcInfo = (item.function as Record<string, unknown>) || {};
-                            options?.onOutput?.('', {
-                                type: 'tool_use',
-                                toolName: (item.name as string) || (funcInfo.name as string) || 'Tool',
-                                toolInput: (item.input as Record<string, unknown>) || (funcInfo.arguments as Record<string, unknown>) || {},
-                                toolUseId,
-                            });
-                            // 再广播 tool_result（completed）
-                            const isError = item.isError === true || item.error != null;
-                            options?.onOutput?.(typeof item.output === 'string' ? item.output : '', {
-                                type: 'tool_result',
-                                toolUseId,
-                                isError,
-                            });
-                        }
+                        const item = event.item as CodexItem;
+                        stdout += this.emitCodexItemCompleted(item, options, startedItems);
                         break;
                     }
+
+                    case 'turn.failed': {
+                        const message = (event as {error?: {message?: string}}).error?.message || 'turn failed';
+                        lastErrorMessage = message;
+                        options?.onError?.(message);
+                        break;
+                    }
+
                     case 'turn.completed':
-                        // Turn 完成
+                    case 'thread.started':
+                        // 无需额外处理（会话指针取自 thread.id）
                         break;
                 }
             }
@@ -380,6 +418,11 @@ export class CodexProvider implements CLIProvider {
 
             if (options?.signal?.aborted) {
                 return {exitCode: null, stdout, stderr: '', sessionId, aborted: true};
+            }
+
+            // turn.failed（模型/工具错误）：按失败返回，执行状态与日志才有据可查
+            if (lastErrorMessage) {
+                return {exitCode: 1, stdout, stderr: lastErrorMessage, sessionId, aborted: false};
             }
 
             return {exitCode: 0, stdout, stderr: '', sessionId, aborted: false};
@@ -526,9 +569,159 @@ export class CodexProvider implements CLIProvider {
         // no-op: Codex 走自有 SDK，无 canUseTool 机制
     }
 
+    /**
+     * item 开始/更新 → 工具行（running）。
+     *
+     * 同一 id 只发一次（`item.started`/`item.updated`/`item.completed` 可能都带同一 id，
+     * 重复发会让消息流里出现重复工具行）。文件名与参数形状都归一到与前端分类表一致的形式。
+     */
+    private emitCodexItemStarted(
+        item: CodexItem,
+        options?: CLIProviderOptions,
+        started?: Set<string>,
+    ): void {
+        const emitOnce = (toolUseId: string, toolName: string, toolInput: Record<string, unknown>) => {
+            if (!toolUseId) return;
+            if (started?.has(toolUseId)) return;
+            started?.add(toolUseId);
+            options?.onOutput?.('', {type: 'tool_use', toolName, toolInput, toolUseId});
+        };
+
+        switch (item.type) {
+            case 'command_execution':
+                emitOnce(String(item.id ?? ''), 'bash', {command: item.command ?? ''});
+                break;
+            case 'file_change':
+                // 一个补丁可能改多个文件：逐个文件出工具行（对应「本次产出」也才能逐条统计）
+                for (const change of item.changes ?? []) {
+                    const filePath = change.path ?? '';
+                    const toolName = change.kind === 'add' ? 'write' : 'edit';
+                    emitOnce(`${String(item.id ?? '')}#${filePath}`, toolName, {path: filePath, kind: change.kind ?? ''});
+                }
+                break;
+            case 'mcp_tool_call':
+                // server__tool 命名：前端据此渲染「MCP server · tool」并沿用基础工具图标
+                emitOnce(
+                    String(item.id ?? ''),
+                    `${item.server ?? 'mcp'}__${item.tool ?? 'tool'}`,
+                    (item.arguments && typeof item.arguments === 'object'
+                        ? item.arguments as Record<string, unknown>
+                        : {arguments: item.arguments ?? ''}),
+                );
+                break;
+            case 'web_search':
+                emitOnce(String(item.id ?? ''), 'web_search', {query: item.query ?? ''});
+                break;
+            case 'todo_list':
+                emitOnce(String(item.id ?? ''), 'todo_write', {items: item.items ?? []});
+                break;
+            default:
+                // agent_message / reasoning 是文本流，不产生工具行
+                break;
+        }
+    }
+
+    /**
+     * item 完成 → 工具结果 / 文本 / 思考；返回应并入 stdout 的文本。
+     * 与 `emitCodexItemStarted` 用同一 id 生成规则，保证工具行能配对收敛。
+     *
+     * 先自愈补发 tool_use：并非所有 item 都保证先来 item.started
+     * （如 file_change「补丁成功/失败时发一次」）—— 没有 use 就没有行，
+     * 结果会变成无人配对的孤儿。
+     */
+    private emitCodexItemCompleted(
+        item: CodexItem,
+        options?: CLIProviderOptions,
+        started?: Set<string>,
+    ): string {
+        this.emitCodexItemStarted(item, options, started);
+        switch (item.type) {
+            case 'agent_message': {
+                const text = typeof item.text === 'string' ? item.text : '';
+                if (text) options?.onOutput?.(text);
+                return text;
+            }
+            case 'reasoning': {
+                if (typeof item.text === 'string' && item.text) {
+                    options?.onOutput?.(item.text, {type: 'thinking'});
+                }
+                return '';
+            }
+            case 'command_execution': {
+                const output = typeof item.aggregated_output === 'string' ? item.aggregated_output : '';
+                const failed = item.status === 'failed' || (item.exit_code !== undefined && item.exit_code !== 0);
+                const suffix = item.exit_code !== undefined && item.exit_code !== 0
+                    ? `${output}\n（退出码 ${item.exit_code}）`
+                    : output;
+                options?.onOutput?.(suffix, {
+                    type: 'tool_result',
+                    toolName: 'bash',
+                    toolUseId: String(item.id ?? ''),
+                    isError: failed,
+                });
+                return output;
+            }
+            case 'file_change': {
+                const failed = item.status === 'failed';
+                for (const change of item.changes ?? []) {
+                    const filePath = change.path ?? '';
+                    options?.onOutput?.(
+                        failed ? `变更失败（${change.kind ?? ''}）：${filePath}` : `已应用变更（${change.kind ?? ''}）：${filePath}`,
+                        {
+                            type: 'tool_result',
+                            toolName: change.kind === 'add' ? 'write' : 'edit',
+                            toolUseId: `${String(item.id ?? '')}#${filePath}`,
+                            isError: failed,
+                        },
+                    );
+                }
+                return '';
+            }
+            case 'mcp_tool_call': {
+                const text = flattenCodexContent(item.result?.content)
+                    || (item.result?.structured_content !== undefined ? JSON.stringify(item.result.structured_content) : '');
+                options?.onOutput?.(text, {
+                    type: 'tool_result',
+                    toolName: `${item.server ?? 'mcp'}__${item.tool ?? 'tool'}`,
+                    toolUseId: String(item.id ?? ''),
+                    isError: item.result === undefined,
+                });
+                return text;
+            }
+            case 'web_search': {
+                const note = `已检索：${item.query ?? ''}`;
+                options?.onOutput?.(note, {
+                    type: 'tool_result',
+                    toolName: 'web_search',
+                    toolUseId: String(item.id ?? ''),
+                    isError: false,
+                });
+                return '';
+            }
+            case 'todo_list': {
+                const items = item.items ?? [];
+                const done = items.filter(t => t.completed).length;
+                const text = `${done}/${items.length} 已完成\n${items.map(t => `${t.completed ? '[x]' : '[ ]'} ${t.text ?? ''}`).join('\n')}`;
+                options?.onOutput?.(text, {
+                    type: 'tool_result',
+                    toolName: 'todo_write',
+                    toolUseId: String(item.id ?? ''),
+                    isError: false,
+                });
+                return '';
+            }
+            case 'error': {
+                const message = item.message ?? 'unknown error';
+                options?.onError?.(message);
+                return '';
+            }
+            default:
+                return '';
+        }
+    }
+
     /** 动态导入并创建 Codex 客户端 */
-    private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {
-        // 桌面瘦身包不随附平台二进制（BYO-CLI）：SDK 自有平台包全部不可解析时，
+    private async createClient(): Promise<InstanceType<typeof import('@openai/codex-sdk').Codex>> {        // 桌面瘦身包不随附平台二进制（BYO-CLI）：SDK 自有平台包全部不可解析时，
         // 回退系统 npm 全局安装的 codex 真实二进制
         let executablePath: string | null = null;
         const platformPkgs = [

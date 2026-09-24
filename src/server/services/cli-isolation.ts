@@ -48,14 +48,20 @@ export const CLI_HOMES: Record<EngineId, string> = {
 };
 
 /**
- * 首次播种时从 CLI 目录复制的条目（白名单）。
+ * 首次播种/补缺失时从 CLI 目录复制的条目（白名单）。
  *
- * 只复制「配置 / 可复用资产」类条目，**不复制会话与缓存**
- * （`projects/`、`todos/`、`shell-snapshots/`、`sessions/`、`log/` 等体积大且与隔离目标无关）。
+ * 只复制「配置 / 可复用资产 / **工具执行能力**」类条目，**不复制会话与缓存**
+ * （`projects/`、`todos/`、`shell-snapshots/`、`log/` 等体积大且与隔离目标无关；
+ * 会话走 seedReferencedSessions 按需迁移）。
+ *
+ * 能力类条目缺失的后果（用户实测踩过）：
+ * - codex 的 `.sandbox-bin/`（命令执行沙箱二进制）、`.sandbox/`、`.sandbox-secrets/`
+ *   —— 没有它们 codex 无法执行命令（shell/git 全废）
+ * - claude 的 `CLAUDE.md`（用户全局指令）、`plugins/`（插件工具）
  */
 const SEED_ENTRIES: Record<EngineId, string[]> = {
-    claude: ['settings.json', 'commands', 'skills', 'agents'],
-    codex: ['config.toml', 'auth.json', 'prompts'],
+    claude: ['settings.json', 'commands', 'skills', 'agents', 'CLAUDE.md', 'plugins'],
+    codex: ['config.toml', 'auth.json', 'prompts', '.sandbox-bin', '.sandbox', '.sandbox-secrets'],
 };
 
 /** 隔离状态（供日志/接口展示） */
@@ -169,8 +175,11 @@ const ensured = new Set<EngineId>();
 /**
  * 确保引擎的隔离 home 可用。
  *
- * - home 已存在 → 直接返回（**不再回读 CLI**，保证隔离性：之后 CLI 改动不影响应用）
  * - home 不存在 → 从 CLI 目录播种白名单条目（不存在则创建空 home）
+ * - home 已存在 → **补缺失的白名单条目**（只补没有的，绝不覆盖已有文件：
+ *   CLI 侧后续改动不会渗入应用，但「漏播的能力类条目」能被修复——
+ *   旧版本创建的隔离目录因此自动升级，不用用户删目录重来）
+ * - 进程内缓存：已确保过且无需补条目时直接返回
  *
  * @param engine - 引擎标识
  * @param opts.force - 强制重新检查（忽略进程内缓存）
@@ -191,15 +200,14 @@ export function ensureIsolatedHome(engine: EngineId, opts: {force?: boolean} = {
         if (freshHome) {
             // 首次：建目录 + 从 CLI 播种（只读复制，绝不修改 CLI 目录）
             fs.mkdirSync(home, {recursive: true});
-            for (const entry of SEED_ENTRIES[engine]) {
-                const src = path.join(cliHome, entry);
-                const dest = path.join(home, entry);
-                if (!fs.existsSync(src)) continue;
-                try {
-                    copyRecursive(src, dest);
-                    seededEntries.push(entry);
-                    seeded = true;
-                } catch { /* 单个条目复制失败不影响其它 */ }
+        }
+        // 首次与既有 home 都走「补缺失」：首次即全量播种，既有 home 只补漏
+        const filled = seedMissingEntries(SEED_ENTRIES[engine], cliHome, home);
+        seededEntries.push(...filled);
+        if (filled.length > 0) {
+            seeded = true;
+            if (!freshHome) {
+                console.log(`[cli-isolation] ${engine} 隔离目录补齐缺失条目：${filled.join('、')}`);
             }
         }
 
@@ -272,6 +280,29 @@ export function ensureSessionMigrated(engine: EngineId, sessionId: string): bool
         console.log(`[cli-isolation] 按需补迁 ${engine} 会话 ${sessionId}：${copied} 个文件 → ${isolatedRoot}`);
     }
     return hitIn(isolatedRoot);
+}
+
+/**
+ * 把白名单条目从 CLI 目录补进隔离 home（**只补缺失，绝不覆盖已有**）。
+ *
+ * 首次播种与「既有 home 的能力补齐」共用：漏掉的能力类条目
+ * （codex 沙箱二进制、claude 全局 CLAUDE.md 等）缺失会让对应引擎的工具不可用，
+ * 既有安装也要能自动修复，而不是要求用户删掉隔离目录重来。
+ *
+ * @returns 本次新复制的条目名列表
+ */
+export function seedMissingEntries(entries: readonly string[], cliHome: string, home: string): string[] {
+    const filled: string[] = [];
+    for (const entry of entries) {
+        const src = path.join(cliHome, entry);
+        const dest = path.join(home, entry);
+        if (!fs.existsSync(src) || fs.existsSync(dest)) continue;
+        try {
+            copyRecursive(src, dest);
+            filled.push(entry);
+        } catch { /* 单个条目复制失败不影响其它 */ }
+    }
+    return filled;
 }
 
 /** 递归复制（文件/目录；目标已存在时覆盖同名文件） */

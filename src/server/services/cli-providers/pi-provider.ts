@@ -27,7 +27,7 @@
 import path from 'path';
 import os from 'os';
 import {createHash} from 'crypto';
-import {existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync} from 'fs';
+import {existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, copyFileSync} from 'fs';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
 import {resolvePiPermissionMode} from '../permission-mapping.js';
@@ -126,7 +126,7 @@ export function syncIsolatedPiAuth(): {source: 'app' | 'cli' | 'empty'; file: st
 
 /**
  * pi 子进程的隔离环境：agent 目录指向 adw 自有目录。
- * @param sync - 是否先同步 auth.json（探测类调用可跳过，避免副作用）
+ * @param sync - 是否先同步 auth.json 与工具链播种（探测类调用可跳过，避免副作用）
  */
 function piIsolationEnv(sync = true): Record<string, string> {
     if (sync) {
@@ -138,8 +138,142 @@ function piIsolationEnv(sync = true): Record<string, string> {
         } catch (err) {
             console.warn(`[pi-provider] 凭据同步失败：${err instanceof Error ? err.message : err}`);
         }
+        try {
+            const seeded = seedIsolatedPiAgentHome();
+            if (seeded.length > 0) {
+                console.log(`[pi-provider] 工具链播种（~/.pi/agent → 隔离目录）：${seeded.join('、')}`);
+            }
+        } catch (err) {
+            console.warn(`[pi-provider] 工具链播种失败：${err instanceof Error ? err.message : err}`);
+        }
+        try {
+            const tools = ensurePiDefaultTools();
+            if (tools.changed) {
+                console.log(`[pi-provider] 内置工具集已配置：${tools.tools.join(', ')}（settings.json defaultTools）`);
+            }
+        } catch (err) {
+            console.warn(`[pi-provider] 内置工具集配置失败：${err instanceof Error ? err.message : err}`);
+        }
     }
     return {[PI_AGENT_DIR_ENV]: PI_AGENT_DIR};
+}
+
+/** pi 的内置工具全集（对应 pi dist/core/tools/index.js 的 allToolNames） */
+export const PI_BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'] as const;
+
+/**
+ * 在隔离 agent 目录的 settings.json 里确保 `defaultTools` 覆盖**全部内置工具**。
+ *
+ * 为什么必须配这一项（用户实测「工具集里没有 grep/find」）：
+ * pi 的默认激活集只有 `["read","bash","edit","write"]`
+ * （dist/core/sdk.js: `defaultActiveToolNames`，可被 `settingsManager.getDefaultTools()` 覆盖），
+ * grep / find / ls 默认**不激活**；而走「`--tools` allowlist」那条路会连带裁掉扩展/平台工具
+ * （dist/core/agent-session.js：一旦给了 allowlist，扩展工具只有名字在表里才激活 ——
+ * 这正是当初「扩展平台工具被静默禁用」的根因）。
+ * 因此正解是：不动 `--tools`，改为在应用自管的隔离配置里把 `defaultTools` 配全 ——
+ * 内置工具全开，扩展工具依旧全量激活。
+ *
+ * 只增加 `defaultTools`（与已有值取并集），其余设置（shellPath 等）原样保留。
+ *
+ * @param targetDir - 隔离 agent 目录（默认 PI_AGENT_DIR）
+ * @param tools - 期望激活的内置工具
+ * @returns 是否写入、最终工具集与文件路径
+ */
+export function ensurePiDefaultTools(
+    targetDir: string = PI_AGENT_DIR,
+    tools: readonly string[] = PI_BUILTIN_TOOLS,
+): {changed: boolean; tools: string[]; file: string} {
+    const file = path.join(targetDir, 'settings.json');
+    let settings: Record<string, unknown> = {};
+    if (existsSync(file)) {
+        try {
+            const parsed = JSON.parse(readFileSync(file, 'utf-8')) as unknown;
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                settings = parsed as Record<string, unknown>;
+            }
+        } catch { /* 内容损坏：以空配置重建（只补 defaultTools，不猜用户意图） */ }
+    }
+
+    const current = Array.isArray(settings.defaultTools)
+        ? (settings.defaultTools as unknown[]).filter((t): t is string => typeof t === 'string')
+        : [];
+    const merged = [...current];
+    for (const t of tools) {
+        if (!merged.includes(t)) merged.push(t);
+    }
+    const changed = merged.length !== current.length || !existsSync(file);
+    if (!changed) return {changed: false, tools: merged, file};
+
+    if (!existsSync(targetDir)) {
+        try {
+            mkdirSync(targetDir, {recursive: true});
+        } catch (err) {
+            throw new Error(`创建 pi agent 目录失败：${targetDir}（${err instanceof Error ? err.message : String(err)}）`);
+        }
+    }
+    writeFileSync(file, JSON.stringify({...settings, defaultTools: merged}, null, 2), 'utf-8');
+    return {changed: true, tools: merged, file};
+}
+
+/**
+ * 把用户 CLI 的 pi agent 目录里**影响工具可用性**的条目一次性播种进隔离目录（只补缺失，不覆盖）。
+ *
+ * 此前隔离只搬凭据（auth.json），结果 pi 的内置工具链裸奔（用户实测 bash/git/grep 失效，
+ * 只能靠浏览器工具干活）：
+ * - `settings.json` —— 里面的 `shellPath` 是 bash 工具的 shell 解析首选；Git 装在非标准位置
+ *   （如 D:\javaSE\Git）时**只有**这里能找到 bash（getShellConfig 的已知位置/PATH 都不含它）；
+ *   还带 defaultThinkingLevel 等偏好
+ * - `bin/`（rg.exe / fd.exe）—— grep/find 工具的二进制；缺失时 pi 会尝试联网从 GitHub 下载，
+ *   离线/受限环境下直接不可用
+ * - `trust.json` —— 工作区信任表（项目级 .pi 资源/扩展加载）
+ *
+ * 与凭据不同，这些是「环境能力」而非「密钥」：应用不管理它们，首次从 CLI 拷贝后
+ * 即归隔离目录所有（此后 CLI 侧改动不再影响应用，符合隔离契约）。
+ *
+ * @param sourceDir - 用户 CLI 的 agent 目录（默认 ~/.pi/agent）
+ * @param targetDir - 隔离 agent 目录（默认 PI_AGENT_DIR）
+ * @returns 本次新复制过的相对路径列表（幂等：已存在的不动）
+ */
+export function seedIsolatedPiAgentHome(
+    sourceDir: string = path.join(os.homedir(), '.pi', 'agent'),
+    targetDir: string = PI_AGENT_DIR,
+): string[] {
+    if (!existsSync(sourceDir)) return [];
+    if (!existsSync(targetDir)) {
+        try {
+            mkdirSync(targetDir, {recursive: true});
+        } catch (err) {
+            throw new Error(`创建 pi agent 目录失败：${targetDir}（${err instanceof Error ? err.message : String(err)}）`);
+        }
+    }
+
+    const copied: string[] = [];
+    const copyFileIfMissing = (rel: string) => {
+        const src = path.join(sourceDir, rel);
+        const dest = path.join(targetDir, rel);
+        if (!existsSync(src) || existsSync(dest)) return;
+        try {
+            mkdirSync(path.dirname(dest), {recursive: true});
+            copyFileSync(src, dest);
+            copied.push(rel);
+        } catch { /* 单个条目失败不影响其它 */ }
+    };
+
+    // 单文件：settings.json / trust.json
+    copyFileIfMissing('settings.json');
+    copyFileIfMissing('trust.json');
+
+    // bin/：rg、fd 等工具二进制
+    const srcBin = path.join(sourceDir, 'bin');
+    if (existsSync(srcBin)) {
+        try {
+            for (const entry of readdirSync(srcBin, {withFileTypes: true})) {
+                if (!entry.isFile()) continue;
+                copyFileIfMissing(path.join('bin', entry.name));
+            }
+        } catch { /* 列目录失败按无 bin 处理 */ }
+    }
+    return copied;
 }
 
 /**
