@@ -192,7 +192,7 @@ const PlanPanel = forwardRef<PanelHandle, PlanPanelProps>(function PlanPanel(
     const canGenerate = selectedRequirement && currentWorkspace && !generating;
 
     // 日志消息（planLogs → LogMessageData[]，增量解析：Think 折叠行 / 分类工具行配对渲染）
-    const logMessages = useParsedLogs(planLogs);
+    const logMessages = useParsedLogs(planLogs, {finalizeRunning: !generating});
 
     /**
      * 加载计划历史列表

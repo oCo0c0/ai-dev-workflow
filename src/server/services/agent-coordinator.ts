@@ -103,6 +103,18 @@ export class AgentCoordinator {
     private queuedReplyFlags = new Set<string>();
     /** 「立即处理」标志：abort 当前轮后不落 aborted 终态，自动带新消息续跑 */
     private interruptFlags = new Set<string>();
+    /**
+     * 尚未收到结果的工具调用（executionId → toolUseId 集合）。
+     * 用于轮次结束时兜底闭合：权限被拒/被中止/工具未返回等情况下，
+     * 前端工具行会永远停在「运行中」转圈 —— 轮末补一条结果把它收到终态。
+     */
+    private pendingToolCalls = new Map<string, Set<string>>();
+    /**
+     * 正在运行的执行（单个执行同时只允许一个 execute 循环）。
+     * 重复 start / 客户端重放 / 中断续跑重入会把同一执行跑成多个并发循环：
+     * 日志重复（同一行写多次）、bridge 事件串线、工具行错配。
+     */
+    private runningExecutions = new Set<string>();
     private config: CoordinatorConfig;
 
     constructor(config: CoordinatorConfig) {
@@ -115,6 +127,12 @@ export class AgentCoordinator {
      * ②「立即处理」中断（中止当前轮后直接带新消息续跑）。
      */
     async execute(executionId: string): Promise<void> {
+        // 单执行单循环：已有循环在跑时忽略重复调用（日志重复 / 事件串线的源头）
+        if (this.runningExecutions.has(executionId)) {
+            console.warn(`[coordinator] 执行 ${executionId} 已在运行，忽略重复的 execute 调用`);
+            return;
+        }
+        this.runningExecutions.add(executionId);
         try {
             while (true) {
                 this.queuedReplyFlags.delete(executionId);
@@ -126,6 +144,10 @@ export class AgentCoordinator {
                 }
 
                 const outcome = await this.runOnce(executionId);
+
+                // 轮末收敛：把没有收到结果的工具调用收成终态，
+                // 否则前端工具行会永远停在「运行中」转圈（权限被拒/被中止/工具未返回等）
+                await this.settlePendingToolCalls(executionId, 'unsettled');
 
                 if (outcome === 'aborted' && this.interruptFlags.has(executionId)) {
                     // 「立即处理」：不落 aborted 终态，直接续跑（新消息已入 user 日志）
@@ -158,7 +180,11 @@ export class AgentCoordinator {
             this.broadcastStatus(executionId, 'failed');
             this.broadcastComplete(executionId, 'failed');
         } finally {
+            this.runningExecutions.delete(executionId);
             this.abortControllers.delete(executionId);
+            // 兜底收敛最后一次（异常路径 / 提前 return 也要收干净）
+            await this.settlePendingToolCalls(executionId, 'unsettled').catch(() => undefined);
+            this.pendingToolCalls.delete(executionId);
             // 执行结束清理本次白名单与挂起权限（bridge 侧超时兜底会处理残留）
             this.allowedTools.delete(executionId);
             this.denyPendingPermissions(executionId, '执行已结束');
@@ -258,6 +284,11 @@ export class AgentCoordinator {
         this.queuedReplyFlags.add(executionId);
         controller.abort();
         this.denyPendingPermissions(executionId, '已中断当前轮，立即处理新消息');
+        // 中断瞬间就收敛在飞工具：被 abort 的工具不会再返回结果，
+        // 立刻收起转圈（真实结果若仍到达，前端会用真实结果覆盖合成行）
+        this.settlePendingToolCalls(executionId, 'interrupted').catch(err => {
+            console.error(`[coordinator] settle interrupted tools failed:`, err);
+        });
         return true;
     }
 
@@ -303,6 +334,13 @@ export class AgentCoordinator {
                 }
                 case 'tool_use': {
                     const toolInput = meta.toolInput as Record<string, unknown> | undefined;
+                    // 登记未闭合的工具调用（轮末兜底闭合用）
+                    const openId = typeof meta.toolUseId === 'string' ? meta.toolUseId : '';
+                    if (openId) {
+                        const set = this.pendingToolCalls.get(executionId) ?? new Set<string>();
+                        set.add(openId);
+                        this.pendingToolCalls.set(executionId, set);
+                    }
                     appendStructured({
                         type: 'tool_use',
                         toolName: (meta.toolName as string) || 'Tool',
@@ -317,6 +355,8 @@ export class AgentCoordinator {
                 case 'tool_result': {
                     // 工具结果内容（data）截断后进日志流，同时照旧写 stepLog 供历史详情查看
                     const content = data && data.length > 2000 ? `${data.slice(0, 2000)}…` : (data || '');
+                    const closedId = typeof meta.toolUseId === 'string' ? meta.toolUseId : '';
+                    if (closedId) this.pendingToolCalls.get(executionId)?.delete(closedId);
                     appendStructured({
                         type: 'tool_result',
                         toolUseId: meta.toolUseId,
@@ -332,8 +372,40 @@ export class AgentCoordinator {
         };
     }
 
-    /** 构造权限请求处理器（单次与子任务循环共用） */
-    private makePermissionHandler(executionId: string): (meta: Record<string, unknown>) => void {
+    /**
+     * 收敛尚未收到结果的工具调用：写一条带标记的「合成结果」行，使前端工具行进入终态。
+     *
+     * 两种语义分开标记，前端据此渲染不同文案（对齐 DSH：工具行状态由已收敛的结果节点决定）：
+     * - interrupted：用户中断（「立即处理」/中止）——SDK 被 abort，在飞工具不会有结果；
+     *   中断瞬间就收敛，工具行立刻停止转圈并显示「已中断」。
+     * - unsettled：轮末仍未返回（权限被拒 / 工具无返回 / 子进程退出）——显示「未返回结果」。
+     *
+     * 合成结果带 `synthetic: true`：若之后真实结果到达（中断时工具其实已完成），
+     * 前端会用真实结果覆盖它，不会把真实结果误当重复而丢弃。
+     */
+    private async settlePendingToolCalls(executionId: string, reason: 'interrupted' | 'unsettled'): Promise<void> {
+        const pending = this.pendingToolCalls.get(executionId);
+        if (!pending || pending.size === 0) return;
+        const ids = [...pending];
+        pending.clear();
+        const content = reason === 'interrupted'
+            ? '（已中断：本轮被中止，该工具未返回结果）'
+            : '（本轮结束，未收到该工具的返回结果）';
+        for (const toolUseId of ids) {
+            const line = JSON.stringify({
+                type: 'tool_result',
+                toolUseId,
+                isError: false,
+                synthetic: true,
+                reason,
+                content,
+            });
+            await this.store.addLog(executionId, line).catch(() => undefined);
+            this.broadcastLog(executionId, line);
+        }
+    }
+
+    /** 构造权限请求处理器（单次与子任务循环共用） */    private makePermissionHandler(executionId: string): (meta: Record<string, unknown>) => void {
         return (meta) => this.handlePermissionRequest(executionId, meta);
     }
 
@@ -619,6 +691,10 @@ export class AgentCoordinator {
         if (controller) controller.abort();
         // 中止时拒绝该执行所有挂起的权限请求，避免 bridge query 永久挂起
         this.denyPendingPermissions(executionId, '执行已中止');
+        // 被中止的在飞工具不会再有结果：立刻收敛，工具行停止转圈并显示「已中断」
+        this.settlePendingToolCalls(executionId, 'interrupted').catch(err => {
+            console.error(`[coordinator] settle aborted tools failed:`, err);
+        });
     }
 
     /**

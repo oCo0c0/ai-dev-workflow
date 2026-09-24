@@ -301,11 +301,12 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
                 }
                 const abortHandler = () => {
                     req.aborted = true;
-                    // 通知 bridge 中止正在执行的 SDK 查询（agent.abort → abortSignal）。
+                    // 通知 bridge 中止**本请求**的 SDK 查询（agent.abort → abortSignal），
+                    // 带上 jsonRpcId 精确中止，避免并发执行时误伤其它查询。
                     // 不发的话旧查询继续占用 bridge，续跑轮的 agent.execute 会与它并发导致消息"发不出去"。
-                    this.sendAbort();
+                    this.sendAbort(jsonRpcId);
                     this.pendingRequests.delete(jsonRpcId);
-                    if (req.sessionId) this.sessionRequests.delete(req.sessionId);
+                    if (req.sessionId && this.sessionRequests.get(req.sessionId) === req) this.sessionRequests.delete(req.sessionId);
                     // 给 bridge 一小段时间结束旧查询，再放行续跑轮（协调器随即发起新 execute）
                     setTimeout(() => resolve({exitCode: null, stdout: req.stdout, stderr: '', aborted: true}), 150);
                 };
@@ -594,10 +595,16 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
 
     /**
      * 处理 JSON-RPC Notification（流式事件）
-     * 通过 params.sessionId 查找对应的 PendingRequest
+     *
+     * 归属解析优先级：params.requestId（bridge 精确标注发起请求）→ sessionId 反向索引
+     * → 唯一在飞请求兜底。解析失败**必须留痕**：此前这里是两处静默 `return`，
+     * 事件被丢掉后前端工具行永远转圈，且现场没有任何日志可查（本次工具行不收敛的根因之一）。
      */
     private handleNotification(method: string, params?: Record<string, unknown>) {
         const sessionId = params?.sessionId as string | undefined;
+        const requestId = params?.requestId === undefined || params?.requestId === null
+            ? undefined
+            : String(params.requestId);
 
         switch (method) {
             case 'agent.ready':
@@ -625,14 +632,13 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
             case 'agent.tool_use':
             case 'agent.tool_result':
             case 'agent.permission_required':
-                // 所有流式通知通过 sessionId 查找
+                // 所有流式通知按 requestId / sessionId 归属
                 break;
             default:
                 return; // 未知通知，忽略
         }
 
-        if (!sessionId) return;
-        const req = this.sessionRequests.get(sessionId);
+        const req = this.resolveRequest(method, requestId, sessionId);
         if (!req) return;
 
         switch (method) {
@@ -681,6 +687,42 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
     }
 
     /**
+     * 解析流式事件归属的请求：requestId（精确）→ sessionId（反向索引）→ 唯一在飞请求兜底。
+     *
+     * sessionId 反向索引在「会话续接复用同一 sessionId」「压缩换 sessionId」
+     * 「并发查询」下会错配/查不到，事件就会被丢弃 —— 因此优先用 bridge 标注的 requestId，
+     * 并在兜底/丢弃时打日志留痕，不再静默吞事件。
+     */
+    private resolveRequest(
+        method: string,
+        requestId: string | undefined,
+        sessionId: string | undefined,
+    ): PendingRequest | undefined {
+        if (requestId) {
+            const byRequest = this.pendingRequests.get(requestId);
+            if (byRequest) return byRequest;
+            console.warn(`[claude-provider] 通知 ${method} 的 requestId=${requestId} 已无对应请求，退回会话归属`);
+        }
+        if (sessionId) {
+            const bySession = this.sessionRequests.get(sessionId);
+            if (bySession) return bySession;
+        }
+        const inFlight = [...this.pendingRequests.values()].filter(r => !r.aborted);
+        if (inFlight.length === 1) {
+            console.warn(
+                `[claude-provider] 通知 ${method} 无归属（requestId=${requestId ?? 'null'} sessionId=${sessionId ?? 'null'}），`
+                + '兜底投递给唯一在飞请求',
+            );
+            return inFlight[0];
+        }
+        console.error(
+            `[claude-provider] 丢弃通知 ${method}：requestId=${requestId ?? 'null'} sessionId=${sessionId ?? 'null'} `
+            + `匹配不到请求（在飞 ${inFlight.length}/${this.pendingRequests.size}）`,
+        );
+        return undefined;
+    }
+
+    /**
      * 处理 JSON-RPC Response（agent.execute 的最终结果）
      */
     private handleJsonRpcResponse(id: string, result?: unknown, error?: unknown) {
@@ -688,7 +730,7 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
         if (!req) return; // 已清理（如 abort），忽略
 
         this.pendingRequests.delete(id);
-        if (req.sessionId) this.sessionRequests.delete(req.sessionId);
+        if (req.sessionId && this.sessionRequests.get(req.sessionId) === req) this.sessionRequests.delete(req.sessionId);
 
         if (error) {
             const errObj = error as { code?: number; message?: string; data?: unknown };
@@ -714,11 +756,12 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
     }
 
     /**
-     * 通知 bridge 中止当前正在执行的查询（JSON-RPC agent.abort，fire-and-forget）。
+     * 通知 bridge 中止正在执行的查询（JSON-RPC agent.abort，fire-and-forget）。
+     * 传入发起该查询的 JSON-RPC id 时按请求粒度中止（并发执行下不误伤其它查询）；
      * bridge 触发 SDK abortSignal 结束旧查询，避免与续跑轮的 agent.execute 并发。
      * 无活动请求时 bridge 幂等 ack，进程未就绪时静默跳过。
      */
-    private sendAbort(): void {
+    private sendAbort(requestId?: string): void {
         const proc = this.process;
         if (!proc || !proc.stdin || !this.ready) return;
         const jsonRpcId = String(++this.jsonRpcIdCounter);
@@ -726,7 +769,7 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
             jsonrpc: '2.0',
             id: jsonRpcId,
             method: 'agent.abort',
-            params: {},
+            params: requestId ? {requestId} : {},
         }) + '\n');
     }
 

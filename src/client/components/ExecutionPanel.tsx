@@ -239,7 +239,7 @@ const ExecutionPanel = forwardRef<PanelHandle, ExecutionPanelProps>(function Exe
     }, [detail?.logs, storeLogs, activeId, storeExecutionId]);
 
     // 日志消息（displayLogs → LogMessageData[]，增量解析：Think 折叠行 / 分类工具行配对渲染）
-    const logMessages = useParsedLogs(displayLogs);
+    const logMessages = useParsedLogs(displayLogs, {finalizeRunning: isDone});
 
     // 本次产出：写类工具（Write/Edit/MultiEdit/NotebookEdit）成功变更的文件（执行结束后展示）
     const deliverables = useMemo(() => deliverableFilesFromMessages(logMessages), [logMessages]);

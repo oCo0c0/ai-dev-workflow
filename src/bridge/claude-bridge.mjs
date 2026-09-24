@@ -155,6 +155,20 @@ function emitNotification(method, params) {
     process.stdout.write(JSON.stringify(msg) + '\n');
 }
 
+/**
+ * 发出**请求作用域**的通知：在 params 上附加发起该查询的 requestId。
+ *
+ * 父进程据此把事件精确路由回发起请求的调用方，不再只依赖 sessionId 反向索引
+ * ——会话续接 / 压缩换 session / 并发查询时，sessionId 映射会错配或查不到，
+ * 事件就会被静默丢弃（表现为工具行永远转圈）。requestId 是唯一无歧义的关联键。
+ * @param {string|number} requestId - agent.execute 的 JSON-RPC id
+ * @param {string} method - 通知方法名
+ * @param {object} [params] - 通知参数
+ */
+function emitQueryNotification(requestId, method, params) {
+    emitNotification(method, {...(params || {}), requestId});
+}
+
 // 保留旧 emit 作为底层兼容（供 uncaughtException 等无会话场景使用）
 function emit(obj) {
     process.stdout.write(JSON.stringify(obj) + '\n');
@@ -172,14 +186,17 @@ const pendingPermissionResolvers = new Map();
 
 /**
  * 创建 canUseTool 回调（仅当调用方启用权限确认时注入到 options）。
- * 触发时发送 agent.permission_required 通知，等待 agent.confirmPermission 方法调用唤醒；
- * 叠加 10 分钟超时与 SDK abort 兜底，避免 query 永久挂起。
+ * 触发时发送 agent.permission_required 通知（带 requestId，父进程可精确路由），
+ * 等待 agent.confirmPermission 方法调用唤醒；叠加 10 分钟超时与 SDK abort 兜底，
+ * 避免 query 永久挂起。
+ * @param {string|number} requestId - 发起本次查询的 JSON-RPC id
+ * @param {() => string|null} getSessionId - 读取本次查询当前 sessionId
  */
-function createCanUseTool() {
+function createCanUseTool(requestId, getSessionId) {
     return async (toolName, input, o) => {
         const permissionRequestId = crypto.randomUUID();
-        emitNotification('agent.permission_required', {
-            sessionId: currentSessionId,
+        emitQueryNotification(requestId, 'agent.permission_required', {
+            sessionId: getSessionId(),
             permissionRequestId,
             toolName: toolName || '',
             toolInput: input || {},
@@ -223,34 +240,41 @@ function createCanUseTool() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isOverloaded = (msg) => /529|429|overloaded|访问量过大|使用上限|rate.?limit|too many requests/i.test(msg || '');
 
-/** 当前执行中的 sessionId（由 SDK system 消息设置），用于通知关联 */
-let currentSessionId = null;
-
-/** 当前活动查询的中止控制器（agent.abort 方法触发其 abort，取消正在执行的 SDK 查询） */
-let activeQueryAbort = null;
+/**
+ * 活动查询表：requestId(string) → {abortController}。
+ * 按请求粒度登记，agent.abort 才能只中止目标查询（此前是单个全局句柄，
+ * 并发执行时互相踩：中止 A 会误伤 B，且后发查询会覆盖先发查询的句柄）。
+ */
+const activeQueries = new Map();
 
 /**
- * 执行一次 SDK query（流式发送通知，所有通知携带 sessionId 用于父进程关联）。
+ * 执行一次 SDK query（流式发送通知；每条通知带 requestId 供父进程精确路由）。
+ * sessionId 是**本次查询的局部状态**（由首个 system 消息给出）——此前是模块级全局变量，
+ * 并发/续接查询互相串线，事件会被路由到错误的请求后丢弃（工具行永远转圈）。
  * @param {string} prompt - 提示词
  * @param {object} options - SDK options
- * @returns {Promise<{status: 'done'|'overloaded'|'error', error?: string}>}
+ * @param {string|number} requestId - 发起本次查询的 JSON-RPC id
+ * @returns {Promise<{status: 'done'|'overloaded'|'error', error?: string, sessionId?: string|null}>}
  */
-async function runQueryOnce(prompt, options) {
-    for await (const msg of query({prompt, options})) {        if (msg.type === 'system' && msg.session_id) {
-            currentSessionId = msg.session_id;
-            emitNotification('agent.session', {sessionId: msg.session_id});
+async function runQueryOnce(prompt, options, requestId) {
+    const notify = (method, params) => emitQueryNotification(requestId, method, params);
+    let sessionId = null;
+    for await (const msg of query({prompt, options})) {
+        if (msg.type === 'system' && msg.session_id) {
+            sessionId = msg.session_id;
+            notify('agent.session', {sessionId});
         }
         if (msg.type === 'assistant') {
             const content = msg.message?.content;
             if (Array.isArray(content)) {
                 for (const block of content) {
                     if (block.type === 'text' && block.text) {
-                        emitNotification('agent.output', {sessionId: currentSessionId, content: block.text});
+                        notify('agent.output', {sessionId, content: block.text});
                     } else if (block.type === 'thinking' && block.thinking) {
-                        emitNotification('agent.thinking', {sessionId: currentSessionId, content: block.thinking});
+                        notify('agent.thinking', {sessionId, content: block.thinking});
                     } else if (block.type === 'tool_use') {
-                        emitNotification('agent.tool_use', {
-                            sessionId: currentSessionId,
+                        notify('agent.tool_use', {
+                            sessionId,
                             toolName: block.name || '',
                             toolInput: block.input || {},
                             toolUseId: block.id || '',
@@ -265,8 +289,8 @@ async function runQueryOnce(prompt, options) {
             if (Array.isArray(content)) {
                 for (const block of content) {
                     if (block.type === 'tool_result') {
-                        emitNotification('agent.tool_result', {
-                            sessionId: currentSessionId,
+                        notify('agent.tool_result', {
+                            sessionId,
                             toolUseId: block.tool_use_id || '',
                             isError: block.is_error || false,
                             content: typeof block.content === 'string'
@@ -299,16 +323,21 @@ async function runQueryOnce(prompt, options) {
             }
         }
     }
-    return {status: 'done'};
+    return {status: 'done', sessionId};
 }
 
 /**
  * 发送限流重试通知，并按指数退避等待。
+ * @param {number} attempt - 当前重试序号（从 0 起）
+ * @param {string} errorMsg - 触发重试的错误信息
+ * @param {number} maxRetries - 最大重试次数
+ * @param {(method: string, params?: object) => void} notify - 请求作用域的通知器
+ * @param {string|null} sessionId - 本次查询的 sessionId
  */
-async function waitForRetry(attempt, errorMsg, maxRetries) {
+async function waitForRetry(attempt, errorMsg, maxRetries, notify, sessionId) {
     const wait = Math.min(2 ** attempt * 1000, 8000);
-    emitNotification('agent.output', {
-        sessionId: currentSessionId,
+    notify('agent.output', {
+        sessionId,
         content: `\n\n[模型限流(${errorMsg?.includes('429') ? '429' : '529'})，${Math.round(wait / 1000)}s 后重试 ${attempt + 1}/${maxRetries}...]\n\n`,
     });
     dbg('retry-rate-limit', {attempt: attempt + 1, wait, error: errorMsg});
@@ -359,9 +388,15 @@ async function handleExecute(msg) {
         permissionEnabled,
     });
 
-    // 中止控制器：本次查询的取消句柄（父进程经 agent.abort 触发「立即处理」中断）
+    // 中止控制器：本次查询的取消句柄（父进程经 agent.abort 触发「立即处理」中断）。
+    // 按 requestId 登记 —— 并发查询各自可被精确中止，不再互相误伤。
     const abortController = new AbortController();
-    activeQueryAbort = abortController;
+    const requestKey = String(msg.id);
+    activeQueries.set(requestKey, {abortController});
+    // 请求作用域的事件发射器（限流重试等查询期通知也走它，保证带 requestId）
+    const notify = (method, params) => emitQueryNotification(msg.id, method, params);
+    /** 本次查询最近一次拿到的 sessionId（重试通知与错误响应回传用） */
+    let querySessionId = null;
 
     const options = {
         cwd: cwd || process.cwd(),
@@ -380,7 +415,7 @@ async function handleExecute(msg) {
     // 权限确认：仅当调用方启用时注入 canUseTool
     // permissionMode 保持 acceptEdits，Bash 等仍需 prompt 的工具会触发回调
     if (permissionEnabled) {
-        options.canUseTool = createCanUseTool();
+        options.canUseTool = createCanUseTool(msg.id, () => querySessionId);
     }
 
     if (model) {
@@ -409,20 +444,21 @@ async function handleExecute(msg) {
         const maxRetries = 3;
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                const runResult = await runQueryOnce(prompt, options);
+                const runResult = await runQueryOnce(prompt, options, msg.id);
+                if (runResult.sessionId) querySessionId = runResult.sessionId;
                 if (runResult.status === 'done') {
                     emitJsonRpcResponse(msg.id, {
                         exitCode: 0,
-                        sessionId: currentSessionId || '',
+                        sessionId: runResult.sessionId || '',
                     });
                     return;
                 }
                 const lastError = runResult.error || 'Unknown error';
                 if (runResult.status === 'overloaded' && attempt < maxRetries) {
-                    await waitForRetry(attempt, lastError, maxRetries);
+                    await waitForRetry(attempt, lastError, maxRetries, notify, querySessionId);
                     continue;
                 }
-                emitJsonRpcError(msg.id, -32000, lastError, {sessionId: currentSessionId || ''});
+                emitJsonRpcError(msg.id, -32000, lastError, {sessionId: runResult.sessionId || ''});
                 return;
             } catch (err) {
                 const lastError = err.message || String(err);
@@ -433,16 +469,18 @@ async function handleExecute(msg) {
                 }
                 dbg('catch', {attempt, message: lastError});
                 if (isOverloaded(lastError) && attempt < maxRetries) {
-                    await waitForRetry(attempt, lastError, maxRetries);
+                    await waitForRetry(attempt, lastError, maxRetries, notify, querySessionId);
                     continue;
                 }
                 const errorCode = isOverloaded(lastError) ? -32001 : -32000;
-                emitJsonRpcError(msg.id, errorCode, lastError, {sessionId: currentSessionId || ''});
+                emitJsonRpcError(msg.id, errorCode, lastError, {sessionId: querySessionId || ''});
                 return;
             }
         }
     } finally {
-        if (activeQueryAbort === abortController) activeQueryAbort = null;
+        if (activeQueries.get(requestKey)?.abortController === abortController) {
+            activeQueries.delete(requestKey);
+        }
     }
 }
 
@@ -481,17 +519,25 @@ function handleConfirmPermission(msg) {
 }
 
 /**
- * 处理 agent.abort — 中止当前正在执行的查询（「立即处理」语义）。
- * 触发活动查询的 AbortController：SDK 的 abortSignal 使 query 迭代立即结束，
- * 挂起的 canUseTool 经其 signal 兜底同步拒绝。无活动查询时幂等 ack。
+ * 处理 agent.abort — 中止正在执行的查询（「立即处理」语义）。
+ *
+ * 支持按请求粒度中止：params.requestId 给出时只中止该查询（并发执行下不误伤）；
+ * 未给出时中止所有活动查询（向后兼容旧客户端）。
+ * 触发 AbortController：SDK 的 abortSignal 使 query 迭代立即结束，
+ * 挂起的 canUseTool 经其 signal 兜底同步拒绝。
  */
 function handleAbortQuery(msg) {
-    const pending = activeQueryAbort !== null;
-    if (pending) {
-        activeQueryAbort.abort(new Error('用户中断当前轮'));
-        dbg('abort-requested', {hadActive: pending});
+    const requested = msg.params?.requestId;
+    const keys = (requested === undefined || requested === null)
+        ? [...activeQueries.keys()]
+        : (activeQueries.has(String(requested)) ? [String(requested)] : []);
+    for (const key of keys) {
+        try {
+            activeQueries.get(key)?.abortController.abort(new Error('用户中断当前轮'));
+        } catch { /* 已结束的查询：忽略 */ }
     }
-    emitJsonRpcResponse(msg.id, {acknowledged: true, hadActive: pending});
+    dbg('abort-requested', {targets: keys, requested});
+    emitJsonRpcResponse(msg.id, {acknowledged: true, hadActive: keys.length > 0, aborted: keys});
 }
 
 // ═══════════════════════════════════════════════════════════════

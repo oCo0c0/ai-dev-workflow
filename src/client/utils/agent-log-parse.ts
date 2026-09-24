@@ -10,8 +10,9 @@
  * - {type:'output'|'info'|'system', content}            → 输出气泡
  * - 旧格式兼容：**User:** 前缀 → 用户消息；其余文本 → 输出
  *
- * tool_use + tool_result 配对规则：优先按 toolUseId，退化按「最近一条未闭合的工具行」；
- * 未配对的结果行丢弃（结果全文不上屏）。
+ * tool_use + tool_result 配对规则：按 toolUseId 优先；同一 id 的真实结果可覆盖服务端补写的
+ * 合成结果（中断/未返回）；无 id 的结果按 FIFO 配对最早的待结果行；未知 id 的结果行丢弃。
+ * 服务端在中断/轮末会补写带 `synthetic` 标记的结果行，保证每个工具行都能收敛为终态。
  */
 
 import type {LogMessageData} from '../components/LogMessage';
@@ -32,6 +33,10 @@ interface ParsedLine {
     toolInput?: string;
     toolUseId?: string;
     isError?: boolean;
+    /** 服务端补写的合成结果（中断/未返回），非工具真实输出 */
+    synthetic?: boolean;
+    /** 合成原因：interrupted（被中断）/ unsettled（未返回） */
+    reason?: string;
 }
 
 /** 解析单行日志文本 */
@@ -58,6 +63,9 @@ function parseLine(content: string): ParsedLine {
                     content: str(parsed.content) || '',
                     toolUseId: str(parsed.toolUseId),
                     isError: parsed.isError === true,
+                    // 服务端在「中断/未返回」时补写的合成结果：带标记，真实结果到达时可覆盖
+                    synthetic: parsed.synthetic === true,
+                    reason: str(parsed.reason),
                 };
             case 'error':
                 return {kind: 'error', content: str(parsed.content) || ''};
@@ -104,7 +112,33 @@ export function createLogParser() {
     /** 对外快照：内容变化时换新引用，未变化时保持同一引用（下游 memo/依赖稳定） */
     let publicMessages: LogMessageData[] = [];
     let openById = new Map<string, number>();
-    let lastOpenIdx = -1;
+    /** 待结果的行（FIFO）：无 id 的结果按调用顺序配对最早的待结果行 */
+    let openQueue: number[] = [];
+    /** 已收敛的行：toolUseId → 下标（真实结果可覆盖同 id 的合成结果） */
+    let settledById = new Map<string, number>();
+
+    /** 行已收敛：从待结果索引中移除 */
+    const closeOpen = (idx: number, id?: string) => {
+        if (id) openById.delete(id);
+        const at = openQueue.indexOf(idx);
+        if (at !== -1) openQueue.splice(at, 1);
+    };
+
+    /** 把结果写到目标工具行；合成结果不覆盖已到达的真实结果 */
+    const applyResult = (idx: number, parsed: ParsedLine, synthetic: boolean) => {
+        const tool = messages[idx]?.tool;
+        if (!tool) return;
+        if (synthetic && tool.state !== 'running') return;
+        if (!synthetic) {
+            tool.result = parsed.content;
+            tool.state = parsed.isError ? 'error' : 'ok';
+            delete tool.stopReason;
+            return;
+        }
+        tool.state = 'stopped';
+        tool.stopReason = parsed.reason === 'interrupted' ? 'interrupted' : 'unsettled';
+        if (!tool.result) tool.result = parsed.content;
+    };
 
     const parseFrom = (contents: string[], metas: Array<LogLineInput | undefined>, from: number): LogMessageData[] => {
         for (let i = from; i < contents.length; i++) {
@@ -120,22 +154,33 @@ export function createLogParser() {
                     state: 'running',
                 };
                 messages.push({kind: 'tool', content: tool.name, tool, ...base});
-                const key = parsed.toolUseId || `#open_${messages.length - 1}`;
-                openById.set(key, messages.length - 1);
-                lastOpenIdx = messages.length - 1;
+                const idx = messages.length - 1;
+                if (parsed.toolUseId) openById.set(parsed.toolUseId, idx);
+                openQueue.push(idx);
             } else if (parsed.kind === 'tool_result') {
-                let idx: number | undefined;
-                if (parsed.toolUseId && openById.has(parsed.toolUseId)) {
-                    idx = openById.get(parsed.toolUseId);
-                    openById.delete(parsed.toolUseId);
-                } else if (lastOpenIdx >= 0 && messages[lastOpenIdx]?.tool?.state === 'running') {
-                    idx = lastOpenIdx;
+                const synthetic = parsed.synthetic === true;
+                const id = parsed.toolUseId;
+                if (id && openById.has(id)) {
+                    const idx = openById.get(id)!;
+                    closeOpen(idx, id);
+                    applyResult(idx, parsed, synthetic);
+                    // 合成与真实结果都登记：合成结果（中断/未返回）随后可被真实结果升级
+                    settledById.set(id, idx);
+                } else if (id && settledById.has(id)) {
+                    // 同 id 的后续结果：仅当该行先前是**合成结果**（中断/未返回）时，
+                    // 用真实结果覆盖它（中断后工具其实已完成）；重复的真实结果一律忽略，
+                    // 否则同一工具行会被后续重复行反复改写
+                    const idx = settledById.get(id)!;
+                    if (!synthetic && messages[idx]?.tool?.stopReason) applyResult(idx, parsed, false);
+                } else if (!id) {
+                    // 无 id 的结果（部分引擎不返回 id）：FIFO 配对最早的待结果行
+                    const idx = openQueue.find(at => messages[at]?.tool?.state === 'running');
+                    if (idx !== undefined) {
+                        closeOpen(idx);
+                        applyResult(idx, parsed, synthetic);
+                    }
                 }
-                if (idx !== undefined && messages[idx].tool) {
-                    messages[idx].tool!.result = parsed.content;
-                    messages[idx].tool!.state = parsed.isError ? 'error' : 'ok';
-                }
-                // 未配对到的结果行丢弃（避免结果全文刷屏）
+                // 未知 id 的结果行丢弃（多为历史/重放），避免污染其它工具行
             } else {
                 messages.push({kind: parsed.kind, content: parsed.content, ...base});
             }
@@ -164,7 +209,8 @@ export function createLogParser() {
                 messages = [];
                 publicMessages = [];
                 openById = new Map();
-                lastOpenIdx = -1;
+                openQueue = [];
+                settledById = new Map();
                 parsedCount = 0;
                 return parseFrom(contents, metas, 0);
             }
@@ -231,4 +277,25 @@ export function deliverableFilesFromMessages(messages: LogMessageData[]): Delive
 /** 便捷重载：从原始日志行派生（内部全量解析，高频场景请用 useParsedLogs + deliverableFilesFromMessages） */
 export function deriveDeliverableFiles(logs: Array<string | LogLineInput>): DeliverableFile[] {
     return deliverableFilesFromMessages(toLogMessages(logs));
+}
+
+/**
+ * 执行结束时的兜底：把仍停在「运行中」的工具行收成 stopped 终态。
+ *
+ * 权限被拒 / 执行被中止 / 工具无返回等情况下不会有配对的 tool_result，
+ * 工具行会永远转圈。就地写入状态（解析器保留对象身份），仅在有变化时返回新数组
+ * —— 若执行之后恢复并收到真实结果，配对逻辑会显式覆写为 ok / error。
+ *
+ * @returns 处理后的消息数组；无变化时返回入参本身（下游 memo 不受影响）
+ */
+export function finalizeRunningTools(messages: LogMessageData[]): LogMessageData[] {
+    let changed = false;
+    for (const m of messages) {
+        if (m.kind === 'tool' && m.tool?.state === 'running') {
+            m.tool.state = 'stopped';
+            m.tool.stopReason ??= 'unsettled';
+            changed = true;
+        }
+    }
+    return changed ? [...messages] : messages;
 }

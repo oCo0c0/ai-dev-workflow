@@ -682,7 +682,7 @@ export default function AgentExecutionPage() {
 
     // 日志消息（当前执行分桶 → LogMessageData[]，供 LogViewer 渲染；多 Agent 并行互不混入）
     const currentLogs = activeId ? (logsByExecution[activeId] || []) : [];
-    const logMessages = useParsedLogs(currentLogs);
+    const logMessages = useParsedLogs(currentLogs, {finalizeRunning: isDone});
     // 本次产出：写类工具（Write/Edit/MultiEdit/NotebookEdit）成功变更的文件（执行结束后展示）
     const deliverables = useMemo(() => deliverableFilesFromMessages(logMessages), [logMessages]);
     // 排队消息（服务端为准）：仅运行中显示，消费后自动清空

@@ -18,6 +18,7 @@
 
 import {useState} from 'react';
 import {
+    AlertTriangle,
     Bot,
     ChevronDown,
     FilePen,
@@ -192,8 +193,16 @@ export interface ToolEventInfo {
     input?: string;
     /** 工具结果文本（配对的 tool_result 填充） */
     result?: string;
-    /** 运行状态：tool_use 未配对结果 = running；结果 isError = error；否则 ok */
-    state: 'running' | 'ok' | 'error';
+    /**
+     * 运行状态：
+     * - running：tool_use 已发出、结果未到（转圈）
+     * - ok / error：已配对到结果
+     * - stopped：未拿到工具真实结果 —— 由服务端补写的合成结果（中断/轮末未返回）
+     *   或 useParsedLogs 的 finalizeRunning 兜底置入，避免永远转圈
+     */
+    state: 'running' | 'ok' | 'error' | 'stopped';
+    /** stopped 的原因：interrupted（用户中断本轮）/ unsettled（轮末仍未返回） */
+    stopReason?: 'interrupted' | 'unsettled';
 }
 
 export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
@@ -201,6 +210,7 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
     const meta = toolMetaOf(tool.name);
     const Icon = meta.icon;
     const isError = tool.state === 'error';
+    const isStopped = tool.state === 'stopped';
     const args = parseArgs(tool.input);
 
     // 失败行的折叠摘要就是失败本身：错误首行（红色）替换参数摘要
@@ -231,29 +241,38 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
                     'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors',
                     isError
                         ? 'border-destructive/30 bg-destructive/5 hover:bg-destructive/10'
-                        : 'border-border/50 bg-muted/20 hover:bg-muted/40',
+                        : isStopped
+                            ? 'border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10'
+                            : 'border-border/50 bg-muted/20 hover:bg-muted/40',
                     !expandable && 'cursor-default',
                 )}
                 data-variant={meta.variant}
                 data-tool={tool.name}
                 data-state={tool.state}
             >
-                {/* 状态槽：running 转圈 / error 红叉 / 成功显示该工具的专属图标 */}
+                {/* 状态槽：running 转圈 / error 红叉 / stopped 琥珀告警 / 成功显示该工具的专属图标 */}
                 {tool.state === 'running'
                     ? <Loader2 className="h-3.5 w-3.5 shrink-0 text-blue-500 animate-spin"/>
                     : isError
                         ? <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive"/>
-                        : <Icon className="h-3.5 w-3.5 shrink-0 text-cyan-600 dark:text-cyan-400"/>}
+                        : isStopped
+                            ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500"/>
+                            : <Icon className="h-3.5 w-3.5 shrink-0 text-cyan-600 dark:text-cyan-400"/>}
                 <span className="shrink-0 text-[11px] font-semibold text-foreground/90">{meta.title}</span>
                 <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/40 shrink-0" aria-hidden/>
                 <span
                     className={cn(
                         'flex-1 min-w-0 truncate text-[11px] font-mono',
-                        isError ? 'text-destructive' : 'text-muted-foreground',
+                        isError ? 'text-destructive' : isStopped ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
                     )}
                 >
                     {summaryText || tool.name}
                 </span>
+                {isStopped && (
+                    <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">
+                        {tool.stopReason === 'interrupted' ? '已中断' : '未返回结果'}
+                    </span>
+                )}
                 {expandable && (
                     <ChevronDown
                         className={cn(
