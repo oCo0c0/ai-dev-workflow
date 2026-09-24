@@ -46,49 +46,107 @@ interface ToolMeta {
     icon: LucideIcon;
 }
 
-/** 已知工具 → 专属图标/标题（未列出的 mcp__ 前缀归 MCP，其余归通用 wrench） */
+/**
+ * 规范工具名（小写）→ 专属元数据。
+ *
+ * 各引擎的工具命名方言不同，必须归一化后查表（否则图标/标题全部落到兜底）：
+ * - Claude Code：PascalCase（`Read` / `Write` / `Edit` / `Bash` / `MultiEdit`）
+ * - pi：小写（`read` / `write` / `edit` / `bash` / `find` / `ls` / `grep`）
+ * - Codex：`shell` / `apply_patch` / `read_file` 等
+ * 对齐 DSH `tool-call-model.ts`：分类表用**小写规范名**，未知工具才落 others。
+ */
 const TOOL_META: Record<string, ToolMeta> = {
     // 终端 / Shell
-    Bash: {variant: 'bash', title: '终端', icon: Terminal},
-    PowerShell: {variant: 'bash', title: '终端', icon: Terminal},
+    bash: {variant: 'bash', title: '终端', icon: Terminal},
+    bashoutput: {variant: 'bash', title: '终端输出', icon: Terminal},
+    killshell: {variant: 'bash', title: '结束终端', icon: Terminal},
+    pwsh: {variant: 'bash', title: '终端', icon: Terminal},
+    powershell: {variant: 'bash', title: '终端', icon: Terminal},
+    shell: {variant: 'bash', title: '终端', icon: Terminal},
+    terminal: {variant: 'bash', title: '终端', icon: Terminal},
+    run_command: {variant: 'bash', title: '终端', icon: Terminal},
+    execute_command: {variant: 'bash', title: '终端', icon: Terminal},
     // 文件读取
-    Read: {variant: 'read', title: '读取文件', icon: FileText},
-    NotebookRead: {variant: 'read', title: '读取 Notebook', icon: FileText},
-    // 文件写入 / 编辑（Diff 卡）
-    Write: {variant: 'edit', title: '写入文件', icon: FilePen},
-    Edit: {variant: 'edit', title: '编辑文件', icon: FilePen},
-    MultiEdit: {variant: 'edit', title: '多处编辑', icon: FilePen},
-    NotebookEdit: {variant: 'edit', title: '编辑 Notebook', icon: FilePen},
+    read: {variant: 'read', title: '读取文件', icon: FileText},
+    readfile: {variant: 'read', title: '读取文件', icon: FileText},
+    read_file: {variant: 'read', title: '读取文件', icon: FileText},
+    cat: {variant: 'read', title: '读取文件', icon: FileText},
+    view: {variant: 'read', title: '查看文件', icon: FileText},
+    notebookread: {variant: 'read', title: '读取 Notebook', icon: FileText},
+    // 文件写入
+    write: {variant: 'edit', title: '写入文件', icon: FilePen},
+    writefile: {variant: 'edit', title: '写入文件', icon: FilePen},
+    write_file: {variant: 'edit', title: '写入文件', icon: FilePen},
+    create_file: {variant: 'edit', title: '新建文件', icon: FilePen},
+    createfile: {variant: 'edit', title: '新建文件', icon: FilePen},
+    // 文件编辑（Diff 卡）
+    edit: {variant: 'edit', title: '编辑文件', icon: FilePen},
+    editfile: {variant: 'edit', title: '编辑文件', icon: FilePen},
+    edit_file: {variant: 'edit', title: '编辑文件', icon: FilePen},
+    multiedit: {variant: 'edit', title: '多处编辑', icon: FilePen},
+    str_replace: {variant: 'edit', title: '编辑文件', icon: FilePen},
+    str_replace_editor: {variant: 'edit', title: '编辑文件', icon: FilePen},
+    apply_patch: {variant: 'edit', title: '应用补丁', icon: FilePen},
+    patch: {variant: 'edit', title: '应用补丁', icon: FilePen},
+    notebookedit: {variant: 'edit', title: '编辑 Notebook', icon: FilePen},
     // 搜索
-    Grep: {variant: 'search', title: '内容搜索', icon: Search},
-    Glob: {variant: 'search', title: '文件匹配', icon: FolderSearch},
-    LS: {variant: 'search', title: '列出目录', icon: FolderSearch},
-    ToolSearch: {variant: 'search', title: '工具搜索', icon: Search},
-    // 网络
-    WebSearch: {variant: 'web', title: '网页搜索', icon: Globe},
-    WebFetch: {variant: 'web', title: '网页抓取', icon: Globe},
+    grep: {variant: 'search', title: '内容搜索', icon: Search},
+    glob: {variant: 'search', title: '文件匹配', icon: FolderSearch},
+    find: {variant: 'search', title: '文件查找', icon: FolderSearch},
+    ls: {variant: 'search', title: '列出目录', icon: FolderSearch},
+    list: {variant: 'search', title: '列出目录', icon: FolderSearch},
+    listdir: {variant: 'search', title: '列出目录', icon: FolderSearch},
+    list_dir: {variant: 'search', title: '列出目录', icon: FolderSearch},
+    rg: {variant: 'search', title: '内容搜索', icon: Search},
+    search: {variant: 'search', title: '搜索', icon: Search},
+    toolsearch: {variant: 'search', title: '工具搜索', icon: Search},
+    codesearch: {variant: 'search', title: '代码搜索', icon: Search},
+    // 网络（Playwright 浏览器工具沿用网页图标，标题由 MCP 分支给出）
+    websearch: {variant: 'web', title: '网页搜索', icon: Globe},
+    web_search: {variant: 'web', title: '网页搜索', icon: Globe},
+    webfetch: {variant: 'web', title: '网页抓取', icon: Globe},
+    web_fetch: {variant: 'web', title: '网页抓取', icon: Globe},
+    fetch: {variant: 'web', title: '网页抓取', icon: Globe},
+    browser_navigate: {variant: 'web', title: '打开网页', icon: Globe},
+    browser_snapshot: {variant: 'web', title: '页面快照', icon: Globe},
+    browser_click: {variant: 'web', title: '页面点击', icon: Globe},
+    browser_run_code_unsafe: {variant: 'web', title: '浏览器执行', icon: Globe},
+    browser_evaluate: {variant: 'web', title: '浏览器执行', icon: Globe},
     // 子任务 / 待办
-    Task: {variant: 'task', title: '子任务', icon: Bot},
-    Agent: {variant: 'task', title: '子代理', icon: Bot},
-    TodoWrite: {variant: 'todo', title: '更新待办', icon: ListTodo},
-    TaskCreate: {variant: 'todo', title: '创建任务', icon: ListTodo},
-    TaskUpdate: {variant: 'todo', title: '更新任务', icon: ListTodo},
-    TaskList: {variant: 'todo', title: '任务列表', icon: ListTodo},
-    TaskGet: {variant: 'todo', title: '查询任务', icon: ListTodo},
-    TaskStop: {variant: 'todo', title: '停止任务', icon: ListTodo},
+    task: {variant: 'task', title: '子任务', icon: Bot},
+    agent: {variant: 'task', title: '子代理', icon: Bot},
+    subagent: {variant: 'task', title: '子代理', icon: Bot},
+    todowrite: {variant: 'todo', title: '更新待办', icon: ListTodo},
+    todo_write: {variant: 'todo', title: '更新待办', icon: ListTodo},
+    todoread: {variant: 'todo', title: '查看待办', icon: ListTodo},
+    todo_read: {variant: 'todo', title: '查看待办', icon: ListTodo},
+    taskcreate: {variant: 'todo', title: '创建任务', icon: ListTodo},
+    taskupdate: {variant: 'todo', title: '更新任务', icon: ListTodo},
+    tasklist: {variant: 'todo', title: '任务列表', icon: ListTodo},
+    taskget: {variant: 'todo', title: '查询任务', icon: ListTodo},
+    taskstop: {variant: 'todo', title: '停止任务', icon: ListTodo},
 };
 
 const FALLBACK_META: ToolMeta = {variant: 'others', title: '工具调用', icon: Plug};
 
-/** 工具名 → 专属元数据（mcp__ 前缀优先，标题带真实工具名） */
+/**
+ * 工具名 → 专属元数据。
+ *
+ * 归一化规则（对齐 DSH 的小写规范名 + MCP 命名）：
+ * - `mcp__server__tool` / `server__tool` → MCP 行：标题 `MCP server · tool`，
+ *   图标按基础工具名沿用专属图标（如 `Playwright__browser_navigate` → 网页图标）；
+ * - 其余按**小写**查规范表；各方言别名（read / read_file / readfile…）在表中并列。
+ */
 export function toolMetaOf(toolName: string): ToolMeta {
-    if (toolName.startsWith('mcp__')) {
-        // mcp__server__tool → 展示 server · tool
-        const parts = toolName.split('__');
-        const short = parts.length >= 3 ? `${parts[1]} · ${parts.slice(2).join('__')}` : toolName;
-        return {variant: 'mcp', title: `MCP ${short}`, icon: Plug};
+    const lower = (toolName || '').trim().toLowerCase();
+    // MCP 形态：mcp__server__tool 或 server__tool（pi 平台工具按 <server>__<tool> 命名）
+    const mcp = /^(?:mcp__)?(.+?)__(.+)$/.exec(lower);
+    if (mcp) {
+        const [, server, tool] = mcp;
+        const base = TOOL_META[tool];
+        return {variant: 'mcp', title: `MCP ${server} · ${tool}`, icon: base?.icon ?? Plug};
     }
-    return TOOL_META[toolName] ?? FALLBACK_META;
+    return TOOL_META[lower] ?? FALLBACK_META;
 }
 
 /** 向后兼容的变体分类（旧导出） */
@@ -155,25 +213,52 @@ interface DiffLine {
     text: string;
 }
 
-/** 从工具参数合成 diff 行：Write 全 +；Edit 取 -old/+new；MultiEdit 逐组展开 */
-function buildDiffLines(toolName: string, args?: Record<string, unknown>): DiffLine[] {
+/**
+ * 从工具参数合成 diff 行（全部按**参数结构**判定，不按工具名）。
+ *
+ * 各引擎同一动作的参数键不同，按名字精确匹配会漏（pi 的 edit 是
+ * `{path, edits:[{oldText,newText}]}`，Claude 是 `{file_path, old_string, new_string}`，
+ * Codex 的 apply_patch 是 `{patch}`）—— 漏了就退化成 IN/OUT 卡、看不到差异。
+ */
+export function buildDiffLines(args?: Record<string, unknown>): DiffLine[] {
     const lines: DiffLine[] = [];
     const pushSide = (sign: '+' | '-', text?: unknown) => {
         if (typeof text !== 'string' || text === '') return;
         for (const l of text.split('\n')) lines.push({sign, text: l});
     };
-    if (toolName === 'Write') {
-        pushSide('+', args?.content);
-    } else if (toolName === 'Edit') {
-        pushSide('-', args?.old_string);
-        pushSide('+', args?.new_string);
-    } else if (toolName === 'MultiEdit' && Array.isArray(args?.edits)) {
-        for (const edit of args.edits as Array<Record<string, unknown>>) {
-            pushSide('-', edit?.old_string);
-            pushSide('+', edit?.new_string);
+    const pick = (obj: Record<string, unknown> | undefined, keys: readonly string[]): unknown => {
+        for (const k of keys) {
+            const v = obj?.[k];
+            if (typeof v === 'string' && v !== '') return v;
         }
-    } else if (toolName === 'NotebookEdit') {
-        pushSide('+', args?.new_source);
+        return undefined;
+    };
+
+    const OLD_KEYS = ['old_string', 'oldText', 'old_text', 'oldString', 'old_str'] as const;
+    const NEW_KEYS = ['new_string', 'newText', 'new_text', 'newString', 'new_str'] as const;
+
+    // 批量编辑：{edits: [{oldText, newText}, ...]}（pi MultiEdit / pi edit）
+    const edits = Array.isArray(args?.edits) ? args.edits as Array<Record<string, unknown>> : [];
+    for (const e of edits) {
+        pushSide('-', pick(e, OLD_KEYS));
+        pushSide('+', pick(e, NEW_KEYS));
+    }
+    // 单处编辑：{old_string, new_string}（Claude Edit / pi edit 不带 edits）
+    pushSide('-', pick(args, OLD_KEYS));
+    pushSide('+', pick(args, NEW_KEYS));
+
+    if (lines.length === 0) {
+        // 整文件写入：{content}（Write / write / create_file）
+        pushSide('+', pick(args, ['content', 'file_content', 'text', 'new_source', 'source']));
+    }
+    if (lines.length === 0 && typeof args?.patch === 'string') {
+        // 补丁文本（Codex apply_patch）：按行首符号还原差异
+        for (const l of args.patch.split('\n')) {
+            if (l.startsWith('+++') || l.startsWith('---') || l.startsWith('@@')) continue;
+            if (l.startsWith('+')) lines.push({sign: '+', text: l.slice(1)});
+            else if (l.startsWith('-')) lines.push({sign: '-', text: l.slice(1)});
+            else lines.push({sign: ' ', text: l});
+        }
     }
     return lines;
 }
@@ -216,10 +301,15 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
     // 失败行的折叠摘要就是失败本身：错误首行（红色）替换参数摘要
     const errorLine = isError && tool.result ? firstLine(tool.result) : null;
     const summary = summarizeToolArgs(tool.name, tool.input);
-    const summaryText = errorLine ?? summary;
+    // 未知工具（others）：把**真实工具名**带进摘要（对齐 DSH 的 `${toolName} · ${summary}`），
+    // 否则用户只看到「工具调用」，不知道究竟是哪个工具
+    const namedSummary = meta.variant === 'others' && tool.name && !summary.startsWith(tool.name)
+        ? `${tool.name} · ${summary}`
+        : summary;
+    const summaryText = errorLine ?? namedSummary;
 
     // 展开材料（按变体派生专属卡片）
-    const diffLines = meta.variant === 'edit' ? buildDiffLines(tool.name, args) : [];
+    const diffLines = meta.variant === 'edit' ? buildDiffLines(args) : [];
     const bashCommand = meta.variant === 'bash'
         ? pickString(args ?? {}, ['command']) ?? (typeof args?.script === 'string' ? args.script : undefined)
         : undefined;
@@ -250,14 +340,20 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
                 data-tool={tool.name}
                 data-state={tool.state}
             >
-                {/* 状态槽：running 转圈 / error 红叉 / stopped 琥珀告警 / 成功显示该工具的专属图标 */}
-                {tool.state === 'running'
-                    ? <Loader2 className="h-3.5 w-3.5 shrink-0 text-blue-500 animate-spin"/>
-                    : isError
-                        ? <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive"/>
-                        : isStopped
-                            ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500"/>
-                            : <Icon className="h-3.5 w-3.5 shrink-0 text-cyan-600 dark:text-cyan-400"/>}
+                {/*
+                  状态槽（对齐 DSH ToolRow.leadingFor）：**图标常驻** —— running 与 ok
+                  都显示该工具的专属图标，只有 error / stopped 才换成状态语义标记。
+                  此前 running 用转圈替换图标，导致执行期间所有行都没有读写图标。
+                  running 的「在飞」信号改由尾部小转圈承担（DSH 用行内扫描动画表达同一语义）。
+                */}
+                {isError
+                    ? <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive"/>
+                    : isStopped
+                        ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500"/>
+                        : <Icon className={cn(
+                            'h-3.5 w-3.5 shrink-0 text-cyan-600 dark:text-cyan-400',
+                            tool.state === 'running' && 'animate-pulse',
+                        )}/>}
                 <span className="shrink-0 text-[11px] font-semibold text-foreground/90">{meta.title}</span>
                 <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/40 shrink-0" aria-hidden/>
                 <span
@@ -268,6 +364,9 @@ export function ToolEventRow({tool}: { tool: ToolEventInfo }) {
                 >
                     {summaryText || tool.name}
                 </span>
+                {tool.state === 'running' && (
+                    <Loader2 className="h-3 w-3 shrink-0 text-blue-500 animate-spin" aria-label="运行中"/>
+                )}
                 {isStopped && (
                     <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">
                         {tool.stopReason === 'interrupted' ? '已中断' : '未返回结果'}
