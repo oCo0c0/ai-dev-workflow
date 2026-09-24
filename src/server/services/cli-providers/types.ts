@@ -136,6 +136,18 @@ export interface CLIProvider {
     loadModelOptions?(): Promise<CLIProviderModelOptions>;
 
     /**
+     * 该引擎能否续接给定会话 id（可选：未实现视为「未知，按可续接处理」）。
+     *
+     * 会话实体由各引擎自己托管（claude 的项目目录 jsonl、pi 的会话文件、codex 的 thread），
+     * 且可能因文件被删 / 工作区变更 / 换引擎而失效。调用方据此决定是「直接续接」
+     * 还是「明确提示 + 以此前对话摘要延续上下文」，而不是把无效 id 传下去后静默开新会话。
+     *
+     * @param sessionId - 待续接的会话 id
+     * @param cwd - 会话所属工作区（多数引擎按工作区定位会话）
+     */
+    canResumeSession?(sessionId: string, cwd?: string): Promise<boolean> | boolean;
+
+    /**
      * 释放资源（杀子进程、关闭连接等）
      */
     dispose(): Promise<void>;

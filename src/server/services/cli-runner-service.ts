@@ -200,6 +200,32 @@ export class CLIRunnerService {
     }
 
     /**
+     * 当前激活的**引擎** id（claude / codex / pi）。
+     *
+     * 会话 id 只在产生它的引擎内有效（各家会话存储互相独立）；
+     * 自定义模型供应商记录同样由引擎 Provider 执行，因此这里返回引擎 id 而非记录 id
+     * —— 在 claude 与自定义 Anthropic 兼容记录之间切换，会话依然可以续接。
+     */
+    getActiveEngineId(): string {
+        return this.provider.id;
+    }
+
+    /**
+     * 当前引擎能否续接该会话。
+     * 引擎实现了 canResumeSession 就交给它判定（查会话文件/thread 是否存在）；
+     * 未实现或判定异常时返回 true（不阻断，交给引擎自己降级）。
+     */
+    async canResumeSession(sessionId: string, cwd?: string): Promise<boolean> {
+        const hook = this.provider.canResumeSession;
+        if (typeof hook !== 'function') return true;
+        try {
+            return await hook.call(this.provider, sessionId, cwd);
+        } catch {
+            return true;
+        }
+    }
+
+    /**
      * 读取 models.json 中的自定义供应商记录（kind='custom' 且启用）。
      * 不存在/非法时返回 undefined。
      */

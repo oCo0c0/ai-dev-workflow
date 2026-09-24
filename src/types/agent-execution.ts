@@ -70,7 +70,15 @@ export interface AgentExecution extends AgentExecutionSummary {
     steps: ExecutionStep[];
     logs: string[];
     error?: string;
+    /** 会话 id（**只在产生它的引擎内有效**，见 sessionEngine） */
     sessionId?: string;
+    /**
+     * 产生 sessionId 的引擎 id（claude / codex / pi）。
+     * 会话实体由各引擎自己托管（claude 的项目目录、pi 的会话文件、codex 的 thread），
+     * 换引擎后旧 id 在新引擎里必然不存在 —— 记录引擎方可准确判断「能否续接」，
+     * 而不是把别的引擎的 id 误传给当前引擎后静默开新会话。
+     */
+    sessionEngine?: string;
     /**
      * 运行中排队的用户回复（尚未消费）。
      * 排队期间不写入 logs——消费时（自动续跑/立即处理/手动 start）

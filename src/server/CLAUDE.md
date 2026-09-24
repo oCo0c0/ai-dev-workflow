@@ -147,7 +147,10 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 - `executions/` -- 执行记录
 - `tests/` -- 测试结果
 - `tasks/` -- 多任务
-- `agent-executions/` -- Agent 执行记录
+- `agent-executions/` -- Agent 执行记录（含 `sessionId` **与会话归属引擎** `sessionEngine`）
+- `pi-sessions/<cwd 净化名>-<md5(cwd)>/` -- pi 引擎的原生会话文件（一会话一 jsonl，续接用）
+- `claude-home/` -- Claude Code 的隔离配置目录（`CLAUDE_CONFIG_DIR`，其 `projects/<cwd编码>/<id>.jsonl` 即 Claude 会话）
+- `codex-home/` -- Codex 的隔离配置目录（`CODEX_HOME`，其 `sessions/**/rollout-*.jsonl` 即 Codex thread）
 - `memory/` -- 记忆子系统
 - `analytics/` -- 分析数据
 - `pipelines.json` -- 管线配置
@@ -167,6 +170,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-09-24 | 新增 | **会话归属与跨引擎连续性**（用户报「历史任务再执行提示 pi 会话不存在或已失效」）：会话实体由各引擎自己托管（claude 项目目录 / pi 会话文件 / codex thread），应用此前只存一个不带引擎标记的 `sessionId`，换引擎后必然是无效指针。① `AgentExecution` 增 `sessionEngine`（产生会话的引擎 id），`updateSessionId(id, sid, engine)` 同步维护；② `CLIProvider` 增可选 `canResumeSession(sessionId, cwd)`，三个引擎各自判定（claude：隔离 home 的 `projects/*/<id>.jsonl`，缺失时从用户 CLI 目录**按需补迁**；pi：`resolvePiSessionFile` 三级查找；codex：threadId 的 rollout 文件 / 旧占位 id 的进程内映射）；③ 协调器 `resolveSessionForRun()`：引擎不匹配或会话已失效时**不再把无效 id 传下去静默开新会话**，改为写明确提示 + 用 `utils/transcript.js` 生成的对话摘要（≤12k 字符）注入本轮 prompt（`continuityBlock`），历史任务因此「带着上下文继续」而不是从头再来；④ codex 会话指针改为**真实 threadId**（此前是 `codex-<时间戳>`，只在进程内映射里 → 服务重启必定开新会话）；⑤ pi 会话目录键经 `normalizeWorkspacePath` 归一化（`D:/a/b` 与 `D:\a\b` 曾算出两个目录），并按 id 全库回退查找（工作区改名/移动后仍可续接）。确定性验证 38 项全过（含端到端断言：换引擎后下发的 prompt 含摘要且不带旧 sessionId） |
 | 2026-09-24 | 修复 | 工具行永久转圈根因修复（claude-provider + agent-coordinator）：① `handleNotification` 改为 requestId → sessionId → 唯一在飞请求兜底三级归属，失配/兜底/丢弃都打日志（此前两处静默 `return` 直接吞事件，真实日志里 3 条结果因此找不到对应 tool_use 行）；会话映射删除加身份校验（避免旧请求清理掉新映射）；`sendAbort(requestId)` 按请求粒度中止。② 新增 `settlePendingToolCalls(executionId, reason)`：中断/中止**瞬间**收敛在飞工具（`synthetic:true, reason:'interrupted'`），轮末收敛未返回工具（`unsettled`），前端工具行因此立刻停止转圈；合成结果可被后到的真实结果覆盖。③ 新增 `runningExecutions` 单执行并发防护——重复 start/重放不再把同一执行跑成多个循环（日志曾出现 4 行重复「已中断」）。全部 18 个真实执行记录回放：344 个工具行 0 转圈 |
 | 2026-09-20 | 更新 | 壁纸库服务端：新增 `services/wallpaper-store-service.ts`（WallpaperStoreService：uploads/thumbs/meta.json/settings.json，设置合并 + 数值夹取 + id 白名单防路径穿越）与 `routes/wallpapers.ts`（清单/上传/缩略图/媒体/更新/删除/设置读写）；上传走 `express.raw` octet-stream（与全局 express.json 互不干扰，2GB 上限），媒体流 `res.sendFile` 自动支持 Range 206（视频可拖动进度）；`index.ts` 注册 `/api/wallpapers`。全链路冒烟通过（上传/清单/Range/缩略图/设置/隐藏/删除/落盘） |
 | 2026-07-23 | 修复 | 附件面板=解析输入清单：`requirement-store-service.downloadImages` 只保留「真实 http URL」或「已本地化且被文档引用」的附件；下载集=真实 URL 附件+`[Image:]` 引用（不再盲收全部无 URL hash 资源）；下载失败改写为明示未下载；`mcp-registry-service` 磁盘格式标准化 mcpServers 方言（兼容读旧格式，保存自动迁移） |

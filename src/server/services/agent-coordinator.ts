@@ -25,6 +25,7 @@ import type {AttachmentStore, StoredAttachment} from './attachment-store.js';
 import {formatAttachmentsBlock} from './attachment-store.js';
 import {isStepWorthyTool} from '../platform/tool-catalog.js';
 import {buildSkillInjections} from './skill-injection.js';
+import {buildTranscript} from '../utils/transcript.js';
 
 export interface CoordinatorConfig {
     cliRunner: CLIRunnerService;
@@ -74,6 +75,19 @@ function extractToolResultText(content: unknown): string {
     }
 }
 
+/**
+ * 跨引擎/会话失效续接时注入 prompt 的上下文块。
+ *
+ * 会话实体由各引擎自己托管，换引擎就无法直接续接 —— 用应用侧保存的对话摘要
+ * 让新引擎接上前面的工作，而不是让用户感觉「上下文凭空丢了」。
+ */
+export function continuityBlock(transcript: string): string {
+    return '\n\n---\n\n## 此前会话上下文（摘要）\n\n'
+        + '因引擎切换或会话失效，你无法直接看到此前的对话记录。以下是同一任务此前的对话摘要，'
+        + '请据此延续工作，不要重复已完成的部分：\n\n'
+        + transcript;
+}
+
 /** 任务分解输出校验规格：{subTasks: [{id?, title, description?}]}，1-8 项 */
 const SUBTASK_DECOMPOSE_SPEC: Record<string, FieldSpec> = {
     subTasks: {
@@ -92,8 +106,7 @@ const SUBTASK_DECOMPOSE_SPEC: Record<string, FieldSpec> = {
     },
 };
 
-export class AgentCoordinator {
-    private store = AgentExecutionStore.getInstance();
+export class AgentCoordinator {    private store = AgentExecutionStore.getInstance();
     private abortControllers = new Map<string, AbortController>();
     /** 每个执行已「允许并记住」的工具名白名单（executionId → toolNames） */
     private allowedTools = new Map<string, Set<string>>();
@@ -115,6 +128,8 @@ export class AgentCoordinator {
      * 日志重复（同一行写多次）、bridge 事件串线、工具行错配。
      */
     private runningExecutions = new Set<string>();
+    /** 跨引擎/会话失效续接时注入的上下文摘要上限（字符） */
+    private static readonly CONTINUITY_TRANSCRIPT_CHARS = 12_000;
     private config: CoordinatorConfig;
 
     constructor(config: CoordinatorConfig) {
@@ -477,7 +492,11 @@ export class AgentCoordinator {
         controller: AbortController,
         pendingDocs: StoredAttachment[] = [],
     ): Promise<'completed' | 'failed' | 'aborted'> {
-        let lastSessionId = execution.sessionId;
+        // 会话归属判定（换引擎 / 会话失效 → 不传旧 id，改用此前对话摘要延续上下文）
+        const session = await this.resolveSessionForRun(execution, cwd);
+        await this.announceSessionNotice(executionId, session.notice);
+        let lastSessionId = session.sessionId;
+        let continuityInjected = false;
         let overall: 'completed' | 'failed' | 'aborted' = 'completed';
         let attachmentsInjected = false;
 
@@ -514,6 +533,11 @@ export class AgentCoordinator {
             if (pendingDocs.length > 0 && !attachmentsInjected) {
                 subPrompt += formatAttachmentsBlock(pendingDocs);
                 attachmentsInjected = true;
+            }
+            // 会话无法续接时，把此前对话摘要带进首个实际执行的子任务
+            if (session.transcript && !continuityInjected) {
+                subPrompt += continuityBlock(session.transcript);
+                continuityInjected = true;
             }
 
             const result = await this.config.cliRunner.runBridge(
@@ -587,6 +611,7 @@ export class AgentCoordinator {
             }
             if (lastSessionId && latest.sessionId !== lastSessionId) {
                 latest.sessionId = lastSessionId;
+                latest.sessionEngine = this.config.cliRunner.getActiveEngineId();
                 await this.store.updateFull(latest).catch(() => undefined);
             }
         }
@@ -600,6 +625,54 @@ export class AgentCoordinator {
             await this.store.addLog(executionId, '执行已中止').catch(() => undefined);
         }
         return overall;
+    }
+
+    /**
+     * 解析本次运行可用的会话指针 + 需要延续的上下文。
+     *
+     * 会话实体由各引擎自己托管（claude 的项目目录 jsonl、pi 的会话文件、codex 的 thread），
+     * 因此：① 换引擎后旧 id 在新引擎里必然不存在（正是「pi 会话不存在或已失效」的来源）；
+     * ② 同引擎也可能失效（会话文件被删、工作区变了、codex 服务重启）。
+     *
+     * 两种情况都不再把无效 id 传下去静默开新会话，而是：明确提示 + 用应用侧保存的
+     * 对话日志生成摘要注入本轮 prompt，让工作上下文得以延续（应用托管跨引擎连续性）。
+     *
+     * @param execution - 执行记录
+     * @param cwd - 本次运行的工作区
+     * @returns 可用 sessionId（可续接时）、提示文案与上下文摘要（不可续接时）
+     */
+    private async resolveSessionForRun(
+        execution: AgentExecution,
+        cwd: string,
+    ): Promise<{sessionId?: string; notice?: string; transcript?: string}> {
+        const sessionId = execution.sessionId;
+        if (!sessionId) return {};
+
+        const engineId = this.config.cliRunner.getActiveEngineId();
+        const owner = execution.sessionEngine;
+        const engineChanged = !!owner && owner !== engineId;
+        const canResume = engineChanged
+            ? false
+            : await this.config.cliRunner.canResumeSession(sessionId, cwd).catch(() => true);
+        if (canResume) return {sessionId};
+
+        const reason = engineChanged
+            ? `上次会话属于 ${owner} 引擎，当前引擎为 ${engineId}，无法直接续接`
+            : `上次会话（${engineId}：${sessionId}）已无法续接（会话文件不存在或工作区已变更）`;
+        const transcript = buildTranscript(execution.logs, AgentCoordinator.CONTINUITY_TRANSCRIPT_CHARS);
+        return {
+            notice: `⚠ ${reason}：已用此前对话摘要开启新会话（历史记录不丢失，上下文以摘要带入）。`,
+            transcript: transcript.trim() ? transcript : undefined,
+        };
+    }
+
+    /** 跨引擎/会话失效续接时注入 prompt 的上下文块 */
+
+    /** 把续接提示写入执行日志并广播（用户在消息流里能直接看到原因） */
+    private async announceSessionNotice(executionId: string, notice?: string): Promise<void> {
+        if (!notice) return;
+        await this.store.addLog(executionId, notice).catch(() => undefined);
+        this.broadcastLog(executionId, notice);
     }
 
     /**
@@ -625,11 +698,13 @@ export class AgentCoordinator {
         }
 
         let prompt: string;
-        if (userReplies.length > 0 && execution.sessionId) {
+        const session = await this.resolveSessionForRun(execution, cwd);
+        await this.announceSessionNotice(executionId, session.notice);
+        if (userReplies.length > 0 && session.sessionId) {
             // 续接会话：带上用户补充信息
             const repliesText = userReplies.map(r => `- ${r}`).join('\n');
             prompt = renderPrompt(PROMPTS.agentReply, {repliesText});
-        } else if (userReplies.length > 0 && !execution.sessionId) {
+        } else if (userReplies.length > 0 && !session.sessionId) {
             // 首次执行但用户已在回复框补充了详细信息 → 合并到 requirementText
             const repliesText = userReplies.join('\n');
             const fullRequirement = execution.requirementText + '\n\n用户补充说明：\n' + repliesText;
@@ -638,12 +713,14 @@ export class AgentCoordinator {
             // 首次执行
             prompt = renderPrompt(PROMPTS.agentStart, {requirementText: execution.requirementText, cwd});
         }
+        // 会话无法续接（换引擎/会话失效）：把此前对话摘要带进本轮，避免上下文完全丢失
+        if (session.transcript) prompt += continuityBlock(session.transcript);
 
         const result = await this.config.cliRunner.runBridge(
             {
                 prompt,
                 cwd,
-                ...(execution.sessionId ? {sessionId: execution.sessionId} : {}),
+                ...(session.sessionId ? {sessionId: session.sessionId} : {}),
                 maxTurns: 50,
             },
             {
@@ -654,11 +731,12 @@ export class AgentCoordinator {
             }
         );
 
-        // 保存 sessionId 用于续接
+        // 保存会话指针 + 产生它的引擎（下次据此判断能否续接）
         if (result.sessionId) {
             const exec = await this.store.get(executionId);
             if (exec) {
                 exec.sessionId = result.sessionId;
+                exec.sessionEngine = this.config.cliRunner.getActiveEngineId();
                 await this.store.updateFull(exec);
             }
         }

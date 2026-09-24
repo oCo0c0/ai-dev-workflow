@@ -270,9 +270,11 @@ export class AgentExecutionStore {
     }
 
     /**
-     * 更新 sessionId，传 undefined 表示清空
+     * 更新会话指针，传 undefined 表示清空（同时清空引擎标记）。
+     * @param sessionId - 会话 id（只在 engineId 对应的引擎内有效）
+     * @param engineId - 产生该会话的引擎 id（claude / codex / pi）；续接判定依赖它
      */
-    async updateSessionId(executionId: string, sessionId: string | undefined): Promise<void> {
+    async updateSessionId(executionId: string, sessionId: string | undefined, engineId?: string): Promise<void> {
         return this.enqueue(executionId, async () => {
             const execution = await this.get(executionId);
             if (!execution) {
@@ -280,6 +282,7 @@ export class AgentExecutionStore {
             }
 
             execution.sessionId = sessionId;
+            execution.sessionEngine = sessionId ? engineId : undefined;
             await this.saveInternal(execution);
         });
     }

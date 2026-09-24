@@ -225,6 +225,55 @@ export function ensureIsolatedHome(engine: EngineId, opts: {force?: boolean} = {
     };
 }
 
+/**
+ * 按需把某个历史会话从 CLI 目录补迁进隔离 home（幂等）。
+ *
+ * 首次播种只迁移「当时被应用记录引用到」的会话（见 seedReferencedSessions）。
+ * 历史记录后来被继续、或播种后才被引用的会话，隔离 home 里就没有，
+ * 续聊时会表现为「会话不存在」→ 静默开新会话。这里在续接前做一次定向补迁。
+ *
+ * @param engine - 引擎标识
+ * @param sessionId - 会话 id
+ * @returns 隔离 home 中现在是否存在该会话
+ */
+export function ensureSessionMigrated(engine: EngineId, sessionId: string): boolean {
+    if (!sessionId || !/^[A-Za-z0-9_.-]+$/.test(sessionId)) return false;
+    const sub = CLI_SESSION_DIRS[engine];
+    const home = ISOLATED_HOMES[engine];
+    const cliRoot = path.join(CLI_HOMES[engine], sub);
+    const isolatedRoot = path.join(home, sub);
+
+    // 已在隔离目录（含附属子目录）：直接判定存在
+    const hitIn = (root: string): boolean => {
+        if (!fs.existsSync(root)) return false;
+        for (const rel of listFilesRecursive(root)) {
+            const relPosix = rel.split(path.sep).join('/');
+            if (relPosix.includes(`${sessionId}.`) || relPosix.includes(`${sessionId}/`)) return true;
+        }
+        return false;
+    };
+    if (hitIn(isolatedRoot)) return true;
+    if (!fs.existsSync(cliRoot)) return false;
+
+    let copied = 0;
+    for (const rel of listFilesRecursive(cliRoot)) {
+        const relPosix = rel.split(path.sep).join('/');
+        if (!relPosix.includes(`${sessionId}.`) && !relPosix.includes(`${sessionId}/`)) continue;
+        const src = path.join(cliRoot, rel);
+        const dest = path.join(isolatedRoot, rel);
+        if (fs.existsSync(dest)) continue;
+        try {
+            fs.mkdirSync(path.dirname(dest), {recursive: true});
+            fs.copyFileSync(src, dest);
+            copied += 1;
+        } catch { /* 单个文件失败不影响其它 */ }
+    }
+    if (copied > 0) {
+        console.log(`[cli-isolation] 按需补迁 ${engine} 会话 ${sessionId}：${copied} 个文件 → ${isolatedRoot}`);
+    }
+    return hitIn(isolatedRoot);
+}
+
 /** 递归复制（文件/目录；目标已存在时覆盖同名文件） */
 function copyRecursive(src: string, dest: string): void {
     const stat = fs.statSync(src);

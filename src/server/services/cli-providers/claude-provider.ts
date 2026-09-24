@@ -20,7 +20,7 @@ import {getErrorMessage} from '../../utils/error-utils.js';
 import {extractDescription} from '../../utils/markdown-utils.js';
 import {findSkillMdFile} from '../../utils/skill-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
-import {isolatedPath, isolationEnv} from '../cli-isolation.js';
+import {isolatedPath, isolationEnv, ensureSessionMigrated} from '../cli-isolation.js';
 import {resolveClaudePermission} from '../permission-mapping.js';
 import type {
     CLIProvider,
@@ -37,6 +37,26 @@ import type {
 
 /** 桥接脚本路径（编译后相对 dist/server/services/） */
 const BRIDGE_SCRIPT = path.resolve(__dirname, '../../../bridge/claude-bridge.mjs');
+
+/**
+ * 隔离 home 的 projects 下是否存在该会话。
+ * 会话本体是 `<projects>/<cwd 编码>/<sessionId>.jsonl`，
+ * 另可能有同名附属目录 `<sessionId>/`（tool-results 等）。
+ */
+function hasClaudeSession(sessionId: string): boolean {
+    if (!/^[A-Za-z0-9_.-]+$/.test(sessionId)) return false;
+    const root = isolatedPath('claude', 'projects');
+    if (!fs.existsSync(root)) return false;
+    try {
+        for (const project of fs.readdirSync(root, {withFileTypes: true})) {
+            if (!project.isDirectory()) continue;
+            const dir = path.join(root, project.name);
+            if (fs.existsSync(path.join(dir, `${sessionId}.jsonl`))) return true;
+            if (fs.existsSync(path.join(dir, sessionId))) return true;
+        }
+    } catch { /* 读取失败按不存在处理 */ }
+    return false;
+}
 
 /**
  * Claude 配置根目录 —— **应用自管隔离目录**（不再直接读写 `~/.claude`）。
@@ -272,6 +292,21 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
 
     async initialize(): Promise<void> {
         await this.ensureStarted();
+    }
+
+    /**
+     * Claude 会话能否续接：会话文件在 `<隔离 home>/projects/<cwd 编码>/<sessionId>.jsonl`。
+     *
+     * 隔离后历史会话可能还没迁进来（首次播种只迁「当时被引用到」的会话）——
+     * 这里先在用户 CLI 目录里定向补迁一次再判定，避免历史任务续聊被误判为「会话失效」。
+     * 只读复制，不改动用户 CLI 目录。
+     */
+    canResumeSession(sessionId: string): boolean {
+        if (hasClaudeSession(sessionId)) return true;
+        try {
+            if (ensureSessionMigrated('claude', sessionId)) return true;
+        } catch { /* 迁移失败按「不可续接」处理，由上层提示并开新会话 */ }
+        return false;
     }
 
     async run(input: CLIProviderInput, options?: CLIProviderOptions): Promise<CLIProviderResult> {

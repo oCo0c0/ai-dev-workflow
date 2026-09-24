@@ -19,6 +19,7 @@ import type {MemoryService} from '../services/memory/memory-service.js';
 import type {CoordinatorConfig} from '../services/agent-coordinator.js';
 import {broadcast} from '../websocket.js';
 import {getErrorMessage} from '../utils/error-utils.js';
+import {buildTranscript as buildTranscriptFromLogs} from '../utils/transcript.js';
 import {collectExternalSkills} from '../services/skill-injection.js';
 
 /** 摘要材料上限（字符，取最近部分） */
@@ -26,43 +27,11 @@ const MAX_TRANSCRIPT_CHARS = 40_000;
 
 /**
  * 执行日志 → 纯文本会话（/compact 的摘要材料）。
- * 输出/助手文本保留，thinking 与工具结果正文剔除（体积大且非结论），
- * 只保留工具调用名；最后按上限截取最近的片段。
+ * 实现已抽到 `../utils/transcript.js`（协调器做跨引擎上下文延续时复用同一实现），
+ * 此处保留导出以免破坏既有引用。
  */
 export function buildTranscript(logs: string[]): string {
-    const lines: string[] = [];
-    for (const log of logs) {
-        let text = log;
-        try {
-            const parsed = JSON.parse(log) as {type?: string; content?: string; toolName?: string};
-            switch (parsed.type) {
-                case 'user':
-                    text = `用户：${parsed.content ?? ''}`;
-                    break;
-                case 'tool_use':
-                    text = `（工具调用：${parsed.toolName ?? 'Tool'}）`;
-                    break;
-                case 'tool_result':
-                case 'thinking':
-                    text = '';
-                    break;
-                case 'output':
-                case 'info':
-                case 'system':
-                    text = `助手：${parsed.content ?? ''}`;
-                    break;
-                default:
-                    text = typeof parsed.content === 'string' ? `助手：${parsed.content}` : '';
-            }
-        } catch {
-            text = `助手：${log}`;
-        }
-        if (text.trim()) lines.push(text.trim());
-    }
-    const joined = lines.join('\n\n');
-    return joined.length > MAX_TRANSCRIPT_CHARS
-        ? `…（更早内容已省略）\n\n${joined.slice(-MAX_TRANSCRIPT_CHARS)}`
-        : joined;
+    return buildTranscriptFromLogs(logs, MAX_TRANSCRIPT_CHARS);
 }
 
 /**

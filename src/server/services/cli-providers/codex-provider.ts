@@ -285,11 +285,14 @@ export class CodexProvider implements CLIProvider {
         const client = await this.ensureClient();
 
         try {
-            // 确定是否续接已有 thread
+            // 确定是否续接已有 thread。
+            // 新版把**真实 threadId** 直接作为 sessionId 持久化（可跨进程续接）；
+            // 旧记录里是 `codex-<时间戳>` 占位 id，只能靠进程内映射（重启后必然丢失）。
             let thread: InstanceType<typeof import('@openai/codex-sdk').Thread>;
 
             if (input.sessionId) {
-                const threadId = this.sessionIdToThreadId.get(input.sessionId);
+                const threadId = this.sessionIdToThreadId.get(input.sessionId)
+                    ?? (input.sessionId.startsWith('codex-') ? undefined : input.sessionId);
                 if (threadId) {
                     thread = client.resumeThread(threadId);
                 } else {
@@ -299,12 +302,12 @@ export class CodexProvider implements CLIProvider {
                 }
             } else {
                 thread = client.startThread({
-                    workingDirectory: input.cwd,
-                });
+                        workingDirectory: input.cwd,
+                    });
             }
 
-            // 生成会话 ID
-            const sessionId = input.sessionId || `codex-${Date.now()}`;
+            // 会话 ID：会话创建前的占位值，拿到 thread 后会被真实 threadId 覆盖
+            let sessionId = input.sessionId || `codex-${Date.now()}`;
 
             let stdout = '';
 
@@ -363,11 +366,16 @@ export class CodexProvider implements CLIProvider {
                 }
             }
 
-            // 保存 thread ID 映射
+            // 会话指针 = 真实 thread id（持久化到执行记录，重启后仍可 resumeThread）
             const threadId = thread.id;
             if (threadId && typeof threadId === 'string') {
+                sessionId = threadId;
                 this.sessionIdToThreadId.set(sessionId, threadId);
                 this.threadIdToSessionId.set(threadId, sessionId);
+                // 旧占位 id → 真实 threadId：本次运行内的续接与诊断都还能对上
+                if (input.sessionId && input.sessionId !== threadId) {
+                    this.sessionIdToThreadId.set(input.sessionId, threadId);
+                }
             }
 
             if (options?.signal?.aborted) {
@@ -472,6 +480,45 @@ export class CodexProvider implements CLIProvider {
         this.client = null;
         this.sessionIdToThreadId.clear();
         this.threadIdToSessionId.clear();
+    }
+
+    /**
+     * codex 会话能否续接。
+     *
+     * - 真实 threadId：查 `$CODEX_HOME/sessions/<y>/<m>/<d>/rollout-<ts>-<threadId>.jsonl`
+     *   —— 文件在即可续接（跨进程有效）
+     * - 旧占位 id（`codex-<时间戳>`）：只在进程内映射里，进程重启后无法续接
+     */
+    canResumeSession(sessionId: string): boolean {
+        if (!sessionId) return false;
+        if (sessionId.startsWith('codex-')) return this.sessionIdToThreadId.has(sessionId);
+        return !!this.findRolloutFile(sessionId);
+    }
+
+    /** 在隔离 CODEX_HOME/sessions 下按 threadId 查 rollout 文件 */
+    private findRolloutFile(threadId: string): string | undefined {
+        const root = path.join(CODEX_DIR, 'sessions');
+        if (!fs.existsSync(root)) return undefined;
+        const walk = (dir: string, depth: number): string | undefined => {
+            if (depth > 4) return undefined;
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(dir, {withFileTypes: true});
+            } catch {
+                return undefined;
+            }
+            for (const entry of entries) {
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    const hit = walk(full, depth + 1);
+                    if (hit) return hit;
+                } else if (entry.name.endsWith('.jsonl') && entry.name.includes(threadId)) {
+                    return full;
+                }
+            }
+            return undefined;
+        };
+        return walk(root, 0);
     }
 
     /** 工具权限确认（Codex 暂不支持，空实现以满足接口） */

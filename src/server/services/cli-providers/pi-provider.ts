@@ -27,7 +27,7 @@
 import path from 'path';
 import os from 'os';
 import {createHash} from 'crypto';
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'fs';
+import {existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync} from 'fs';
 import {getErrorMessage} from '../../utils/error-utils.js';
 import {ModelProviderStore} from '../model-provider-store.js';
 import {resolvePiPermissionMode} from '../permission-mapping.js';
@@ -143,13 +143,73 @@ function piIsolationEnv(sync = true): Record<string, string> {
 }
 
 /**
- * 计算 cwd 对应的 pi 会话目录
- * @description 目录名 = 净化后的 cwd + 短哈希，保证不同 cwd 不冲突
+ * 工作区路径归一化（会话目录键）。
+ *
+ * 会话目录名 = 净化路径 + `md5(cwd)`，因此 `D:\a\b` 与 `D:/a/b`、`d:\a\b`
+ * 会算出**三个不同目录**，导致同一工作区的历史会话突然「找不到」。
+ * 这里统一成绝对路径 + 盘符大写 + 去尾部分隔符，保证同一物理目录只有一个会话目录。
+ */
+export function normalizeWorkspacePath(cwd: string): string {
+    let p = path.resolve(cwd);
+    // Windows 盘符大小写归一（d: 与 D: 是同一目录）
+    p = p.replace(/^([a-z]):/, (_m, d: string) => `${d.toUpperCase()}:`);
+    // 去掉末尾分隔符；盘符根（D:）需补回分隔符
+    p = p.replace(/[\\/]+$/, '');
+    if (/^[A-Za-z]:$/.test(p) || p === '') return path.resolve(cwd);
+    return p;
+}
+
+/** 由会话目录键（已归一化或历史原始 cwd）算出会话目录 */
+function sessionDirFor(key: string): string {
+    const encoded = key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-60);
+    const hash = createHash('md5').update(key).digest('hex').slice(0, 8);
+    return path.join(PI_SESSIONS_ROOT, `${encoded}-${hash}`);
+}
+
+/**
+ * 计算 cwd 对应的 pi 会话目录（新会话写入此处）
+ * @description 目录名 = 净化后的 cwd + 短哈希，保证不同 cwd 不冲突；cwd 先归一化
  */
 export function piSessionDir(cwd: string): string {
-    const encoded = cwd.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-60);
-    const hash = createHash('md5').update(cwd).digest('hex').slice(0, 8);
-    return path.join(PI_SESSIONS_ROOT, `${encoded}-${hash}`);
+    return sessionDirFor(normalizeWorkspacePath(cwd));
+}
+
+/** 历史（未归一化）命名下的会话目录：D:/a/b 与 D:\a\b 曾各建一个，续接时需回退查找 */
+function legacyPiSessionDir(cwd: string): string {
+    return sessionDirFor(cwd);
+}
+
+/**
+ * 定位会话文件：归一化 cwd 目录 → 该 cwd 的旧命名目录 → 全库按 id 扫描。
+ *
+ * 为什么不只看 cwd 目录：目录名由 cwd 字符串决定，历史上切换过路径写法的
+ * 工作区会把会话落在「另一个」目录里；会话 id 全局唯一，按 id 扫描能找回来，
+ * 否则就会误判「会话不存在」而静默开新会话。
+ */
+export function resolvePiSessionFile(
+    sessionId: string,
+    cwd: string,
+): {file?: string; dir: string; via?: 'cwd' | 'legacy' | 'global'} {
+    const primary = piSessionDir(cwd);
+    const direct = findSessionFile(sessionId, primary);
+    if (direct) return {file: direct, dir: primary, via: 'cwd'};
+
+    const legacyDir = legacyPiSessionDir(cwd);
+    if (legacyDir !== primary) {
+        const legacyHit = findSessionFile(sessionId, legacyDir);
+        if (legacyHit) return {file: legacyHit, dir: legacyDir, via: 'legacy'};
+    }
+
+    try {
+        for (const entry of readdirSync(PI_SESSIONS_ROOT, {withFileTypes: true})) {
+            if (!entry.isDirectory()) continue;
+            const dir = path.join(PI_SESSIONS_ROOT, entry.name);
+            if (dir === primary || dir === legacyDir) continue;
+            const hit = findSessionFile(sessionId, dir);
+            if (hit) return {file: hit, dir, via: 'global'};
+        }
+    } catch { /* 扫描失败按未找到处理 */ }
+    return {dir: primary};
 }
 
 /** detect() 探测进程的会话目录（一次性，不产生会话文件） */
@@ -380,6 +440,16 @@ export class PiProvider implements CLIProvider {
         this.resolveExtensionPath();
     }
 
+    /**
+     * pi 会话能否续接：会话文件是否还在（本 cwd 目录 / 旧命名目录 / 其它工作区目录）。
+     * 会话目录按 cwd 区分，工作区变更或历史路径写法差异都会让「本 cwd 找不到」，
+     * 因此这里用的是带回退的解析（与 run 内一致），避免误判为失效。
+     */
+    canResumeSession(sessionId: string, cwd?: string): boolean {
+        if (!sessionId) return false;
+        return !!resolvePiSessionFile(sessionId, cwd || process.cwd()).file;
+    }
+
     async run(input: CLIProviderInput, options?: CLIProviderOptions): Promise<CLIProviderResult> {
         const cwd = input.cwd || process.cwd();
         const sessionDir = piSessionDir(cwd);
@@ -402,9 +472,15 @@ export class PiProvider implements CLIProvider {
         const serversWhitelist = extractMcpServersWhitelist(input.mcpServers);
         if (serversWhitelist) env.ADW_PLATFORM_SERVERS = serversWhitelist;
         const extensionPath = this.resolveExtensionPath();
-        const sessionFile = input.sessionId ? findSessionFile(input.sessionId, sessionDir) : undefined;
+        const resolved = input.sessionId ? resolvePiSessionFile(input.sessionId, cwd) : {dir: sessionDir};
+        const sessionFile = resolved.file;
         if (input.sessionId && !sessionFile) {
             options?.onOutput?.(`[pi 会话 "${input.sessionId}" 不存在或已失效，已自动开启新会话]\n`);
+        } else if (resolved.via && resolved.via !== 'cwd') {
+            // 会话不在本 cwd 的标准目录里（历史路径写法/工作区变更所致）：找回并提示，便于排查
+            console.warn(
+                `[pi-provider] 会话 ${input.sessionId} 在 ${resolved.via === 'legacy' ? '旧命名目录' : '其它工作区目录'} 中找到：${resolved.dir}`,
+            );
         }
 
         let stdout = '';
