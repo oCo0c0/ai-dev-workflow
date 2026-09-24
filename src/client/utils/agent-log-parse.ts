@@ -124,20 +124,30 @@ export function createLogParser() {
         if (at !== -1) openQueue.splice(at, 1);
     };
 
-    /** 把结果写到目标工具行；合成结果不覆盖已到达的真实结果 */
+    /**
+     * 把结果写到目标工具行；合成结果不覆盖已到达的真实结果。
+     *
+     * 关键：写回时**必须换掉消息对象的引用**。日志行是追加式的，列表只在追加时
+     * 拿到新数组；若这里原地改 `tool` 对象，下游 `LogMessage`（React.memo）比较
+     * `message` 引用认为没变 → 跳过渲染，工具行会一直停在「转圈」，
+     * 直到用户展开/折叠（组件内部 state 变化触发重渲染）才显示真实状态。
+     */
     const applyResult = (idx: number, parsed: ParsedLine, synthetic: boolean) => {
-        const tool = messages[idx]?.tool;
+        const message = messages[idx];
+        const tool = message?.tool;
         if (!tool) return;
         if (synthetic && tool.state !== 'running') return;
         if (!synthetic) {
             tool.result = parsed.content;
             tool.state = parsed.isError ? 'error' : 'ok';
             delete tool.stopReason;
-            return;
+        } else {
+            tool.state = 'stopped';
+            tool.stopReason = parsed.reason === 'interrupted' ? 'interrupted' : 'unsettled';
+            if (!tool.result) tool.result = parsed.content;
         }
-        tool.state = 'stopped';
-        tool.stopReason = parsed.reason === 'interrupted' ? 'interrupted' : 'unsettled';
-        if (!tool.result) tool.result = parsed.content;
+        // 换新引用驱动下游重渲染（tool 对象就地更新，保证解析器内部状态一致）
+        messages[idx] = {...message, tool};
     };
 
     const parseFrom = (contents: string[], metas: Array<LogLineInput | undefined>, from: number): LogMessageData[] => {
@@ -290,12 +300,14 @@ export function deriveDeliverableFiles(logs: Array<string | LogLineInput>): Deli
  */
 export function finalizeRunningTools(messages: LogMessageData[]): LogMessageData[] {
     let changed = false;
-    for (const m of messages) {
-        if (m.kind === 'tool' && m.tool?.state === 'running') {
-            m.tool.state = 'stopped';
-            m.tool.stopReason ??= 'unsettled';
-            changed = true;
-        }
-    }
-    return changed ? [...messages] : messages;
+    const out = messages.map((m) => {
+        if (m.kind !== 'tool' || m.tool?.state !== 'running') return m;
+        changed = true;
+        // 就地更新 tool（解析器内部视图同步收敛，下次调用即无变化、引用稳定）
+        m.tool.state = 'stopped';
+        m.tool.stopReason ??= 'unsettled';
+        // 换新消息引用：否则 React.memo 会跳过渲染，工具行仍显示转圈
+        return {...m, tool: m.tool};
+    });
+    return changed ? out : messages;
 }

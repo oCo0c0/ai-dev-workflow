@@ -575,6 +575,24 @@ export default function AgentExecutionPage() {
                 return;
             }
 
+            // 侧边栏列表状态：**任何**执行的状态变化都要实时落进 history。
+            // 此前 history 只在创建/启动/完成时各拉一次，而 /start 是异步的
+            // （POST 返回时服务端可能还是 ready），于是列表要切换任务或刷新页面才更新。
+            if (type === 'status' && typeof executionId === 'string' && typeof data.status === 'string') {
+                const nextStatus = data.status as ExecutionStatus;
+                setHistory(prev => {
+                    const i = prev.findIndex(h => h.id === executionId);
+                    if (i < 0 || prev[i].status === nextStatus) return prev;
+                    const next = [...prev];
+                    next[i] = {...next[i], status: nextStatus};
+                    return next;
+                });
+                // 终态：再向服务端要一次列表（补 updatedAt / 新增项 / 排序）
+                if (nextStatus === 'completed' || nextStatus === 'failed' || nextStatus === 'aborted') {
+                    loadHistory();
+                }
+            }
+
             if (executionId !== activeId) return;
 
             setDetail(prev => {
@@ -638,7 +656,7 @@ export default function AgentExecutionPage() {
 
         window.addEventListener('agent-execution:update', handler);
         return () => window.removeEventListener('agent-execution:update', handler);
-    }, [activeId]);
+    }, [activeId, loadHistory]);
 
     // 轮询当前执行状态（不再被 isRunning 阻断，避免 ready→running 竞态）
     useEffect(() => {

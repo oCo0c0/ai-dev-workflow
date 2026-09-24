@@ -2,7 +2,7 @@
  * 通用执行/测试状态图标。
  * 用法：`<StatusIcon status="running" />` 或 `<StatusIcon status="paused" defaultIcon={<TestTube .../>} />`
  */
-import {CheckCircle2, XCircle, Loader2, AlertCircle, Square, Terminal} from 'lucide-react';
+import {CheckCircle2, XCircle, Loader2, AlertCircle, Square, Terminal, Clock} from 'lucide-react';
 
 export type CommonStatus = 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | string;
 
@@ -24,6 +24,11 @@ export function StatusIcon({status, defaultIcon}: StatusIconProps) {
             return <AlertCircle className="h-3.5 w-3.5 text-yellow-500"/>;
         case 'aborted':
             return <Square className="h-3.5 w-3.5 text-muted-foreground"/>;
+        case 'ready':
+            // 就绪（已创建未开始）：与「执行中」的转圈区分开，避免看着像没反应
+            return <Clock className="h-3.5 w-3.5 text-blue-500/70"/>;
+        case 'analyzing':
+            return <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin"/>;
         default:
             return defaultIcon ?? <Terminal className="h-3.5 w-3.5 text-muted-foreground"/>;
     }
