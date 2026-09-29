@@ -52,7 +52,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 | `cli-providers/codex-provider.ts` | `CodexProvider` | OpenAI Codex CLI Provider 实现（SDK） |
 | `cli-providers/pi-provider.ts` | `PiProvider` | Pi Provider——RPC 子进程 harness（`pi --mode rpc`），process-per-run，会话文件续接 |
 | `cli-providers/pi-rpc-process.ts` | `PiRpcProcess` | pi RPC 子进程管理：JSONL 命令/应答（id 关联）、事件流回调、优雅退出/强杀、rpc-entry 解析 |
-| `config-service.ts` | `ConfigService` | 全局配置管理（`~/.ai-dev-workbench/config.json`） |
+| `config-service.ts` | `ConfigService` | 全局配置管理（`~/.aico/config.json`） |
 | `requirement-agent-fetch.ts` | `RequirementAgentFetchService` | agent 中介需求拉取/搜索（标准 MCP 消费模式：AI 引擎动态面对已挂载 MCP 工具，读 schema → 自主选择与调用，JSON 契约输出；零源硬编码，新增需求源只需配置 MCP server） |
 | `mcp-config-service.ts` | `MCPConfigService` | MCP 服务器配置管理 |
 | `workspace-service.ts` | `WorkspaceService` | 工作区文件系统操作 + Git 命令 |
@@ -140,7 +140,7 @@ Express 后端服务层，提供 REST API、WebSocket 实时推送、AI Bridge �
 
 ## 关键数据模型
 
-数据存储在 `~/.ai-dev-workbench/` 目录下：
+数据存储在 `~/.aico/` 目录下：
 - `config.json` -- 全局配置
 - `requirements/` -- 需求（每个需求一个文件夹）
 - `plans/` -- 开发计划

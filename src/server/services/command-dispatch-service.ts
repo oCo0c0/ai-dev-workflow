@@ -130,7 +130,7 @@ export class CommandDispatchService {
     private async listSkills(ctx: CommandDispatchContext): Promise<CommandDispatchResult> {
         const skills = this.registry.list(ctx.skills ?? []).find(g => g.source === 'skill')?.items ?? [];
         const text = skills.length === 0
-            ? '暂无可用技能。可在 `~/.ai-dev-workbench/skills/<名称>/SKILL.md` 放置技能文件。'
+            ? '暂无可用技能。可在 `~/.aico/skills/<名称>/SKILL.md` 放置技能文件。'
             : ['**可用技能**', '', ...skills.map(s => `- \`/${s.name}\` —— ${s.description || '（无描述）'}`)].join('\n');
         await ctx.appendLog?.(text);
         return {handled: true, message: text};

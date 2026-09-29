@@ -1,6 +1,6 @@
 /**
  * @module @along/adw-requirement-core
- * @description adw 需求获取内核（自 ai-dev-workbench 抽取，ESM）：
+ * @description adw 需求获取内核（自 Aico 抽取，ESM）：
  *   agent 中介需求拉取（标准 MCP 消费模式，零源硬编码）+ MCP 桥接（纯传输层）
  *   + MCP 配置（自管）+ 需求存储 + 引擎门面。
  *   零 DSH 依赖 —— dsh-adw 插件与 adw 本体共用同一份语义。

@@ -17,7 +17,7 @@
 | 改动 | 内容 | 评价 |
 | --- | --- | --- |
 | **新增 `src/server/platform/`**（4 源文件 + 2 测试 + README） | 引擎无关内核：`ToolCategory` 分类目录、平台工具注册表、MCP 聚合网关（上游连接池/熔断/懒连接；Claude 走 HTTP 挂载、pi 走 customTools 投影） | ✅ 方向正确，测试齐全，保留 |
-| **`pi-provider.ts` 重写**（+567 行级） | in-memory 会话 → 文件会话（`~/.ai-dev-workbench/pi-sessions/`）；`supportsPermission` false→true（`beforeToolCall` 权限门）；MCP customTools 注入；10 分钟工具看门狗；模型错误（stopReason=error）透传；启用 grep/find/ls | ⚠️ 功能对齐了，但引入 4 处不规范用法（见 0.3）与卡死风险（见 0.2） |
+| **`pi-provider.ts` 重写**（+567 行级） | in-memory 会话 → 文件会话（`~/.aico/pi-sessions/`）；`supportsPermission` false→true（`beforeToolCall` 权限门）；MCP customTools 注入；10 分钟工具看门狗；模型错误（stopReason=error）透传；启用 grep/find/ls | ⚠️ 功能对齐了，但引入 4 处不规范用法（见 0.3）与卡死风险（见 0.2） |
 | **`agent-coordinator.ts`** | STEP_TOOLS 硬编码 Claude 工具名 → `isStepWorthyTool` 分类判定；新增「排队回复自动续跑」+「立即处理中断续跑」外层循环 | ✅ 保留 |
 | **`types.ts` / `bridge-json-runner.ts` / `cli-runner-service.ts`** | `McpStdioMap` → `McpServerMap`（stdio 直挂 \| http 网关，网关未启动回退 stdio） | ✅ 保留 |
 | **`mcp-config-service/registry`** | 上游 server 可选 `cwd` 字段（防误认项目目录） | ✅ 保留 |
@@ -98,7 +98,7 @@ pi 的 MCP 工具经 customTools 投影，首次调用触发上游 spawn（Windo
 **待确认决策点（见文末「执行确认」）：**
 1. 是否接受「Phase 1 止血 + Phase 2 切换」两步走（推荐），还是直接跳到 Phase 2（期间 pi 不可用）？
 2. pi 的 MCP：走「网关 REST + pi 扩展 registerTool」桥（推荐），还是 Phase 2 先不给 pi 引擎 MCP？
-3. 会话目录沿用 `~/.ai-dev-workbench/pi-sessions/`（推荐，与 Claude 会话管理对齐）？
+3. 会话目录沿用 `~/.aico/pi-sessions/`（推荐，与 Claude 会话管理对齐）？
 
 ---
 
@@ -111,7 +111,7 @@ pi 的 MCP 工具经 customTools 投影，首次调用触发上游 spawn（Windo
 **Steps:**
 1. run() 事件订阅回调整体包裹 try/catch，异常时 `console.error('[pi] listener error', e)` 并原样重抛前先记录——验证候选 2。
 2. `beforeToolCall` 挂起/唤醒/超时三处打点日志——验证候选 1。
-3. 在真实工作区跑一次卡死任务，采集 adw 服务日志 + `~/.ai-dev-workbench/pi-sessions/` 会话 JSONL 尾部。
+3. 在真实工作区跑一次卡死任务，采集 adw 服务日志 + `~/.aico/pi-sessions/` 会话 JSONL 尾部。
 4. **Expected:** 明确命中候选 1 / 候选 2 / 其他，记录到本文档「根因结论」小节。
 5. Commit: `chore(pi): diagnostic instrumentation (temporary)`
 
@@ -161,7 +161,7 @@ pi 的 MCP 工具经 customTools 投影，首次调用触发上游 spawn（Windo
 **Steps:**
 1. 写失败测试：fake child process（注入 spawn），验证——命令发送（带自增 id）、响应关联、事件回调、stdout 逐行解析、stderr 转发、进程退出（code≠0）触发 `onExit`、`send()` 在进程死后排队/重建。
 2. 实现：
-   - `start(cwd, args)`：spawn `node <resolve('@earendil-works/pi-coding-agent/rpc-entry')>`，`--session-dir ~/.ai-dev-workbench/pi-sessions/<encoded-cwd>`、`--provider/--model/--api-key`、`--tools read,powershell,bash,edit,write,grep,find,ls`、`-e <adw扩展路径>`、`--no-extensions`（关闭发现，只显式挂 adw 扩展）、`--no-context-files`（adw 自己注入 prompt 上下文）。
+   - `start(cwd, args)`：spawn `node <resolve('@earendil-works/pi-coding-agent/rpc-entry')>`，`--session-dir ~/.aico/pi-sessions/<encoded-cwd>`、`--provider/--model/--api-key`、`--tools read,powershell,bash,edit,write,grep,find,ls`、`-e <adw扩展路径>`、`--no-extensions`（关闭发现，只显式挂 adw 扩展）、`--no-context-files`（adw 自己注入 prompt 上下文）。
    - 凭证经 env 注入：把「模型供应商页」`pi:` 前缀记录映射为 pi 认的环境变量（`DEEPSEEK_API_KEY/ANTHROPIC_API_KEY/GEMINI_API_KEY/…`，见 `cli/args.ts` 环境变量表）。
    - 命令/响应按 `id` 关联（Promise map + 超时）；事件行（无 `type:'response'`）推给 `onEvent`。
    - 检活：每次 prompt 前 `get_state`，失败/超时 → kill 进程树 → 冷启重试一次。
@@ -246,7 +246,7 @@ pi 的 MCP 工具经 customTools 投影，首次调用触发上游 spawn（Windo
 
 | 数据 | 现状 | 一会话一文件? |
 | --- | --- | --- |
-| pi 会话 | `~/.ai-dev-workbench/pi-sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`（pi 原生 JSONL，追加写） | ✅ 已是一会话一文件 |
+| pi 会话 | `~/.aico/pi-sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`（pi 原生 JSONL，追加写） | ✅ 已是一会话一文件 |
 | Claude 会话 | Claude SDK 自管（`~/.claude/`），adw 只存 sessionId 引用 | ✅（引擎侧管理） |
 | Agent 执行记录 | `agent-executions/<executionId>.json`（写队列串行 + 原子替换） | ✅ 一记录一文件；⚠️ 但**每追加一条日志 = 整文件读改写**（实测最大单文件 1.1MB，chatty 的 pi 事件流会放大 IO） |
 | 经典计划/执行 | `requirements/<requirementId>/plan.json` / `execution.json`（**一个需求的全部记录聚合在同一文件**，数组 + 保留上限） | ❌ 按需求聚合 |

@@ -3,7 +3,7 @@
  * @description 项目特征持久化存储
  *
  * 按工作空间路径索引，存储项目技术栈、测试框架、目录约定等特征信息。
- * 存储在 ~/.ai-dev-workbench/memory/project-facts.json，上限 20 条。
+ * 存储在 ~/.aico/memory/project-facts.json，上限 20 条。
  */
 import path from 'path';
 import crypto from 'crypto';

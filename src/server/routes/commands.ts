@@ -7,7 +7,7 @@
  *                               技能/自定义命令返回模板文本，由前端作为消息内容发给模型）
  *
  * 存储位置（应用自管，不依赖外部 CLI 目录）：
- *   ~/.ai-dev-workbench/commands/<name>.md、~/.ai-dev-workbench/skills/<name>/SKILL.md
+ *   ~/.aico/commands/<name>.md、~/.aico/skills/<name>/SKILL.md
  */
 
 import {Router} from 'express';

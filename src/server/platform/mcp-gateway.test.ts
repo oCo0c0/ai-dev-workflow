@@ -11,7 +11,7 @@ import {getPlatformToolRegistry} from './tool-registry.js';
 import type {PlatformToolDefinition} from './types.js';
 import type {MCPRegistryService} from '../services/mcp-registry-service.js';
 
-/** 空注册中心 stub（不读真实 ~/.ai-dev-workbench/mcp-servers.json） */
+/** 空注册中心 stub（不读真实 ~/.aico/mcp-servers.json） */
 function emptyRegistry(): MCPRegistryService {
     return {list: () => []} as unknown as MCPRegistryService;
 }

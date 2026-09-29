@@ -1,6 +1,6 @@
 /**
  * @file 应用入口模块
- * @description AI 开发工作台的前端入口文件，负责初始化 React 应用、
+ * @description Aico的前端入口文件，负责初始化 React 应用、
  *              配置客户端路由并挂载根组件到 DOM。
  *              路由采用「顶层重定向 + Layout 内 keep-alive 常驻页面」方案：
  *              所有主页面常驻挂载、切换导航仅切可见性，页面状态不丢失。
@@ -92,7 +92,7 @@ const isPetWindow = new URLSearchParams(window.location.search).get('pet') === '
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 if (isPetWindow) {
     document.body.classList.add('pet-window');
-    document.title = 'AI Dev Workbench Pet';
+    document.title = 'Aico Pet';
     root.render(
         <React.StrictMode>
             <PetRoot/>

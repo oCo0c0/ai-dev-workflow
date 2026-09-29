@@ -3,7 +3,7 @@
  * @description 用户反馈日志持久化存储
  *
  * 记录用户对 AI 输出的修正、偏好和拒绝反馈。
- * 存储在 ~/.ai-dev-workbench/memory/feedback-log.json，上限 50 条。
+ * 存储在 ~/.aico/memory/feedback-log.json，上限 50 条。
  */
 import path from 'path';
 import crypto from 'crypto';

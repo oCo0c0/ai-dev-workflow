@@ -3,14 +3,14 @@
 > **执行状态（2026-09-11 里程碑 1 完成）**
 > - ✅ Task 1–7 全部完成（提交 e4a9c7c → 6d0f5c2 + 本次文档提交）
 > - ✅ 依赖环境恢复：store 迁入工作区 `.pnpm-store`（沙箱只允许写工作区）；electron 39.8.10 + electron-builder 已装
-> - ✅ 冒烟验证通过：`electron.exe(RUN_AS_NODE) → server-bootstrap.js → dist/cli → Express` 全链路，`GET /` 返回 200（title: AI Dev Workbench）、`GET /api/system/status` 返回 200
+> - ✅ 冒烟验证通过：`electron.exe(RUN_AS_NODE) → server-bootstrap.js → dist/cli → Express` 全链路，`GET /` 返回 200（title: Aico）、`GET /api/system/status` 返回 200
 > - ⚠️ Chromium 窗口无法在 AI 会话沙箱内渲染（v44/v39、最小程序均 0xC0000005，已排除应用代码与二进制完整性）——**窗口验证需在用户终端执行 `pnpm exec electron .`**
 > - 注意事项：① electron 锁定 39.x（44 在部分 Windows 环境引导崩溃）② 默认 host 解析可能绑定 `::1`（IPv6），探测请用 `http://localhost:port` ③ 全量测试套件有 8 个预存失败（sandbox/skills 服务，基线 1ab7ed6 复现，与本分支无关）
 > - 后续里程碑：手机远程（WS 鉴权 + apiKey 强制 + 扫码配对 + 响应式 UI）、mac 签名公证、CI 三平台矩阵
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将 adw（AI Dev Workbench）打包为三平台桌面应用：Electron 壳以子进程方式启动既有 Node 服务端，窗口加载服务端 URL，开发模式走 Vite + tsx。
+**Goal:** 将 adw（Aico）打包为三平台桌面应用：Electron 壳以子进程方式启动既有 Node 服务端，窗口加载服务端 URL，开发模式走 Vite + tsx。
 
 **Architecture:** 不改业务代码。新增 Electron 主进程（窗口/生命周期/PATH 修复），通过 `ELECTRON_RUN_AS_NODE=1` 把 Electron 二进制当 Node 运行时，以独立子进程启动 `dist/cli`（崩溃隔离 + 复用既有 SIGTERM 优雅清理）。前端生产模式由服务端静态服务，开发模式加载 Vite dev server。`asar: false` 保证 `resources/pi-extensions` 等被孙进程按真实路径读取。
 
@@ -176,7 +176,7 @@ git commit -m "feat(electron): GUI 启动 PATH 修复工具（登录 shell 提�
 
 关键行为：
 - 子进程：`spawn(process.execPath, [bootstrapPath], {env: {...env, ELECTRON_RUN_AS_NODE:'1', ADW_PORT}})`
-- 生产日志 → `~/.ai-dev-workbench/logs/desktop-server.log`；开发 `stdio: 'inherit'`
+- 生产日志 → `~/.aico/logs/desktop-server.log`；开发 `stdio: 'inherit'`
 - 子进程非正常退出 → `dialog.showErrorBox` + quit
 - 开发模式端口固定 3000（Vite 代理硬编码）；URL 取 `ADW_DEV_SERVER_URL`（默认 5173）
 - `window-all-closed → app.quit()`；`will-quit → serverProc.kill()`（POSIX 触发服务端既有 SIGTERM 优雅清理）
@@ -218,7 +218,7 @@ git commit -m "feat(desktop): electron 编译配置与 dev/dist 脚本"
 ### Task 5: electron-builder 打包配置
 
 **Files:**
-- Create: `electron-builder.yml`（appId `com.along.ai-dev-workbench`；`asar: false`——`resources/pi-extensions` 需被孙进程按真实路径读取；files 覆盖 dist/ dist-electron/ resources/ templates/ skills/；win=nsis、mac=dmg、linux=AppImage+deb；产物目录 `release/`）
+- Create: `electron-builder.yml`（appId `com.along.aico`；`asar: false`——`resources/pi-extensions` 需被孙进程按真实路径读取；files 覆盖 dist/ dist-electron/ resources/ templates/ skills/；win=nsis、mac=dmg、linux=AppImage+deb；产物目录 `release/`）
 
 **Commit:**
 

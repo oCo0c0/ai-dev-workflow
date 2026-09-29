@@ -10,9 +10,9 @@
 
 ### 1.1 两边是什么
 
-| | adw（ai-dev-workbench） | DSH（DeepSeek Harness） |
+| | adw（Aico） | DSH（DeepSeek Harness） |
 |---|---|---|
-| 定位 | AI 开发工作台：需求管理 + 计划 + 编码 + 测试的独立 Web 应用 | Agent Harness：会话、工具、权限沙箱、agent 预设、子代理、目标续跑 |
+| 定位 | Aico：需求管理 + 计划 + 编码 + 测试的独立 Web 应用 | Agent Harness：会话、工具、权限沙箱、agent 预设、子代理、目标续跑 |
 | AI 执行 | 自带 bridge 子进程 / CLI Provider（Claude/Codex/Pi） | 自带完整 agent 循环（正是 adw 里 bridge/provider 那层的等价物） |
 | 需求侧 | **独有**：需求源适配器（ONES/GitHub/generic）+ MCP 桥接 + 需求存储 | 无 |
 | UI | 独立 React SPA（3000/5173 端口） | Web GUI（dsh web），cordis 插件化，侧边栏/中列 DOM 可扩展 |
@@ -95,7 +95,7 @@ dsh-adw/
 ### 2.4 安装与热插拔
 
 ```sh
-dsh plugin --profile web add @along/dsh-adw     # 或 add link:D:/py_workspace/ai-dev-workflow/packages/dsh-adw
+dsh plugin --profile web add @along/dsh-adw     # 或 add link:D:/py_workspace/aico/packages/dsh-adw
 # 重启 dsh web 后生效（进程重启，不是页面刷新）
 dsh plugin --profile web remove @along/dsh-adw  # 卸载后 GUI 原样还原
 ```
@@ -149,7 +149,7 @@ dsh plugin --profile web remove @along/dsh-adw  # 卸载后 GUI 原样还原
 |---|---|---|---|
 | 模块体系 | CommonJS（tsc，`.js` 后缀导入） | DSH 插件为 ESM | 抽取到独立 ESM 包（`packages/adw-requirement-core`），adw 本体改为依赖该包（见 §7.2） |
 | 错误/日志 | 自有 logger | 保留（内核包不依赖 DSH） | 引擎层做纯函数/类，DSH 事项（路由、工具、公告）在外层 |
-| 存储 | `~/.ai-dev-workbench/requirements/` 文件夹结构 | `~/.dsh/dsh-adw/requirements.json`（单文件 JSON，原子写） | Store 接口化；可选「导入 adw 旧数据」命令（M3） |
+| 存储 | `~/.aico/requirements/` 文件夹结构 | `~/.dsh/dsh-adw/requirements.json`（单文件 JSON，原子写） | Store 接口化；可选「导入 adw 旧数据」命令（M3） |
 
 ### 4.2 HTTP 路由族 `/api/dsh-adw/*`（浏览器半消费）
 
@@ -305,7 +305,7 @@ interface ExecutionLink {
 ### 7.1 仓库布局（adw 转 pnpm monorepo，`pnpm-workspace.yaml` 已就位）
 
 ```
-ai-dev-workflow/
+aico/
 ├── packages/
 │   ├── adw-requirement-core/     # ① 抽取：需求内核（ESM，零 DSH 依赖）
 │   │   ├── src/
@@ -340,7 +340,7 @@ ai-dev-workflow/
 | `services/requirement-sources/*`（6 文件） | `adw-requirement-core` | ESM 化（去 `.js` 导入后缀/`verbatimModuleSyntax`），其余零改动 |
 | `services/mcp-bridge-service.ts` | `adw-requirement-core/mcp-bridge.ts` | 同上；去除对 adw websocket 的依赖 |
 | `services/mcp-config-service.ts` | `adw-requirement-core/mcp-config.ts` | 同上；保留 ~/.claude 双文件读写 |
-| `services/requirement-store-service.ts` | `adw-requirement-core/store.ts` | 存储位置参数化（adw 传 `~/.ai-dev-workbench/`，插件传 `~/.dsh/dsh-adw/`） |
+| `services/requirement-store-service.ts` | `adw-requirement-core/store.ts` | 存储位置参数化（adw 传 `~/.aico/`，插件传 `~/.dsh/dsh-adw/`） |
 | `routes/requirements.ts` 的语义 | `dsh-adw/host/routes.ts` | Express Router → WebRoute + 回环栅栏 |
 | `prompts/plan.ts` 的模板思想 | `dsh-adw` Config 默认模板 | 新写 DEV_PROMPT（见 §4.4） |
 | adw 本体 `src/server/services/*` | 改为 `export ... from 'adw-requirement-core'` | 兼容既有导入路径，行为不变 |
@@ -350,7 +350,7 @@ ai-dev-workflow/
 ### 7.3 构建与发布
 
 - 内核包与插件各自 `tsc + tsdown`（client 半用 DSH 的 client bundle preset，样板插件自带可复制配置）；
-- 发布：`@along/adw-requirement-core` + `@along/dsh-adw` 到 npm（或私有 registry）；开发期 `dsh plugin --profile web add link:D:/py_workspace/ai-dev-workflow/packages/dsh-adw`；
+- 发布：`@along/adw-requirement-core` + `@along/dsh-adw` 到 npm（或私有 registry）；开发期 `dsh plugin --profile web add link:D:/py_workspace/aico/packages/dsh-adw`；
 - 测试：内核包沿用 adw 的 vitest 用例（`requirement-sources/index.test.ts` 等直接跟着走）；插件半补 routes/tools/execution 的假件测试（task-board 的测试布局可照抄）。
 
 ---
@@ -370,7 +370,7 @@ ai-dev-workflow/
 - [ ] 附件图片服务（ONES PKCE 下载，详情内嵌图）
 
 ### M3 — 打磨与互通
-- [ ] 从 `~/.ai-dev-workbench/requirements/` 导入旧 adw 需求
+- [ ] 从 `~/.aico/requirements/` 导入旧 adw 需求
 - [ ] 执行结局双向回写需求源状态（如 ONES 状态流转，走适配器扩展点）
 - [ ] MinerU 附件解析接入（描述增强）
 - [ ] 发布 npm + 文档（README 双语，对齐样板插件）

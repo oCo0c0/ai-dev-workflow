@@ -2,7 +2,7 @@
  * @module task-store-service
  * @description 任务持久化存储
  *
- * 任务存储在项目空间目录下: ~/.ai-dev-workbench/projects/{projectId}/tasks.json
+ * 任务存储在项目空间目录下: ~/.aico/projects/{projectId}/tasks.json
  * 与 TaskScheduler 的内存状态配合，持久化用于服务重启恢复。
  */
 

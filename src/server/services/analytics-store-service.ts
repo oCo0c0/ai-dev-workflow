@@ -3,7 +3,7 @@
  * @description 执行分析数据持久化存储
  *
  * 记录每次执行的分析结果（成功/失败、耗时、使用的技能、模式检测等）。
- * 存储在 ~/.ai-dev-workbench/analytics.json，上限 200 条。
+ * 存储在 ~/.aico/analytics.json，上限 200 条。
  */
 import path from 'path';
 import crypto from 'crypto';

@@ -25030,7 +25030,7 @@ var MCPBridgeService = class {
       }
       const transport = config2.url !== void 0 ? await buildHttpTransport(config2) : buildStdioTransport(config2);
       const client = new Client(
-        { name: "ai-dev-workbench", version: "0.1.0" },
+        { name: "aico", version: "0.1.0" },
         { capabilities: {} }
       );
       await client.connect(transport);

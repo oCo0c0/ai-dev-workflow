@@ -24,4 +24,4 @@ labels: bug
 - 安装方式：[安装版 / portable]
 
 **截图/日志**
-如有截图或日志（~/.ai-dev-workbench/logs/）请附上。
+如有截图或日志（~/.aico/logs/）请附上。

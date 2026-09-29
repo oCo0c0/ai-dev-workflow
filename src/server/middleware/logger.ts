@@ -3,7 +3,7 @@
  *
  * 记录所有 HTTP 请求到本地日志文件。
  * 日志格式：[时间戳] 方法 路径 状态码 耗时ms
- * 日志路径：~/.ai-dev-workbench/logs/app.log
+ * 日志路径：~/.aico/logs/app.log
  */
 
 import {Request, Response, NextFunction} from 'express';

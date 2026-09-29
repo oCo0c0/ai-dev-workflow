@@ -138,7 +138,7 @@ export class MCPBridgeService {
             const transport = config.url !== undefined
                 ? await buildHttpTransport(config)
                 : buildStdioTransport(config);
-            const client = new Client({ name: 'ai-dev-workbench', version: '0.1.0' }, { capabilities: {} });
+            const client = new Client({ name: 'aico', version: '0.1.0' }, { capabilities: {} });
             await client.connect(transport);
             // 连接意外断开（子进程死亡/网络中断）时驱逐池条目，下次调用自动重连
             client.onclose = () => {

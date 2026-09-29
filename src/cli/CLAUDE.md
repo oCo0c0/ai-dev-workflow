@@ -14,8 +14,8 @@
 
 ## 启动流程
 
-1. `ensureConfigDir()` -- 确保 `~/.ai-dev-workbench/` 目录存在
-2. `loadConfig()` -- 从 `~/.ai-dev-workbench/config.json` 读取端口配置
+1. `ensureConfigDir()` -- 确保 `~/.aico/` 目录存在
+2. `loadConfig()` -- 从 `~/.aico/config.json` 读取端口配置
 3. `findAvailablePort({preferredPort})` -- 查找可用端口（支持端口偏好）
 4. `createServer(port)` -- 创建并启动 Express + WebSocket 服务（来自 `server/index.ts`）
 5. `printBanner(port, version)` -- 打印启动横幅
@@ -28,7 +28,7 @@
 ## 关键依赖与配置
 
 - 依赖 `server/index.ts` 的 `createServer()` 函数
-- 配置目录：`~/.ai-dev-workbench/`
+- 配置目录：`~/.aico/`
 - 端口默认：自动查找可用端口（优先使用配置文件中的 `server.port`）
 
 ## 相关文件清单

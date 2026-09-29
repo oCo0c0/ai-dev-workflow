@@ -1,6 +1,6 @@
 {
   "common": {
-    "appTitle": "AI Workbench",
+    "appTitle": "AICO",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -620,7 +620,7 @@
     "externalSources": "External Source Detection",
     "externalHint": "Auto-detect local Claude / Codex / Pi CLI configs, priority Claude > Codex > Pi",
     "piNativeTitle": "Configured Pi Providers",
-    "piNativeHint": "Providers detected by pi; credentials come from this app's isolated dir ~/.ai-dev-workbench/pi-agent and are independent of your installed pi CLI",
+    "piNativeHint": "Providers detected by pi; credentials come from this app's isolated dir ~/.aico/pi-agent and are independent of your installed pi CLI",
     "piNativeNone": "No configured pi providers detected",
     "piCompatBadge": "App-managed",
     "piCompatHint": "Pi records are configured right here in this app: at run time the credentials are written to the isolated dir and ~/.pi/agent/auth.json is no longer read. Use \"Test Connection\" to verify the key (providers without a built-in endpoint need a Base URL).",

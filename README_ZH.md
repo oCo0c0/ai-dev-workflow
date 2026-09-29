@@ -1,4 +1,4 @@
-# AI Dev Workbench (adw)
+# Aico (adw)
 
 AI 驱动的智能开发工作台，打通「需求 → 规划 → 执行 → 测试 → 审查」的完整闭环，内置可插拔的多引擎 Agent 层（**Claude Code / OpenAI Codex / [pi coding agent](https://github.com/earendil-works/pi-coding-agent)**）。
 
@@ -14,7 +14,7 @@ AI 驱动的智能开发工作台，打通「需求 → 规划 → 执行 → �
 | **后端** | Express.js, TypeScript, WebSocket (ws) |
 | **AI 引擎** | Claude Agent SDK（桥接子进程）· OpenAI Codex SDK · pi coding agent（RPC 子进程 harness） |
 | **协议** | MCP（Model Context Protocol）——面向引擎的聚合网关 |
-| **状态** | Zustand（客户端）+ JSON 文件持久化（服务端，`~/.ai-dev-workbench/`） |
+| **状态** | Zustand（客户端）+ JSON 文件持久化（服务端，`~/.aico/`） |
 | **测试** | Vitest（自测）· Jest / Playwright / PyTest / JUnit 自动检测（目标项目） |
 | **CLI** | Node.js CLI（`adw`），支持 `npx` |
 
@@ -103,7 +103,7 @@ AI 驱动的智能开发工作台，打通「需求 → 规划 → 执行 → �
 │                                       ↑ adw-platform 扩展    │
 └──────────┬───────────────────────────┴───────────────────────┘
            │
-   ~/.ai-dev-workbench/（JSON 持久化，一条记录一个文件/文件夹）
+   ~/.aico/（JSON 持久化，一条记录一个文件/文件夹）
 ```
 
 ## 环境要求
@@ -116,7 +116,7 @@ AI 驱动的智能开发工作台，打通「需求 → 规划 → 执行 → �
 ## 安装
 
 ```bash
-npm install -g @along/ai-dev-workbench
+npm install -g @along/aico
 ```
 
 ## 快速开始
@@ -126,7 +126,7 @@ npm install -g @along/ai-dev-workbench
 adw
 
 # 或免安装直接运行
-npx @along/ai-dev-workbench
+npx @along/aico
 ```
 
 工作台会在可用端口启动本地服务器并打印访问地址，首次运行有向导检查引擎与 MCP 状态。
@@ -143,7 +143,7 @@ pnpm dist:linux   # Linux AppImage + deb
 
 桌面版架构：Electron 主进程通过 `ELECTRON_RUN_AS_NODE` 把自身二进制作为 Node 运行时，以独立子进程启动既有服务端（崩溃隔离 + 复用 CLI 的 SIGTERM 优雅清理），GUI 启动时自动修复 macOS/Linux 缺失的用户 PATH；打包关闭 asar，保证 pi 扩展等资源可被孙进程按真实路径读取。开发调试：`pnpm dev:desktop`。
 
-说明：桌面版不内嵌 AI 引擎 CLI（Claude Code / Codex / pi），沿用运行时自动检测；生产模式日志位于 `~/.ai-dev-workbench/logs/desktop-server.log`。
+说明：桌面版不内嵌 AI 引擎 CLI（Claude Code / Codex / pi），沿用运行时自动检测；生产模式日志位于 `~/.aico/logs/desktop-server.log`。
 
 ## 开发
 
@@ -183,7 +183,7 @@ skills/  templates/  docs/plans/
 
 ## 配置说明
 
-配置存于 `~/.ai-dev-workbench/config.json`（可在设置界面编辑）。
+配置存于 `~/.aico/config.json`（可在设置界面编辑）。
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
@@ -196,7 +196,7 @@ skills/  templates/  docs/plans/
 
 ### 数据目录
 
-所有数据位于 `~/.ai-dev-workbench/`：
+所有数据位于 `~/.aico/`：
 
 | 路径 | 用途 |
 |------|------|

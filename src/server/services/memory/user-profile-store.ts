@@ -3,7 +3,7 @@
  * @description 用户画像持久化存储
  *
  * 存储用户偏好信息（语言、编码风格、框架偏好等），
- * 单例模式（id 始终为 "default"），存储在 ~/.ai-dev-workbench/memory/user-profile.json。
+ * 单例模式（id 始终为 "default"），存储在 ~/.aico/memory/user-profile.json。
  */
 import fs from 'fs';
 import path from 'path';

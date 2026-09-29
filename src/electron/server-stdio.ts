@@ -14,7 +14,7 @@ import type {StdioOptions} from 'child_process';
  * 构造服务端子进程的 stdio 配置
  *
  * @param isDev - 开发模式（控制台继承输出）
- * @param logDir - 生产模式日志目录（~/.ai-dev-workbench/logs）
+ * @param logDir - 生产模式日志目录（~/.aico/logs）
  * @returns StdioOptions；生产模式为 ['ignore', fd, fd]（追加写 desktop-server.log）
  */
 export function buildServerStdio(isDev: boolean, logDir: string): StdioOptions {

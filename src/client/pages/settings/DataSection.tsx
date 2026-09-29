@@ -100,7 +100,7 @@ interface AppearanceExport {
 
 /** 导出文件结构（data 包装层在导入时容错：缺失时回退到根对象） */
 interface SettingsExport {
-    app: 'ai-dev-workflow';
+    app: 'aico';
     version: number;
     exportedAt: string;
     data: {
@@ -315,7 +315,7 @@ export function DataSection() {
             }
 
             const payload: SettingsExport = {
-                app: 'ai-dev-workflow',
+                app: 'aico',
                 version: EXPORT_VERSION,
                 exportedAt: new Date().toISOString(),
                 data: {
@@ -325,7 +325,7 @@ export function DataSection() {
                     skills,
                 },
             };
-            const filename = `ai-dev-workflow-settings-${dateStamp()}.json`;
+            const filename = `aico-settings-${dateStamp()}.json`;
             downloadJson(filename, payload);
             setExportResult({
                 file: filename,

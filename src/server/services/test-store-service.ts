@@ -3,7 +3,7 @@
  * @description 提供测试运行记录的本地持久化存储能力。
  *   每次测试执行（包括手动触发和管线自动执行）的结果都会被保存到本地，
  *   以便用户查看历史记录和追踪测试趋势。
- *   数据以 JSON 数组格式存储在 ~/.ai-dev-workbench/test-runs.json 文件中。
+ *   数据以 JSON 数组格式存储在 ~/.aico/test-runs.json 文件中。
  *   最多保留 50 条记录。
  */
 import path from 'path';

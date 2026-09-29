@@ -13,12 +13,12 @@
 # 说明：macOS 目标建议在 macOS 主机构建（签名/公证需要 Apple 开发者账号）；
 #       本仓库暂出未签名产物，正式分发前补 CI 签名流程。
 
-appId: com.along.ai-dev-workbench
-productName: AI Dev Workbench
+appId: com.along.aico
+productName: Aico
 copyright: Copyright © along
-# 可执行文件名：package.json 的 name 是 scope 包名(@along/ai-dev-workbench)，
+# 可执行文件名：package.json 的 name 是 scope 包名(@along/aico)，
 # 含 @ 无法用作文件路径，显式指定安全的可执行文件名
-executableName: ai-dev-workbench
+executableName: aico
 
 directories:
   output: release
@@ -78,4 +78,4 @@ linux:
   vendor: along
   # .desktop 条目名（v24 无 syncDesktopName，用 desktop 项提供，消除 desktopName 未设置警告）
   desktop:
-    Name: AI Dev Workbench
+    Name: Aico

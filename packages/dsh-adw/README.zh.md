@@ -1,6 +1,6 @@
 # dsh-adw — DSH Web GUI 需求工作台插件
 
-把 adw（ai-dev-workbench）的需求能力做成 DeepSeek Harness（DSH）的可插拔插件：
+把 adw（Aico）的需求能力做成 DeepSeek Harness（DSH）的可插拔插件：
 
 - **侧边栏「需求工作台」入口**：DSH Web GUI 中列打开需求面板；
 - **需求文档自动获取**：按需求号 / issue key / 链接拉取需求详情（描述、验收标准、附件），**无需手动录入**；
@@ -43,7 +43,7 @@ node packages/dsh-adw/scripts/smoke.mjs                # 宿主半断言（路�
 dsh plugin --profile web add @along/dsh-adw --registry https://alongnpr.online
 
 # 本地 link 安装（开发期；改代码后 rebuild + 重启 dsh web + Ctrl+F5）
-dsh plugin --profile web add link:D:/py_workspace/ai-dev-workflow/packages/dsh-adw
+dsh plugin --profile web add link:D:/py_workspace/aico/packages/dsh-adw
 
 # 卸载（重启后 GUI 还原）
 dsh plugin --profile web remove @along/dsh-adw

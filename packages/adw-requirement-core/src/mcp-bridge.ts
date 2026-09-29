@@ -181,7 +181,7 @@ export class MCPBridgeService {
                 : buildStdioTransport(config);
 
             const client = new Client(
-                {name: 'ai-dev-workbench', version: '0.1.0'},
+                {name: 'aico', version: '0.1.0'},
                 {capabilities: {}}
             );
 

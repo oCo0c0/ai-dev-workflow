@@ -6,8 +6,8 @@
 ## 设计原则
 
 1. **平台中立**：内核类型（工具/分类）不出现任何引擎的工具名、事件名。
-2. **单一事实来源**：MCP 清单来自 `MCPRegistryService`（`~/.ai-dev-workbench/mcp-servers.json`），
-   会话存于 `~/.ai-dev-workbench/pi-sessions/`，均不侵入各引擎自己的配置目录。
+2. **单一事实来源**：MCP 清单来自 `MCPRegistryService`（`~/.aico/mcp-servers.json`），
+   会话存于 `~/.aico/pi-sessions/`，均不侵入各引擎自己的配置目录。
 3. **一份定义，多引擎投影**：工具只定义一次（`PlatformToolDefinition`），
    按引擎投影（pi → customTools；Claude → MCP 网关聚合端点）。
 

@@ -2,7 +2,7 @@
  * @module model-provider-store
  * @description 自有模型供应商配置存储服务
  *
- * 本项目独立的模型供应商配置入口，统一读写 `~/.ai-dev-workbench/models.json`。
+ * 本项目独立的模型供应商配置入口，统一读写 `~/.aico/models.json`。
  * 参考 pi 项目的 CredentialStore / ModelsStore 模式（JSON 文件后端 + 按 provider 键索引），
  * 但简化为单文件、单表结构，并额外负责：
  * - API Key 的 AES-256-GCM 加密落盘 / 解密读取
@@ -68,7 +68,7 @@ export class ModelProviderStore {
     private readonly secretFile: string;
 
     /**
-     * @param configDir - 可选，配置目录，默认为 ~/.ai-dev-workbench
+     * @param configDir - 可选，配置目录，默认为 ~/.aico
      */
     constructor(configDir?: string) {
         const dir = configDir ?? APP_DATA_DIR;

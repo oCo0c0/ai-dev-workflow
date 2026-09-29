@@ -1,4 +1,4 @@
-# AI Dev Workbench (adw)
+# Aico (adw)
 
 AI-powered development workbench that closes the loop between requirements, planning, AI-assisted coding, and automated testing — with a pluggable multi-engine agent layer (**Claude Code / OpenAI Codex / [pi coding agent](https://github.com/earendil-works/pi-coding-agent)**).
 
@@ -14,7 +14,7 @@ requirement → plan → execute → test → review, all in one local workbench
 | **Backend** | Express.js, TypeScript, WebSocket (ws) |
 | **AI Engines** | Claude Agent SDK (bridge subprocess) · OpenAI Codex SDK · pi coding agent (RPC subprocess harness) |
 | **Protocol** | MCP (Model Context Protocol) — aggregated gateway for engines |
-| **State** | Zustand (client) + JSON file persistence (server, `~/.ai-dev-workbench/`) |
+| **State** | Zustand (client) + JSON file persistence (server, `~/.aico/`) |
 | **Testing** | Vitest (self) · Jest / Playwright / PyTest / JUnit auto-detection (targets) |
 | **CLI** | Node.js CLI (`adw`), `npx` supported |
 
@@ -103,7 +103,7 @@ Permission confirmations flow uniformly to the web UI (`allow / deny / remember`
 │                                      ↑ adw-platform extension│
 └──────────┬───────────────────────────┴───────────────────────┘
            │
-   ~/.ai-dev-workbench/ (JSON persistence, one folder/file per record)
+   ~/.aico/ (JSON persistence, one folder/file per record)
 ```
 
 ## Requirements
@@ -116,7 +116,7 @@ Permission confirmations flow uniformly to the web UI (`allow / deny / remember`
 ## Installation
 
 ```bash
-npm install -g @along/ai-dev-workbench
+npm install -g @along/aico
 ```
 
 ## Quick Start
@@ -126,7 +126,7 @@ npm install -g @along/ai-dev-workbench
 adw
 
 # or run directly
-npx @along/ai-dev-workbench
+npx @along/aico
 ```
 
 The workbench starts on an available port and prints the access URL. A first-run wizard checks engine and MCP status.
@@ -143,7 +143,7 @@ pnpm dist:linux   # Linux AppImage + deb
 
 How it works: the Electron main process spawns the existing backend as a separate child process via `ELECTRON_RUN_AS_NODE` (crash isolation + reuses the CLI's graceful SIGTERM cleanup), fixes the user PATH lost in GUI launches on macOS/Linux, and loads the local server URL. Packaging keeps `asar: false` so resources like the pi extension are readable by grandchild processes via real paths. For development: `pnpm dev:desktop`.
 
-Note: the desktop app does not bundle AI engine CLIs (Claude Code / Codex / pi) — runtime auto-detection applies. Production logs: `~/.ai-dev-workbench/logs/desktop-server.log`.
+Note: the desktop app does not bundle AI engine CLIs (Claude Code / Codex / pi) — runtime auto-detection applies. Production logs: `~/.aico/logs/desktop-server.log`.
 
 ## Development
 
@@ -183,7 +183,7 @@ skills/  templates/  docs/plans/
 
 ## Configuration
 
-Stored in `~/.ai-dev-workbench/config.json` (editable in the settings UI).
+Stored in `~/.aico/config.json` (editable in the settings UI).
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -196,7 +196,7 @@ Stored in `~/.ai-dev-workbench/config.json` (editable in the settings UI).
 
 ### Data Layout
 
-Everything lives under `~/.ai-dev-workbench/`:
+Everything lives under `~/.aico/`:
 
 | Path | Purpose |
 |------|---------|

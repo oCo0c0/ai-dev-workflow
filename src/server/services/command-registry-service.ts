@@ -3,9 +3,9 @@
  * @description 斜杠命令与技能的注册中心（应用自管存储，参考 DeepSeek Harness 的 commands / skills 分层）。
  *
  * 存储位置 —— 全部在应用自己的工作区内，不依赖外部 CLI 目录：
- * - `~/.ai-dev-workbench/commands/<name>.md`      用户自定义命令（扁平 .md，支持 YAML front-matter:
+ * - `~/.aico/commands/<name>.md`      用户自定义命令（扁平 .md，支持 YAML front-matter:
  *                                                 `description` / `argument-hint`）
- * - `~/.ai-dev-workbench/skills/<name>/SKILL.md`  用户技能（目录式，SKILL.md 为正文）
+ * - `~/.aico/skills/<name>/SKILL.md`  用户技能（目录式，SKILL.md 为正文）
  *
  * 清单来源（按优先级去重，先到先得）：
  *   1. 内置命令（代码定义：compact / memory / skills / clear / help）

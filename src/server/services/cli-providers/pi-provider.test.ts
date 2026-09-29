@@ -468,7 +468,7 @@ describe('adw 平台扩展（resources/pi-extensions/adw-platform.ts）', () => 
 describe('piSessionDir', () => {
     it('不同 cwd 产生不同目录', () => {
         const a = piSessionDir('D:/idea_workspace/pif_xxl_job');
-        const b = piSessionDir('D:/py_workspace/ai-dev-workflow');
+        const b = piSessionDir('D:/py_workspace/aico');
         expect(a).not.toBe(b);
         expect(a.length).toBeGreaterThan(0);
     });

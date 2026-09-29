@@ -29,7 +29,7 @@ describe('getNpmGlobalRoot', () => {
         const bareDir = mkdtempSync(join(tmpdir(), 'npm-root-bare-'));
         try {
             // 本机 npm 可用时会返回真实全局根；npm 不可用时为 null —— 两者皆合法
-            const result = getNpmGlobalRoot(join(bareDir, 'AI Dev Workbench.exe'));
+            const result = getNpmGlobalRoot(join(bareDir, 'Aico.exe'));
             expect(result === null || typeof result === 'string').toBe(true);
         } finally {
             rmSync(bareDir, {recursive: true, force: true});

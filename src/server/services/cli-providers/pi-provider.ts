@@ -7,7 +7,7 @@
  * `pi --mode rpc` 子进程（rpc-entry），stdin/stdout JSONL 协议交互：
  *
  * - 进程模型：process-per-run——每次 run 起新进程、跑完即退。
- *   会话持久化在 ~/.ai-dev-workbench/pi-sessions/<cwd>/（pi 原生 JSONL，
+ *   会话持久化在 ~/.aico/pi-sessions/<cwd>/（pi 原生 JSONL，
  *   一会话一文件），续接时以 --session <file> 恢复完整历史。
  *   并发任务天然隔离；pi 的任何缺陷（工具挂死/循环异常）只影响该子进程。
  * - 事件归一化：RPC 事件流（JsonAgentSessionEvent，与 SDK 事件同源）→
@@ -29,6 +29,7 @@ import os from 'os';
 import {createHash} from 'crypto';
 import {existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, copyFileSync} from 'fs';
 import {getErrorMessage} from '../../utils/error-utils.js';
+import {APP_DATA_DIR} from '../../utils/constants.js';
 import {ModelProviderStore} from '../model-provider-store.js';
 import {resolvePiPermissionMode} from '../permission-mapping.js';
 import {getMcpGateway} from '../../platform/mcp-gateway.js';
@@ -50,7 +51,7 @@ import type {
 } from './types.js';
 
 /** pi 会话存储根目录（adw 自有目录，不污染 ~/.pi/agent） */
-export const PI_SESSIONS_ROOT = path.join(os.homedir(), '.ai-dev-workbench', 'pi-sessions');
+export const PI_SESSIONS_ROOT = path.join(APP_DATA_DIR, 'pi-sessions');
 
 /**
  * pi 凭据目录（adw 自有，与 CLI 的 ~/.pi/agent 完全隔离）。
@@ -60,7 +61,7 @@ export const PI_SESSIONS_ROOT = path.join(os.homedir(), '.ai-dev-workbench', 'pi
  * （旧快照注入的 env 被 CLI 凭据覆盖）会反复出现，且我们无法判断用户改了哪一边。
  * 现在改为：pi 子进程只读本目录，凭据来源唯一 = 应用的模型供应商配置。
  */
-export const PI_AGENT_DIR = path.join(os.homedir(), '.ai-dev-workbench', 'pi-agent');
+export const PI_AGENT_DIR = path.join(APP_DATA_DIR, 'pi-agent');
 
 /** pi 读取 agent 目录的环境变量名（pi 的 getAgentDir() 优先读它，未设才回落 ~/.pi/agent） */
 const PI_AGENT_DIR_ENV = 'PI_CODING_AGENT_DIR';

@@ -6,12 +6,14 @@
  * 避免在多个文件中重复定义相同的魔法数字和路径。
  */
 import path from 'path';
-import os from 'os';
+import {APP_DATA_DIR} from '../../shared/app-data-dir.js';
+
+export {APP_DATA_DIR};
 
 // === 目录路径 ===
+// 注：APP_DATA_DIR = `~/.aico`（旧版目录由 ../../shared/app-data-dir.ts 在模块加载时
+// 自动迁移，全程无需各 Store 关心）
 
-/** 应用数据根目录 */
-export const APP_DATA_DIR = path.join(os.homedir(), '.ai-dev-workbench');
 /** 记忆子系统目录 */
 export const MEMORY_DIR = path.join(APP_DATA_DIR, 'memory');
 /** 需求数据根目录（每个需求一个子文件夹） */

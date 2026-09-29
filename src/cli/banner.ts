@@ -16,7 +16,7 @@ export function printBanner(port: number, version: string): void {
 
     console.log('');
     console.log(`  ╔${line}╗`);
-    console.log(`  ║       AI Dev Workbench v${version.padEnd(18)}║`);
+    console.log(`  ║       Aico v${version.padEnd(18)}║`);
     console.log(`  ╠${line}╣`);
     console.log(`  ║                                            ║`);
     console.log(`  ║   🚀 Server running at:                    ║`);

@@ -16,13 +16,13 @@
 import {app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, Tray} from 'electron';
 import {ChildProcess, spawn} from 'child_process';
 import http from 'http';
-import os from 'os';
 import path from 'path';
 import {fixPath} from './fix-path';
 import {buildServerStdio} from './server-stdio';
 import {overlayColorsFor} from './titlebar-theme';
 import {loadCloseBehavior, saveCloseBehavior} from './tray-settings';
 import {findAvailablePort} from '../cli/port-finder';
+import {APP_DATA_DIR} from '../shared/app-data-dir';
 
 const isDev = process.env.ADW_ELECTRON_DEV === '1';
 /** 开发模式后端固定 3000（vite.config.ts 代理硬编码目标） */
@@ -51,7 +51,7 @@ function appRoot(): string {
 /**
  * 启动后端服务子进程
  *
- * 生产模式日志落盘 ~/.ai-dev-workbench/logs/desktop-server.log；
+ * 生产模式日志落盘 ~/.aico/logs/desktop-server.log；
  * 开发模式直接继承控制台输出。
  */
 function spawnServer(port: number): ChildProcess {
@@ -65,15 +65,16 @@ function spawnServer(port: number): ChildProcess {
     };
 
     // 生产模式日志落盘 fd（详见 server-stdio.ts：不能传未打开的 WriteStream）
-    const stdio = buildServerStdio(isDev, path.join(os.homedir(), '.ai-dev-workbench', 'logs'));
+    // APP_DATA_DIR 在模块加载时已解析并完成旧版目录 → ~/.aico 的一次性迁移
+    const stdio = buildServerStdio(isDev, path.join(APP_DATA_DIR, 'logs'));
 
     const proc = spawn(process.execPath, [bootstrapPath], {env, stdio});
     proc.on('exit', (code) => {
         if (!quitting) {
             dialog.showErrorBox(
-                'AI Dev Workbench',
+                'Aico',
                 `后端服务进程异常退出（code=${code}）。\n` +
-                '日志文件：~/.ai-dev-workbench/logs/desktop-server.log',
+                '日志文件：~/.aico/logs/desktop-server.log',
             );
             app.quit();
         }
@@ -121,7 +122,7 @@ function createWindow(url: string): void {
         minWidth: 960,
         minHeight: 600,
         show: false,
-        title: 'AI Dev Workbench',
+        title: 'Aico',
         // 与应用深色主题主背景（hsl(203 50% 16%)）一致，避免启动白闪
         backgroundColor: '#142d3c',
         // Windows/Linux 任务栏图标（macOS 使用应用包内图标）
@@ -174,7 +175,7 @@ function createWindow(url: string): void {
             if (!win || win.isDestroyed()) return;
             const choice = await dialog.showMessageBox(win, {
                 type: 'question',
-                title: '关闭 AI Dev Workbench',
+                title: '关闭 Aico',
                 message: '要直接退出，还是最小化到系统托盘继续运行？',
                 detail: '最小化到托盘后，进行中的引擎任务不会被中断。',
                 buttons: ['最小化到托盘', '直接退出'],
@@ -281,7 +282,7 @@ function hideToTray(): void {
     if (tray && process.platform === 'win32') {
         try {
             tray.displayBalloon({
-                title: 'AI Dev Workbench',
+                title: 'Aico',
                 content: '已最小化到系统托盘，引擎任务继续运行。点击托盘图标可恢复窗口。',
             });
         } catch {
@@ -305,10 +306,10 @@ function createTray(): void {
         .createFromPath(path.join(appRoot(), 'resources', 'app-icon.png'))
         .resize({width: 16, height: 16});
     tray = new Tray(icon);
-    tray.setToolTip('AI Dev Workbench');
+    tray.setToolTip('Aico');
     tray.setContextMenu(
         Menu.buildFromTemplate([
-            {label: '打开 AI Dev Workbench', click: () => showMainWindow()},
+            {label: '打开 Aico', click: () => showMainWindow()},
             {type: 'separator'},
             {
                 label: '退出',
@@ -388,9 +389,9 @@ if (!gotLock) {
                 await waitForServer(port, SERVER_READY_TIMEOUT_MS);
             } catch (err) {
                 dialog.showErrorBox(
-                    'AI Dev Workbench',
+                    'Aico',
                     `后端服务启动超时：${err instanceof Error ? err.message : err}\n` +
-                    '日志文件：~/.ai-dev-workbench/logs/desktop-server.log',
+                    '日志文件：~/.aico/logs/desktop-server.log',
                 );
                 app.quit();
                 return;
@@ -411,7 +412,7 @@ if (!gotLock) {
         } catch (err) {
             // 同步启动错误（如 spawn 参数异常）以弹窗呈现而非静默 unhandled rejection
             dialog.showErrorBox(
-                'AI Dev Workbench',
+                'Aico',
                 `启动失败：${err instanceof Error ? err.message : String(err)}`,
             );
             app.quit();

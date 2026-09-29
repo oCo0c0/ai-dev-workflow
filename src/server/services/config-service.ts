@@ -2,9 +2,9 @@
  * @module config-service
  * @description 应用配置管理服务模块
  *
- * 该模块负责管理 AI 开发工作台的全局应用配置，包括服务器设置、Claude CLI 路径配置、
+ * 该模块负责管理 Aico的全局应用配置，包括服务器设置、Claude CLI 路径配置、
  * UI 偏好设置和默认流水线 ID 等选项。配置文件以 JSON 格式存储在用户主目录下的
- * `.ai-dev-workbench/config.json` 文件中。
+ * `.aico/config.json` 文件中。
  *
  * 主要功能：
  * - 加载和保存应用配置（自动处理默认值和目录创建）
@@ -450,7 +450,7 @@ export class ConfigService {
 
     /**
      * 构造配置服务
-     * @param configDir - 可选的自定义配置目录路径，默认为 ~/.ai-dev-workbench
+     * @param configDir - 可选的自定义配置目录路径，默认为 ~/.aico
      */
     constructor(configDir?: string) {
         this.configDir = configDir ?? APP_DATA_DIR;

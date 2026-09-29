@@ -72,7 +72,7 @@ await check('GET /plugins/ui-dsh-adw/client.js（浏览器半）', async () => {
 console.log('')
 if (failed > 0) {
   console.log(`未通过 ${failed} 项。排查建议：`)
-  console.log('  1) 确认已执行：dsh plugin --profile web add link:D:/py_workspace/ai-dev-workflow/packages/dsh-adw')
+  console.log('  1) 确认已执行：dsh plugin --profile web add link:D:/py_workspace/aico/packages/dsh-adw')
   console.log('  2) 确认已重启 dsh web（进程重启，不是页面刷新）')
   console.log('  3) 查看 dsh web 启动日志中是否有 dsh-adw 相关报错（fiber 失败会导致整棵组合树不启动）')
   process.exit(1)

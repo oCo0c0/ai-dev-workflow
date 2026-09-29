@@ -3,7 +3,7 @@
  * @description MCP 服务器配置路由模块
  *
  * 本模块提供 MCP 服务器配置的 RESTful API。数据源为 adw 自有注册中心
- * （MCPRegistryService，~/.ai-dev-workbench/mcp-servers.json），与激活的
+ * （MCPRegistryService，~/.aico/mcp-servers.json），与激活的
  * CLI Provider 解耦：切换 claude/codex/pi 不影响 MCP 列表。
  *
  * 路由前缀：/api/mcp-servers

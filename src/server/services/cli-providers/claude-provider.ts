@@ -105,7 +105,7 @@ function loadClaudeSettingsEnv(): Record<string, string> {
 }
 
 /**
- * 从自有模型供应商配置（~/.ai-dev-workbench/models.json）读取 Claude 的 env 兜底。
+ * 从自有模型供应商配置（~/.aico/models.json）读取 Claude 的 env 兜底。
  *
  * 免 CLI 依赖：当本地未安装 Claude CLI（无 ~/.claude/settings.json）时，
  * 仍可使用自动导入/手动添加的 API Key / Base URL / 模型配置。
@@ -262,7 +262,7 @@ export class ClaudeProvider implements CLIProvider {
 /**
  * 读取本地可提供的模型选项：
  * 1. 解析 ~/.claude/settings.json env 中的档位映射（tier 为 SDK 可识别的别名 haiku/sonnet/opus）
- * 2. 合并自有模型供应商配置（~/.ai-dev-workbench/models.json 的 claude 记录）中的模型，
+ * 2. 合并自有模型供应商配置（~/.aico/models.json 的 claude 记录）中的模型，
  *    使「模型供应商」页添加的模型出现在下拉中（否则该页配置的模型永远无法选择）
  */
 async loadModelOptions(): Promise<CLIProviderModelOptions> {

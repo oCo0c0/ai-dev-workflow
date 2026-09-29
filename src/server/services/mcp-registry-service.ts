@@ -5,7 +5,7 @@
  * 设计背景：MCP 服务器是 adw 的“资源”，不应绑定到某个 provider 的配置文件格式
  * （claude → ~/.claude.json / ~/.claude/settings.json、codex → ~/.codex/config.toml、
  *  pi → 无 MCP 概念）。因此：
- *   - 唯一数据源：~/.ai-dev-workbench/mcp-servers.json，UI / Bridge / 运行时注入统一读取
+ *   - 唯一数据源：~/.aico/mcp-servers.json，UI / Bridge / 运行时注入统一读取
  *   - 启动导入：importFromProviders() 扫描 claude/codex/pi 本地配置，去重合并进注册中心
  *   - 切换 provider 不影响 MCP 列表（列表来自注册中心，而非激活的 provider）
  */
@@ -38,7 +38,7 @@ interface RegistryFile {
  * 注册中心构造选项（主要用于测试隔离；默认指向用户真实配置文件）
  */
 export interface MCPRegistryOptions {
-    /** 注册中心文件路径，默认 ~/.ai-dev-workbench/mcp-servers.json */
+    /** 注册中心文件路径，默认 ~/.aico/mcp-servers.json */
     registryFile?: string;
     /** Claude 全局配置 ~/.claude.json */
     claudeGlobalFile?: string;

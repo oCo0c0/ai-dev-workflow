@@ -3,7 +3,7 @@
  * @description MCP 聚合网关（平台统一管理 MCP 的唯一入口）
  *
  * 设计决策（平台化改造核心）：
- * - MCP 服务器是平台资源（清单来自 MCPRegistryService，~/.ai-dev-workbench/mcp-servers.json），
+ * - MCP 服务器是平台资源（清单来自 MCPRegistryService，~/.aico/mcp-servers.json），
  *   不再由各引擎各自 spawn。本网关统一持有上游连接，向引擎提供两种消费方式：
  *     1. Claude 引擎：SDK 原生 HTTP MCP 挂载（options.mcpServers 传 {type:'http', url}），
  *        工具调用回流到本进程，平台可观测、可鉴权；

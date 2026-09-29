@@ -23,7 +23,7 @@
 1. `app.requestSingleInstanceLock()` 单实例
 2. `fixPath()` —— 必须先于任何子进程派生（子进程继承主进程环境）
 3. `findAvailablePort()` 选端口（开发模式固定 3000，对齐 Vite 代理）
-4. `spawn(process.execPath, [dist-electron/electron/server-bootstrap.js], {env: {ELECTRON_RUN_AS_NODE:'1', ADW_PORT}})` —— 生产日志重定向 `~/.ai-dev-workbench/logs/desktop-server.log`
+4. `spawn(process.execPath, [dist-electron/electron/server-bootstrap.js], {env: {ELECTRON_RUN_AS_NODE:'1', ADW_PORT}})` —— 生产日志重定向 `~/.aico/logs/desktop-server.log`
 5. HTTP 轮询 `127.0.0.1:port` 就绪后 `loadURL`
 6. 退出：`will-quit` → `serverProc.kill()`（POSIX 触发服务端既有 SIGTERM 优雅清理；Windows 为强杀，已知限制）
 

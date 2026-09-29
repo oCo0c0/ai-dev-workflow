@@ -4,7 +4,7 @@
  *
  * 与自动收集的「项目事实 / 用户画像 / 反馈日志」并列的第四类记忆：
  * 用户通过 `/memory add <内容>` 显式写入的长期记忆（约定、偏好、注意事项等），
- * 存放于 `~/.ai-dev-workbench/memory/notes.json`，可按工作区归属与关键词检索。
+ * 存放于 `~/.aico/memory/notes.json`，可按工作区归属与关键词检索。
  */
 import path from 'path';
 import {randomUUID} from 'crypto';

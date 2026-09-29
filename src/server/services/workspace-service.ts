@@ -11,7 +11,7 @@
  * - 工作区收藏夹（持久化存储）
  * - 文件内容安全读取（含路径遍历防护）
  *
- * 配置文件默认存储在用户主目录下的 ~/.ai-dev-workbench/ 中。
+ * 配置文件默认存储在用户主目录下的 ~/.aico/ 中。
  */
 
 import fs from 'fs';
@@ -269,7 +269,7 @@ export class WorkspaceService {
 
     /**
      * 创建 WorkspaceService 实例
-     * @param {string} [configDir] - 可选的自定义配置目录路径，默认为 ~/.ai-dev-workbench
+     * @param {string} [configDir] - 可选的自定义配置目录路径，默认为 ~/.aico
      */
     constructor(configDir?: string) {
         this.configDir = configDir ?? CONFIG_DIR;

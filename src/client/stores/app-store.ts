@@ -1,6 +1,6 @@
 /**
  * @file 全局应用状态管理 Store
- * @description 基于 Zustand 的全局状态管理模块，集中管理 AI 开发工作台的所有业务状态。
+ * @description 基于 Zustand 的全局状态管理模块，集中管理 Aico的所有业务状态。
  *              涵盖需求管理、工作空间、开发计划、执行监控、测试结果、
  *              工作流管道、WebSocket 连接状态及 UI 偏好设置等模块。
  *

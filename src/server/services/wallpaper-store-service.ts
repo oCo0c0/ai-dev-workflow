@@ -3,10 +3,10 @@
  * @description 壁纸库存储服务 —— 服务端托管的壁纸文件 + 元数据 + 外观设置持久化
  *
  * 设计参考 dsh-wallpaper-engine（MIT）的「设置持久化到宿主端文件」思路：
- * - 全部设置（选中壁纸、效果、播放、遮挡暂停）存 `~/.ai-dev-workbench/wallpapers/settings.json`，
+ * - 全部设置（选中壁纸、效果、播放、遮挡暂停）存 `~/.aico/wallpapers/settings.json`，
  *   与端口无关 —— 重启/换端口/换浏览器/清浏览器数据都不丢（localStorage 按 origin 隔离，
  *   而桌面版/随机端口每次都是新 origin）。
- * - 上传文件写入 `~/.ai-dev-workbench/wallpapers/uploads/`，缩略图写入 `thumbs/`，
+ * - 上传文件写入 `~/.aico/wallpapers/uploads/`，缩略图写入 `thumbs/`，
  *   元数据在 `meta.json`。经 /api/wallpapers/:id/media、/thumb 同源路由服务。
  *
  * 线程模型：Node 单线程 + 同步 JSON 读写（与其它 Store Service 一致），

@@ -1,7 +1,7 @@
 {
   "name": "@along/adw-requirement-core",
   "version": "0.6.0",
-  "description": "Requirement-fetching core extracted from adw (ai-dev-workbench): agent-mediated fetch over MCP (standard MCP consumption, zero per-source code) + MCP transport bridge + MCP config + requirement store. Zero DSH dependencies.",
+  "description": "Requirement-fetching core extracted from adw (Aico): agent-mediated fetch over MCP (standard MCP consumption, zero per-source code) + MCP transport bridge + MCP config + requirement store. Zero DSH dependencies.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

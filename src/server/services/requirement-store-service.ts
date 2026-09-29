@@ -1,6 +1,6 @@
 /**
  * @file 需求本地存储服务（文件夹结构）
- * @description 每个需求以独立文件夹存储在 ~/.ai-dev-workbench/requirements/{id}/ 下。
+ * @description 每个需求以独立文件夹存储在 ~/.aico/requirements/{id}/ 下。
  *   文件夹结构：
  *     requirements/{id}/metadata.json  — 结构化元数据（状态、优先级、负责人等）
  *     requirements/{id}/document.md    — 需求描述（Markdown 格式）

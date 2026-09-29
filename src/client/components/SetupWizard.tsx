@@ -144,7 +144,7 @@ export default function SetupWizard() {
                 {/* 向导主面板卡片 */}
                 <div className="w-full max-w-md glass-panel rounded-xl p-6 shadow-xl">
                     <h2 className="mb-4 text-xl font-semibold text-foreground">
-                        Welcome to AI Dev Workbench
+                        Welcome to Aico
                     </h2>
                     <p className="mb-6 text-sm text-muted-foreground">
                         Let's verify your environment is ready.

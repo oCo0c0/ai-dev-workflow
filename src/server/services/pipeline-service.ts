@@ -3,7 +3,7 @@
  * @description 提供工作流管线（Pipeline）的持久化存储和管理能力。
  *   管线定义了 AI 辅助开发工作流的完整配置，包括需求来源、工作空间绑定、
  *   各阶段使用的技能集合、MCP 工具集配置以及测试策略等。
- *   所有管线数据以 JSON 格式存储在用户主目录下的 ~/.ai-dev-workbench/pipelines.json 文件中。
+ *   所有管线数据以 JSON 格式存储在用户主目录下的 ~/.aico/pipelines.json 文件中。
  */
 
 import fs from 'fs';
@@ -194,7 +194,7 @@ export class PipelineService {
 
     /**
      * 构造函数
-     * @param configDir - 可选的自定义配置目录路径，默认为 ~/.ai-dev-workbench
+     * @param configDir - 可选的自定义配置目录路径，默认为 ~/.aico
      */
     constructor(configDir?: string) {
         this.configDir = configDir ?? APP_DATA_DIR;

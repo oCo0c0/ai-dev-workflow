@@ -2,8 +2,8 @@
 /**
  * CLI 入口模块
  *
- * AI Dev Workbench 命令行入口。负责：
- * 1. 加载用户配置（~/.ai-dev-workbench/config.json）
+ * Aico 命令行入口。负责：
+ * 1. 加载用户配置（~/.aico/config.json）
  * 2. 查找可用端口
  * 3. 启动 HTTP/WebSocket 服务
  * 4. 注册优雅关闭处理（SIGINT/SIGTERM）
@@ -12,9 +12,9 @@
 import {findAvailablePort, resolvePreferredPort} from './port-finder.js';
 import {printBanner} from './banner.js';
 import {createServer} from '../server';
+import {APP_DATA_DIR} from '../shared/app-data-dir.js';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 
 /** 应用配置接口 */
 interface AppConfig {
@@ -26,15 +26,15 @@ interface AppConfig {
     };
 }
 
-/** 配置目录路径 */
-const CONFIG_DIR = path.join(os.homedir(), '.ai-dev-workbench');
+/** 配置目录路径（`~/.aico`，旧版目录由 app-data-dir 自动迁移） */
+const CONFIG_DIR = APP_DATA_DIR;
 /** 配置文件路径 */
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 /**
  * 加载用户配置文件
  *
- * 从 ~/.ai-dev-workbench/config.json 读取配置。
+ * 从 ~/.aico/config.json 读取配置。
  * 文件不存在或解析失败时返回空配置。
  *
  * @returns 解析后的应用配置对象
@@ -54,7 +54,7 @@ function loadConfig(): AppConfig {
 /**
  * 确保配置目录存在
  *
- * 若 ~/.ai-dev-workbench 目录不存在则递归创建。
+ * 若 ~/.aico 目录不存在则递归创建。
  */
 function ensureConfigDir(): void {
     if (!fs.existsSync(CONFIG_DIR)) {
@@ -113,6 +113,6 @@ async function startCLI(): Promise<void> {
 }
 
 startCLI().catch((err) => {
-    console.error('Failed to start AI Dev Workbench:', err.message);
+    console.error('Failed to start Aico:', err.message);
     process.exit(1);
 });
