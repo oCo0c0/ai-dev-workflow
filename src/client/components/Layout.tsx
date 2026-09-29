@@ -16,6 +16,7 @@ import {useTranslation} from 'react-i18next';
 import {useAppStore, syncUiPreferences} from '../stores/app-store';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useWebSocket} from '../hooks/useWebSocket';
+import {useResizableWidth, ResizeHandle} from '../hooks/useResizableWidth';
 import SetupWizard from './SetupWizard';
 import {cn} from '../lib/utils';
 import RequirementsPage from '../pages/RequirementsPage';
@@ -123,6 +124,13 @@ export default function Layout() {
     const sidebarCollapsed = useAppStore((s) => s.ui.sidebarCollapsed);
     const toggleSidebar = useAppStore((s) => s.toggleSidebar);
     const setSidebarCollapsed = useAppStore((s) => s.setSidebarCollapsed);
+    // 菜单宽度可拖拽：默认比原先（220）更窄，把宽度留给消息输出区
+    const {
+        width: sidebarWidth,
+        dragging: draggingSidebar,
+        onHandlePointerDown: onSidebarHandleDown,
+        reset: resetSidebarWidth,
+    } = useResizableWidth('adw.sidebar.width', 176, {min: 140, max: 320});
     const locale = useAppStore((s) => s.ui.locale);
     const setLocale = useAppStore((s) => s.setLocale);
     const mascotEnabled = useAppStore((s) => s.ui.mascot.enabled);
@@ -214,14 +222,24 @@ export default function Layout() {
             {/* 壁纸层：界面后方的固定图层（z -2 壁纸 + z -1 遮罩），portal 到 body */}
             <WallpaperLayer/>
 
-            {/* 侧边栏 */}
+            {/* 侧边栏：宽度可拖拽（默认更窄，把空间留给消息输出区） */}
             <aside
                 className={cn(
-                    'flex flex-col border-r border-border/50 glass-sidebar transition-all duration-300 ease-in-out',
-                    sidebarCollapsed ? 'w-[52px]' : 'w-[220px]'
+                    'relative flex flex-col border-r border-border/50 glass-sidebar',
+                    !draggingSidebar && 'transition-[width] duration-200 ease-out',
+                    sidebarCollapsed ? 'w-[52px]' : ''
                 )}
+                style={sidebarCollapsed ? undefined : {width: sidebarWidth}}
             >
-                <div className="flex h-14 items-center border-b border-border/50 px-3 app-drag app-titlebar">
+                {!sidebarCollapsed && (
+                    <ResizeHandle
+                        dragging={draggingSidebar}
+                        onPointerDown={onSidebarHandleDown}
+                        onDoubleClick={resetSidebarWidth}
+                        title="拖动调整菜单宽度（双击恢复默认）"
+                    />
+                )}
+                <div className="flex h-11 items-center border-b border-border/50 px-3 app-drag app-titlebar">
                     {!sidebarCollapsed && (
                         <div className="flex items-center gap-2">
                             <img
@@ -317,7 +335,7 @@ export default function Layout() {
 
             {/* 主内容区域 */}
             <div className="flex flex-1 flex-col overflow-hidden">
-                <header className="relative z-50 flex h-14 items-center justify-between border-b border-border/50 glass px-6 app-drag app-titlebar">
+                <header className="relative z-50 flex h-11 items-center justify-between border-b border-border/50 glass px-3 app-drag app-titlebar">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={toggleSidebar}

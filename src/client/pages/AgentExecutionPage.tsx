@@ -59,6 +59,7 @@ import {deliverableFilesFromMessages} from '../utils/agent-log-parse';
 import {groupExecutionsByWorkspace} from '../utils/agent-workspace-groups';
 import {dispatchChatCommand} from '../utils/command-dispatch';
 import {useParsedLogs} from '../hooks/useParsedLogs';
+import {useResizableWidth, ResizeHandle} from '../hooks/useResizableWidth';
 import {DeliverablesCard} from '../components/DeliverablesCard';
 import type {AgentExecutionSummary, AgentExecutionDetail, ExecutionStatus, AgentThought} from '../types/agent-types';
 
@@ -706,11 +707,31 @@ export default function AgentExecutionPage() {
     // 排队消息（服务端为准）：仅运行中显示，消费后自动清空
     const pendingReplies = isRunning ? (detail?.pendingReplies ?? []) : [];
 
+    // 左侧执行列表宽度可拖拽（默认比原先 256 更窄，把宽度留给消息输出区）
+    const {
+        width: listWidth,
+        dragging: draggingList,
+        onHandlePointerDown: onListHandleDown,
+        reset: resetListWidth,
+    } = useResizableWidth('adw.agentExec.listWidth', 208, {min: 150, max: 420});
+
     return (
         <div className="flex h-full">
-            {/* ====== 左侧面板：执行历史列表 ====== */}
-            <div className="w-64 flex flex-col border-r border-border bg-muted/10 shrink-0">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            {/* ====== 左侧面板：执行历史列表（宽度可拖拽，默认更窄） ====== */}
+            <div
+                className={cn(
+                    'relative flex flex-col border-r border-border bg-muted/10 shrink-0',
+                    !draggingList && 'transition-[width] duration-200 ease-out',
+                )}
+                style={{width: listWidth}}
+            >
+                <ResizeHandle
+                    dragging={draggingList}
+                    onPointerDown={onListHandleDown}
+                    onDoubleClick={resetListWidth}
+                    title="拖动调整列表宽度（双击恢复默认）"
+                />
+                <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                     <span className="label-strong text-xs uppercase tracking-wide">
                         执行历史
                     </span>
@@ -821,16 +842,16 @@ export default function AgentExecutionPage() {
 
             {/* ====== 右侧面板 ====== */}
             <div className="adw-jumpbar-gutter relative flex-1 flex flex-col min-w-0">
-                {/* 页面头部 */}
-                <div className="border-b border-border px-6 py-3 shrink-0">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h1 className="text-lg font-semibold brand-gradient-text">
+                {/* 页面头部：压缩为单行（高度让给消息输出区） */}
+                <div className="border-b border-border px-4 py-2 shrink-0">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-baseline gap-2 min-w-0">
+                            <h1 className="text-base font-semibold brand-gradient-text shrink-0">
                                 Agent 执行
                             </h1>
-                            <p className="text-xs text-muted-foreground mt-0.5">选择需求，Agent自主完成开发</p>
+                            <p className="hidden lg:block text-[11px] text-muted-foreground truncate">选择需求，Agent自主完成开发</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -854,7 +875,7 @@ export default function AgentExecutionPage() {
                             )}
                             {activeId && statusMeta && (
                                 <div className={cn(
-                                    'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                                    'flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors',
                                     statusMeta.colorClass,
                                 )}>
                                     {isRunning && <Loader2 className="h-3 w-3 animate-spin"/>}
@@ -870,7 +891,8 @@ export default function AgentExecutionPage() {
                 </div>
 
                 {/* 右侧内容区（未选择 / 已选择）：日志区 flex 填满剩余高度（不固定视口高度，避免面板下方留空） */}
-                <div className="flex-1 min-h-0 px-6 pt-4 flex flex-col">
+                {/* 消息输出区：内边距压紧，把空间尽量留给输出 */}
+                <div className="flex-1 min-h-0 px-3 pt-2 flex flex-col">
 
                     {/* ====== 未选择执行：空状态提示 ====== */}
                     {!activeId && (
@@ -912,15 +934,15 @@ export default function AgentExecutionPage() {
                     )}
                 </div>
 
-                {/* --- 底部消息输入：流内常驻底条，与日志面板同宽对齐（不悬浮、不遮挡） --- */}
+                {/* --- 底部消息输入：压缩为紧凑底条（把高度让给消息输出区） --- */}
                 {activeId && detail && (
-                    <div className="shrink-0 px-6 pb-4 pt-1">
+                    <div className="shrink-0 px-3 pb-2.5 pt-1">
                         <div className="floating-input-card w-full rounded-xl border border-primary/25 shadow-xl">
-                            <div className="p-3">
-                                <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                        <MessageSquare className="h-4 w-4 text-primary"/>
-                                        <span className="text-sm font-semibold">发送消息给 Agent</span>
+                            <div className="p-2">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <MessageSquare className="h-3.5 w-3.5 text-primary"/>
+                                        <span className="text-xs font-semibold">发送消息给 Agent</span>
                                     </div>
                                     <ContextIndicator
                                         logs={currentLogs}
@@ -1059,7 +1081,7 @@ export default function AgentExecutionPage() {
                                                     ? t('agents.inputQueuePlaceholder')
                                                     : t('agents.inputReplyPlaceholder')
                                         }
-                                        rows={3}
+                                        rows={2}
                                         title="发送消息给 Agent"
                                         optimizable
                                         optimizePurpose="reply"
