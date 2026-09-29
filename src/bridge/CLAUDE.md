@@ -48,7 +48,10 @@ Claude Agent SDK 桥接进程，作为独立子进程运行。封装 `@anthropic
 - **结构化事件透传**：解析 SDK 的 `thinking`、`tool_use`、`tool_result` 事件并透传给调用方
 - **模型/参数配置**：支持 `model`、`reasoningEffort`、`extendedThinking` 参数
 - **MCP 服务器注入**：支持通过 `mcpServers` 注入 MCP 服务器配置
-- **自动压缩**：通过 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` 环境变量控制上下文窗口大小
+- **自动压缩**：`autoCompactEnabled: true`（上下文将满时自动压缩，避免 prompt too long 直接失败）；
+  窗口大小可用环境变量 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` 覆盖（映射到 SDK 的 `autoCompactWindow`）
+- **中止**：`agent.abort` → SDK 的 `abortController`（选项名必须是 `abortController`，不是 `abortSignal`）
+- **步数上限**：SDK 报 `error_max_turns` 时返回 `{maxTurnsReached: true, numTurns}`（不是失败，父进程续跑）
 - **诊断日志**：可选的轻量调试日志写入 `D:\bridge-debug.log`
 
 ## 对外接口
@@ -66,5 +69,6 @@ src/bridge/
 
 | 日期 | 操作 | 说明 |
 |------|------|------|
+| 2026-09-24 | 修复 | **SDK 选项名与错误分类**（用户报「claude 执行报 `SDK error: error_max_turns \| no detail`，不是加了自动压缩吗」）：核对 SDK 类型声明后发现两处**选项名写错、被静默忽略**的能力 ——① 自动压缩：我们传 `compactWindow`，而 SDK 声明的是 **`autoCompactEnabled` / `autoCompactWindow`** ⇒ 自动压缩从未生效；② 中止：我们传 `abortSignal: controller.signal`，而 SDK 声明的是 **`abortController?: AbortController`** ⇒ 「立即处理/中止」在 SDK 层面从未生效（此前只是父进程本地返回，旧查询仍在后台跑完）。均已改为正确名字。另把 result 错误分类成人话（`classifyResultError`，导出以便验证）：`error_max_turns`/`terminal_reason=max_turns` → **不是失败**，返回 `{maxTurnsReached: true, numTurns}` 交由父进程续跑；`prompt_too_long`/`blocking_limit` → 「上下文过长，可用 /compact 压缩」；`error_max_budget_usd` → 预算上限；其余保留原文并附 terminal_reason。实测：工具睡 20s 后 abort，30s 内 0 新事件（中止真正生效）；选项名核对 + 错误分类 14 项断言全过 |
 | 2026-09-24 | 修复 | 通知作用域化（工具行永久转圈的根因之一）：① 查询期通知统一经 `emitQueryNotification` 附加 `params.requestId`（发起查询的 JSON-RPC id），父进程据此精确路由；② `sessionId` 由模块级全局变量改为**每次查询局部状态**（并发/续接查询不再串线），`waitForRetry` 与查询响应回传该查询的 sessionId；③ 活动查询改为 `activeQueries` 表（requestId → AbortController），`agent.abort` 支持按 requestId 精确中止，`canUseTool` 同样带 requestId。真实 SDK 实测：并行 3 个 Bash → 3 tool_use/3 tool_result 全配对、每条通知带 requestId；被中断的在飞工具 6s 内 0 结果（证实「中断必须由服务端收敛」） |
 | 2026-07-21 | 创建 | 初始化模块文档 |

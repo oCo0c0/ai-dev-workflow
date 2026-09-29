@@ -125,6 +125,13 @@ export interface CLIExecutionResult {
     aborted: boolean;
     /** 会话 ID */
     sessionId?: string;
+    /**
+     * 本次运行因**单轮步数上限**（引擎 maxTurns）停止——不是失败：
+     * 会话已持久化，调用方可带着同一会话再跑一批继续长任务。
+     */
+    maxTurnsReached?: boolean;
+    /** 实际消耗的轮次（引擎报告时提供） */
+    turnsUsed?: number;
 }
 
 // === CLI 运行器服务（Facade） ===
@@ -408,6 +415,8 @@ export class CLIRunnerService {
             stderr: result.stderr ?? '',
             aborted: result.aborted ?? false,
             sessionId: result.sessionId,
+            ...(result.maxTurnsReached ? {maxTurnsReached: true} : {}),
+            ...(typeof result.turnsUsed === 'number' ? {turnsUsed: result.turnsUsed} : {}),
         };
     }
 

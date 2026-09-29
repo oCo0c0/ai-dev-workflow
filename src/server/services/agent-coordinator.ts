@@ -11,7 +11,7 @@
 
 import {randomUUID} from 'crypto';
 import {AgentExecutionStore} from './agent-execution-store.js';
-import {CLIRunnerService} from './cli-runner-service.js';
+import {CLIRunnerService, type CLIExecutionResult} from './cli-runner-service.js';
 import {broadcast} from '../websocket.js';
 import {renderPrompt} from '../utils/prompt-renderer.js';
 import {PROMPTS} from '../prompts';
@@ -130,6 +130,8 @@ export class AgentCoordinator {    private store = AgentExecutionStore.getInstan
     private runningExecutions = new Set<string>();
     /** 跨引擎/会话失效续接时注入的上下文摘要上限（字符） */
     private static readonly CONTINUITY_TRANSCRIPT_CHARS = 12_000;
+    /** 单轮步数上限（引擎 maxTurns）的自动续跑批数上限：8 × 50 = 400 轮 */
+    private static readonly MAX_TURN_BATCHES = 8;
     private config: CoordinatorConfig;
 
     constructor(config: CoordinatorConfig) {
@@ -540,7 +542,8 @@ export class AgentCoordinator {    private store = AgentExecutionStore.getInstan
                 continuityInjected = true;
             }
 
-            const result = await this.config.cliRunner.runBridge(
+            const result = await this.runBridgeWithTurnContinuation(
+                executionId,
                 {
                     prompt: enrichPrompt(subPrompt, this.config.memoryService, cwd),
                     cwd,
@@ -552,7 +555,8 @@ export class AgentCoordinator {    private store = AgentExecutionStore.getInstan
                     signal: controller.signal,
                     onOutput: this.makeOutputHandler(executionId),
                     onPermissionRequest: this.makePermissionHandler(executionId),
-                }
+                },
+                `子任务「${sub.title}」`,
             );
 
             if (result.sessionId) lastSessionId = result.sessionId;
@@ -676,6 +680,43 @@ export class AgentCoordinator {    private store = AgentExecutionStore.getInstan
     }
 
     /**
+     * 调一次引擎；若因**单轮步数上限**（引擎 maxTurns）停止，则带着同一会话自动续跑下一批。
+     *
+     * 背景：Claude 侧 `maxTurns` 打满时 SDK 返回 `error_max_turns`，此前被当成硬失败
+     * （用户看到「执行失败（退出码 1）: SDK error: error_max_turns | no detail」），
+     * 长任务因此半途而废。该状态**不是失败**：会话已持久化，续跑就是让 agent 接着干。
+     *
+     * @param label - 日志前缀（区分单次执行 / 子任务）
+     * @returns 最后一次运行结果；批次上限仍打满时返回带明确说明的失败结果
+     */
+    private async runBridgeWithTurnContinuation(
+        executionId: string,
+        input: Parameters<CLIRunnerService['runBridge']>[0],
+        options: Parameters<CLIRunnerService['runBridge']>[1],
+        label = '执行',
+    ): Promise<CLIExecutionResult> {
+        let result = await this.config.cliRunner.runBridge(input, options);
+        let batch = 1;
+        while (result.maxTurnsReached && batch < AgentCoordinator.MAX_TURN_BATCHES && !options?.signal?.aborted) {
+            batch += 1;
+            const notice = `⏭ ${label}已达单轮步数上限（${result.turnsUsed ?? '上限'} 轮），自动继续第 ${batch} 批（会话已续接，不会从头上重来）`;
+            await this.store.addLog(executionId, notice).catch(() => undefined);
+            this.broadcastLog(executionId, notice);
+            result = await this.config.cliRunner.runBridge(
+                {...input, ...(result.sessionId ? {sessionId: result.sessionId} : {})},
+                options,
+            );
+        }
+        if (result.maxTurnsReached) {
+            const notice = `⚠ 连续 ${batch} 批都达到单轮步数上限，已停止。任务可能过大：建议拆分需求，或再次点执行继续（会话上下文仍在）。`;
+            await this.store.addLog(executionId, notice).catch(() => undefined);
+            this.broadcastLog(executionId, notice);
+            return {...result, exitCode: 1, stderr: notice};
+        }
+        return result;
+    }
+
+    /**
      * 单次执行模式（未分解或分解失败降级）：保留旧行为。
      * 聊天附件块注入用户回复文本：有回复时追加到最后一条，无回复时补一条合成说明，
      * 保证三个 prompt 组装分支（续接/合并需求/首次）都能看到附件。
@@ -716,7 +757,8 @@ export class AgentCoordinator {    private store = AgentExecutionStore.getInstan
         // 会话无法续接（换引擎/会话失效）：把此前对话摘要带进本轮，避免上下文完全丢失
         if (session.transcript) prompt += continuityBlock(session.transcript);
 
-        const result = await this.config.cliRunner.runBridge(
+        const result = await this.runBridgeWithTurnContinuation(
+            executionId,
             {
                 prompt,
                 cwd,
@@ -728,7 +770,7 @@ export class AgentCoordinator {    private store = AgentExecutionStore.getInstan
                 signal: controller.signal,
                 onOutput: this.makeOutputHandler(executionId),
                 onPermissionRequest: this.makePermissionHandler(executionId),
-            }
+            },
         );
 
         // 保存会话指针 + 产生它的引擎（下次据此判断能否续接）

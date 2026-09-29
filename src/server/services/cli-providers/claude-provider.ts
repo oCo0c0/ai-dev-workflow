@@ -779,13 +779,21 @@ async loadModelOptions(): Promise<CLIProviderModelOptions> {
                 sessionId: req.sessionId,
             });
         } else {
-            const res = result as { exitCode?: number; sessionId?: string } | undefined;
+            const res = result as {
+                exitCode?: number;
+                sessionId?: string;
+                maxTurnsReached?: boolean;
+                numTurns?: number | null;
+            } | undefined;
             req.resolve({
                 exitCode: res?.exitCode ?? 0,
                 stdout: req.stdout,
                 stderr: '',
                 aborted: req.aborted,
                 sessionId: res?.sessionId || req.sessionId,
+                // 单轮步数上限：透传给协调器做自动续跑（不是失败）
+                ...(res?.maxTurnsReached ? {maxTurnsReached: true} : {}),
+                ...(typeof res?.numTurns === 'number' ? {turnsUsed: res.numTurns} : {}),
             });
         }
     }

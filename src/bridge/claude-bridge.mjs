@@ -305,25 +305,60 @@ async function runQueryOnce(prompt, options, requestId) {
             dbg('result', {
                 is_error: msg.is_error,
                 subtype: msg.subtype,
+                terminalReason: msg.terminal_reason,
                 result: msg.is_error ? msg.result : undefined,
                 totalMs: msg.duration_ms,
                 numTurns: msg.num_turns,
             });
             if (msg.is_error) {
-                let errorMsg;
-                if (typeof msg.result === 'string') {
-                    errorMsg = msg.result;
-                } else {
-                    const detail = msg.result == null ? 'no detail' : JSON.stringify(msg.result);
-                    errorMsg = `SDK error: ${msg.subtype || 'unknown'} | ${detail}`;
+                const classified = classifyResultError(msg);
+                if (classified.kind === 'max_turns') {
+                    // 步数上限**不是失败**：会话已持久化，父进程可带着同一会话再跑一批。
+                    // 此前这里当成普通错误返回，用户看到的是「执行失败（退出码 1）: SDK error:
+                    // error_max_turns | no detail」——把正常的步数边界误报成故障。
+                    return {status: 'max_turns', sessionId, numTurns: msg.num_turns};
                 }
-                return isOverloaded(errorMsg)
-                    ? {status: 'overloaded', error: errorMsg}
-                    : {status: 'error', error: errorMsg};
+                return isOverloaded(classified.message)
+                    ? {status: 'overloaded', error: classified.message}
+                    : {status: 'error', error: classified.message};
             }
         }
     }
     return {status: 'done', sessionId};
+}
+
+/**
+ * 把 SDK 的 result 错误分类成人话。
+ *
+ * SDK 的 TerminalReason 明确区分「步数上限」与「上下文超长」：
+ *   max_turns / budget_exhausted / prompt_too_long / blocking_limit …
+ * `subtype` 则是 error_max_turns / error_max_budget_usd / error_during_execution 等。
+ * 此前一律拼成 `SDK error: <subtype> | no detail`，用户完全无法据此行动。
+ *
+ * @param {object} msg - SDK 的 result 消息
+ * @returns {{kind: 'max_turns'|'prompt_too_long'|'budget'|'other', message: string}}
+ */
+export function classifyResultError(msg) {
+    const subtype = msg.subtype || '';
+    const terminal = msg.terminal_reason || '';
+    if (subtype === 'error_max_turns' || terminal === 'max_turns') {
+        return {kind: 'max_turns', message: `已达单轮步数上限（${msg.num_turns ?? '?'} 轮）`};
+    }
+    if (terminal === 'prompt_too_long' || terminal === 'blocking_limit') {
+        return {
+            kind: 'prompt_too_long',
+            message: '上下文过长（prompt too long）：可用 /compact 压缩后再继续，或新建会话',
+        };
+    }
+    if (subtype === 'error_max_budget_usd' || terminal === 'budget_exhausted') {
+        return {kind: 'budget', message: '已达本轮预算上限（max budget usd）'};
+    }
+    if (typeof msg.result === 'string' && msg.result.trim()) {
+        return {kind: 'other', message: msg.result};
+    }
+    const detail = msg.result == null ? 'no detail' : JSON.stringify(msg.result);
+    const suffix = terminal ? `（${terminal}）` : '';
+    return {kind: 'other', message: `SDK error: ${subtype || 'unknown'}${suffix} | ${detail}`};
 }
 
 /**
@@ -401,15 +436,23 @@ async function handleExecute(msg) {
     const options = {
         cwd: cwd || process.cwd(),
         maxTurns,
-        // SDK 中止信号：agent.abort 触发后 query 迭代立即结束，旧查询不再与续跑轮并发
-        abortSignal: abortController.signal,
+        // SDK 中止句柄：选项名是 **abortController**（传 controller 本体，不是 signal）。
+        // 此前写的是 abortSignal（SDK 里没有这个名字）→ 被静默忽略，
+        // 「立即处理 / 中止」在 SDK 层面从未生效，旧查询仍在后台跑完。
+        abortController,
         // 权限模式由服务端按全局配置下发（default/acceptEdits/bypassPermissions），缺省 acceptEdits
         permissionMode: permissionMode || 'acceptEdits',
         ...(sessionId ? {resume: sessionId} : {}),
         ...(skills ? {skills} : {}),
         ...(mcpServers ? {mcpServers} : {}),
-        // 启用自动压缩：限制上下文窗口大小
-        compactWindow: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ? parseInt(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, 10) : undefined,
+        // 自动压缩：上下文将满时自动压缩对话，避免 "prompt too long" 直接失败。
+        // 注意选项名必须是 SDK 声明的 `autoCompactEnabled` / `autoCompactWindow`
+        // ——此前写的是 `compactWindow`（SDK 里不存在这个名字），被静默忽略，
+        // 等于「自动压缩」从未生效；窗口大小可用环境变量覆盖。
+        autoCompactEnabled: true,
+        ...(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+            ? {autoCompactWindow: parseInt(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, 10)}
+            : {}),
     };
 
     // 权限确认：仅当调用方启用时注入 canUseTool
@@ -450,6 +493,16 @@ async function handleExecute(msg) {
                     emitJsonRpcResponse(msg.id, {
                         exitCode: 0,
                         sessionId: runResult.sessionId || '',
+                    });
+                    return;
+                }
+                if (runResult.status === 'max_turns') {
+                    // 步数上限：不是失败。带标记返回，父进程可续跑同一会话（继续消耗剩余额度）
+                    emitJsonRpcResponse(msg.id, {
+                        exitCode: 0,
+                        sessionId: runResult.sessionId || '',
+                        maxTurnsReached: true,
+                        numTurns: runResult.numTurns ?? null,
                     });
                     return;
                 }

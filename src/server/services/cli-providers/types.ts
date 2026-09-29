@@ -265,6 +265,13 @@ export interface CLIProviderResult {
     sessionId?: string;
     /** 是否被中止 */
     aborted?: boolean;
+    /**
+     * 本次运行因**单轮步数上限**（引擎的 maxTurns）停止——不是失败：
+     * 会话已持久化，调用方可带着同一会话再跑一批（继续完成长任务）。
+     */
+    maxTurnsReached?: boolean;
+    /** 实际消耗的轮次（引擎报告时提供，用于日志与提示） */
+    turnsUsed?: number;
 }
 
 /**
