@@ -361,7 +361,7 @@ export default function PipelineRunPage() {
             </div>
 
             {/* ====== 中间：tab + 面板 ====== */}
-            <div className="adw-jumpbar-gutter relative flex-1 flex flex-col min-w-0">
+            <div className="relative flex-1 flex flex-col min-w-0">
                 {/* tab 头 */}
                 <div className="border-b border-border px-6 pt-2 shrink-0 flex items-center justify-between">
                     <div className="flex">

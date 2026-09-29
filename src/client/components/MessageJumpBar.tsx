@@ -2,18 +2,21 @@
  * @file MessageJumpBar.tsx
  * @description 消息快速跳转栏 —— LogViewer 的用户消息锚点导航（悬浮竖条）。
  *
- *   形态：Portal 到 document.body 的 fixed 竖条，固定在「页面执行历史列表
- *   与主内容区的分界处」、垂直居中——不随日志滚动、也不随页面滚动移动，
- *   任何时刻都可点。（不能用 LogViewer 内的 absolute：页面滚动会把容器
- *   滚出视口；也不能在其内部用 fixed：glass-card 的 backdrop-filter 与
- *   framer-motion 的 transform 都会劫持 fixed 的定位基准，故必须 Portal）
+ *   形态：Portal 到 document.body 的 fixed 竖条，**贴在日志面板右缘内侧**、
+ *   垂直居中——不随日志滚动、也不随页面滚动移动，任何时刻都可点。
+ *   （不能用 LogViewer 内的 absolute：页面滚动会把容器滚出视口；也不能在其内部用
+ *   fixed：glass-card 的 backdrop-filter 与 framer-motion 的 transform 会劫持
+ *   fixed 的定位基准，故必须 Portal）
+ *
+ *   为什么贴右缘而不是写死左边距：左侧的菜单栏与执行列表都支持拖拽调宽，
+ *   任何写死的 left 都会在拖动后错位；右缘用「视口右侧到日志面板右缘的距离」
+ *   表达（由 LogViewer 用 ResizeObserver 实测传入），既跟着布局变化，
+ *   也不必再为它挤占消息区左侧 32px 槽位。
  *
  *   交互：
  *     - 点击节点：平滑滚动定位到该消息（定位后目标消息闪烁高亮）
  *     - 滚动联动：当前视口所在段的节点放大高亮
- *     - 悬停预览：预览卡按节点实时坐标 fixed 定位（竖条容器 overflow 会
- *       裁剪 absolute 卡片，故不能挂在竖条内部）；同时回调 onHoverAnchor
- *       让日志区的目标消息同步高亮——不跳转也能确认要定位的是哪条
+ *     - 悬停预览：预览卡按节点实时坐标 fixed 定位（向右展开会超出视口，故向左展开）
  *     - 节点全部平铺展示（会话内用户消息数量有限，不做内部滚动）
  */
 
@@ -22,7 +25,7 @@ import {createPortal} from 'react-dom';
 import {useLocation} from 'react-router-dom';
 import {User} from 'lucide-react';
 import {cn} from '../lib/utils';
-import {useAppStore} from '../stores/app-store';
+import {previewLeftFor} from '../lib/jumpbar-geometry';
 
 /** 跳转节点：一条用户消息的定位信息 */
 export interface JumpAnchor {
@@ -46,6 +49,11 @@ interface MessageJumpBarProps {
     /** 可见页面路径前缀：keep-alive 下隐藏页面的 Portal 不随祖先隐藏，
      *  当前路径不匹配任何前缀时不渲染（undefined = 不限制） */
     visiblePaths?: string[];
+    /**
+     * 竖条右边缘距视口右侧的距离（px）——由 LogViewer 按日志面板实际位置实测传入；
+     * 缺省值用于无测量场景（如测试/独立渲染）
+     */
+    railRight?: number;
 }
 
 /** 悬停预览的摘要长度上限 */
@@ -68,7 +76,14 @@ interface HoverPreview {
     y: number;
 }
 
-export function MessageJumpBar({anchors, activeIndex, onJump, onHoverAnchor, visiblePaths}: MessageJumpBarProps) {
+export function MessageJumpBar({
+    anchors,
+    activeIndex,
+    onJump,
+    onHoverAnchor,
+    visiblePaths,
+    railRight = 12,
+}: MessageJumpBarProps) {
     const [preview, setPreview] = useState<HoverPreview | null>(null);
     const location = useLocation();
 
@@ -77,19 +92,6 @@ export function MessageJumpBar({anchors, activeIndex, onJump, onHoverAnchor, vis
     // 注意判定要放在所有 hooks 之后（条件提前返回会破坏 hooks 顺序）
     const pathVisible = !visiblePaths || visiblePaths.some((p) => location.pathname.startsWith(p));
 
-    // 悬浮位置：应用侧边栏（52px 折叠 ↔ 220px 展开）+ 页面执行历史列表（w-64=256px）
-    // 之后 6px —— 落在主内容区为跳转栏让出的左侧槽位里（body.adw-jumpbar-active 时
-    // .adw-jumpbar-gutter 有 32px 左内边距），完全不遮日志窗口
-    const sidebarCollapsed = useAppStore((s) => s.ui.sidebarCollapsed);
-    const railLeft = (sidebarCollapsed ? 52 : 220) + 256 + 6;
-
-    // 有锚点且当前页面可见时给 body 挂标记，主内容区（.adw-jumpbar-gutter）让出左侧槽位
-    useEffect(() => {
-        if (anchors.length === 0 || !pathVisible) return;
-        document.body.classList.add('adw-jumpbar-active');
-        return () => document.body.classList.remove('adw-jumpbar-active');
-    }, [anchors.length, pathVisible]);
-
     // 卸载/空锚点时清掉日志区的高亮
     useEffect(() => {
         if (anchors.length === 0 || !pathVisible) onHoverAnchor?.(null);
@@ -97,10 +99,15 @@ export function MessageJumpBar({anchors, activeIndex, onJump, onHoverAnchor, vis
 
     if (!pathVisible || anchors.length === 0) return null;
 
-    /** 悬停节点：按节点实时视口坐标记录预览位置，并通知日志区高亮目标消息 */
+    /** 悬停节点：按节点实时视口坐标记录预览位置（向左展开，避免超出右缘），并通知日志区高亮 */
     const handleNodeEnter = (event: React.MouseEvent<HTMLButtonElement>, anchor: JumpAnchor, order: number) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        setPreview({anchor, order, x: rect.right + 12, y: rect.top - 6});
+        setPreview({
+            anchor,
+            order,
+            x: previewLeftFor(rect.left),
+            y: rect.top - 6,
+        });
         onHoverAnchor?.(anchor.index);
     };
 
@@ -112,10 +119,11 @@ export function MessageJumpBar({anchors, activeIndex, onJump, onHoverAnchor, vis
     // Portal 到 body：fixed 定位只认视口，不受任何祖先 transform/backdrop-filter 影响
     return createPortal(
         <>
-            {/* 悬浮竖条：节点全部平铺（会话内用户消息有限，不做内部滚动） */}
+            {/* 悬浮竖条：贴日志面板右缘内侧（右侧数据由 LogViewer 实测） */}
             <div
                 className="fixed top-1/2 -translate-y-1/2 z-40 flex rounded-full border border-border/50 bg-background/85 backdrop-blur-sm shadow-md px-0.5 py-2"
-                style={{left: railLeft}}
+                style={{right: railRight}}
+                data-message-jumpbar
             >
                 <div className="flex flex-col items-center gap-1">
                     {/* 总数徽标 */}

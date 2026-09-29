@@ -15,11 +15,12 @@
  *   快速跳转栏（showJumpBar）：每条用户消息一个锚点节点，点击定位、滚动联动高亮
  */
 
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Copy, Check, Trash2, Terminal, ChevronDown, ChevronUp, ArrowDown} from 'lucide-react';
 import {cn} from '../lib/utils';
 import {LogMessage, type LogMessageData} from './LogMessage';
 import {MessageJumpBar, type JumpAnchor} from './MessageJumpBar';
+import {railRightFor} from '../lib/jumpbar-geometry';
 import {useStickToBottom} from '../hooks/useStickToBottom';
 
 const OUTPUT_PER_GROUP = 15;
@@ -62,6 +63,33 @@ export function LogViewer({
     // ── 智能自动滚动（stick-to-bottom）：贴底跟随；向上滚暂停并浮出「回到底部」；
     // 向下滚立即重新跟随（实现与语义见 hooks/useStickToBottom.ts）──
     const {containerRef, showResume, pinnedRef, handlers, scrollToBottom, pin} = useStickToBottom<HTMLDivElement>(80);
+
+    /**
+     * 跳转栏右缘实测：竖条贴日志面板右缘内侧，需要「视口右侧到面板右缘」的距离。
+     * 用实测而不是写死：左侧菜单栏与列表都能拖拽调宽，右侧工作区面板还能开合，
+     * 任何常量都会错位。ResizeObserver 跟随尺寸变化，window resize 覆盖窗口缩放。
+     */
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const [jumpRailRight, setJumpRailRight] = useState(12);
+    useLayoutEffect(() => {
+        if (!showJumpBar) return;
+        const measure = () => {
+            const el = rootRef.current;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            // 竖条落在面板右内边距里（日志内容已有 pr-9 = 36px 预留），不遮正文
+            const next = railRightFor(window.innerWidth, rect.right);
+            setJumpRailRight((prev) => (prev === next ? prev : next));
+        };
+        measure();
+        const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+        if (observer && rootRef.current) observer.observe(rootRef.current);
+        window.addEventListener('resize', measure);
+        return () => {
+            observer?.disconnect();
+            window.removeEventListener('resize', measure);
+        };
+    }, [showJumpBar]);
 
     // ── 快速跳转栏：用户消息锚点 ──
     const userAnchors = useMemo<JumpAnchor[]>(() => {
@@ -225,7 +253,10 @@ export function LogViewer({
     const hasContent = messages.length > 0;
 
     return (
-        <div className={cn('relative flex flex-col overflow-hidden rounded-lg border border-border/60 glass-card', className)}>
+        <div
+            ref={rootRef}
+            className={cn('relative flex flex-col overflow-hidden rounded-lg border border-border/60 glass-card', className)}
+        >
             {/* ═══ 工具栏 ═══ */}
             <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2 shrink-0">
                 <Terminal
@@ -345,9 +376,10 @@ export function LogViewer({
                 </button>
             )}
 
-            {/* ═══ 快速跳转栏：视口右侧悬浮竖条 ═══
-                组件内部 Portal 到 document.body 并以 fixed 定位（视口右侧垂直居中），
-                不随日志滚动、也不随页面滚动移动。
+            {/* ═══ 快速跳转栏：贴本面板右缘的悬浮竖条 ═══
+                组件内部 Portal 到 document.body 并以 fixed 定位（垂直居中），
+                不随日志滚动、也不随页面滚动移动；水平位置由 jumpRailRight 实测传入
+                （左侧菜单/列表可拖拽调宽，写死左边距必然错位）。
                 注意不能改为容器内 absolute/fixed：glass-card 的 backdrop-filter
                 会劫持 fixed 定位基准，且页面滚动会把容器带出视口。 */}
             {showJumpBar && (
@@ -357,6 +389,7 @@ export function LogViewer({
                     onJump={jumpToAnchor}
                     onHoverAnchor={setHoveredAnchor}
                     visiblePaths={jumpBarPaths}
+                    railRight={jumpRailRight}
                 />
             )}
         </div>

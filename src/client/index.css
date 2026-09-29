@@ -145,11 +145,8 @@
         -webkit-app-region: drag;
     }
 
-    /* 消息跳转栏激活时：主内容区（历史列表与日志区之间）让出左侧槽位，
-       跳转竖条悬浮在槽里而不遮挡日志窗口（槽位由 MessageJumpBar 挂 body class 切换） */
-    body.adw-jumpbar-active .adw-jumpbar-gutter {
-        padding-left: 32px;
-    }
+    /* 消息跳转栏已改到「贴日志面板右缘」悬停（位置由 LogViewer 实测传入），
+       原先为它挤占消息区左侧槽位的预留规则已删除（腾出的 32px 还给消息区） */
 
     .app-no-drag {
         -webkit-app-region: no-drag;
